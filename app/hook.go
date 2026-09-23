@@ -8,6 +8,8 @@ var (
 	gHook       uintptr
 	gSending    bool // reentrancy guard for our own SendInput
 	gChordClean = true
+	gCtrlHeld   bool
+	gShiftHeld  bool
 	gEngine     Engine
 	gVietKey    = true
 )
@@ -124,14 +126,23 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		return true
 	}
 	if vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_LCONTROL || vk == VK_RCONTROL {
-		ctrl, shift := keyDown(VK_CONTROL), keyDown(VK_SHIFT)
+		// Track held state ourselves instead of GetAsyncKeyState — inside an
+		// LL hook the async state can lag the event stream just enough to
+		// drop a fast chord tap.
+		wasChord := gCtrlHeld && gShiftHeld
+		switch vk {
+		case VK_LCONTROL, VK_RCONTROL:
+			gCtrlHeld = true
+		case VK_LSHIFT, VK_RSHIFT:
+			gShiftHeld = true
+		}
 		// modifier-only chord (Ctrl+Shift) if configured
 		modChord := cfg.UseCtrlShift || (cfg.HotkeyVk == 0 && cfg.HotkeyMods == 3)
-		if modChord && ctrl && shift && gChordClean {
+		if modChord && !wasChord && gCtrlHeld && gShiftHeld && gChordClean {
 			toggleVietKey()
 			gChordClean = false // consumed — re-arms when a modifier releases
 		}
-		if !ctrl || !shift {
+		if !(gCtrlHeld && gShiftHeld) {
 			gChordClean = true
 		}
 		return false // never swallow modifiers
@@ -177,7 +188,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 			}
 		}
 	}
-	if keyDown(VK_CONTROL) && keyDown(VK_SHIFT) {
+	if gCtrlHeld && gShiftHeld {
 		gChordClean = false // e.g. Ctrl+Shift+Arrow text selection
 	}
 
@@ -273,6 +284,12 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 		if p.flags&(LLKHF_INJECTED|LLKHF_LOWER_IL_INJECTED) == 0 {
 			switch wParam {
 			case WM_KEYUP, WM_SYSKEYUP:
+				switch p.vkCode {
+				case VK_LCONTROL, VK_RCONTROL:
+					gCtrlHeld = false
+				case VK_LSHIFT, VK_RSHIFT:
+					gShiftHeld = false
+				}
 				// Releasing a modifier ends the chord — re-arm the
 				// Ctrl+Shift toggle for the next press.
 				if isModifierKey(p.vkCode) {
