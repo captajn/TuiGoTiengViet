@@ -2014,6 +2014,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 
 func openSettings() {
 	if gSettingsHwnd != 0 {
+		syncControls() // state may have changed via tray menu/hotkeys while hidden
 		pShowWindow.Call(gSettingsHwnd, SW_SHOW)
 		pSetForegroundWnd.Call(gSettingsHwnd)
 		return

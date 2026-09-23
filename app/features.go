@@ -417,14 +417,20 @@ func isStartupLaunch() bool {
 }
 
 func loadStartup() {
-	k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.READ)
-	if err != nil {
-		return
+	cfg.RunAtStartup = adminTaskExists()
+	if k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.ALL_ACCESS); err == nil {
+		defer k.Close()
+		v, _, err := k.GetStringValue("TuiGo")
+		if err != nil {
+			v, _, err = k.GetStringValue("BoGoTiengViet") // legacy key
+		}
+		if err == nil {
+			cfg.RunAtStartup = true
+			// self-heal: exe was moved since the key was written — point it at
+			// the current location or startup silently dies at next boot
+			if exe, _ := os.Executable(); !strings.Contains(v, exe) {
+				k.SetStringValue("TuiGo", `"`+exe+`" -startup`)
+			}
+		}
 	}
-	defer k.Close()
-	_, _, err = k.GetStringValue("TuiGo")
-	if err != nil {
-		_, _, err = k.GetStringValue("BoGoTiengViet") // legacy key
-	}
-	cfg.RunAtStartup = err == nil
 }
