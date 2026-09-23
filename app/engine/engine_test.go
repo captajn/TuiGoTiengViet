@@ -92,6 +92,16 @@ func TestTelex(t *testing.T) {
 		{"nghieengx", "nghiễng"},
 		{"khoiwr", "khởi"},
 		{"voiws", "với"},
+		{"quanr", "quản"},
+		{"trij", "trị"},
+		{"hots", "hót"},
+		{"langx", "lãng"},
+		{"quanrz", "quan"},
+		{"dduwowngf", "đường"},
+		{"toanfs", "toán"}, // later tone key overrides
+		{"toansz", "toan"}, // z strips the tone
+		{"uow", "ươ"},
+		{"nguoiwf", "người"},
 		{"quans", "quán"},
 	}
 	for _, c := range cases {
