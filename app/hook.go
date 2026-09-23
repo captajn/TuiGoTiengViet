@@ -15,6 +15,7 @@ var (
 	gShiftHeld    bool
 	gModDownAt    time.Time // when the first chord modifier went down
 	gModUpAt      time.Time // when the first chord modifier came up
+	gLastKeyAt    time.Time // last non-modifier keydown (chord purity check)
 	gEngine       Engine
 	gVietKey      = true
 )
@@ -153,6 +154,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		modChord := cfg.UseCtrlShift || (cfg.HotkeyVk == 0 && cfg.HotkeyMods == 3)
 		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
 			time.Since(gModDownAt) < 800*time.Millisecond &&
+			gLastKeyAt.Before(gModDownAt) && // no letters between the two presses
 			!keyDown(VK_MENU) && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
 			gChordPending = true
 			gChordClean = true
@@ -200,8 +202,12 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 			}
 		}
 	}
-	if gChordPending && gCtrlHeld && gShiftHeld {
-		gChordClean = false // e.g. Ctrl+Shift+Arrow text selection
+	gLastKeyAt = time.Now()
+	if gChordPending {
+		// Any non-chord key while armed kills the chord — even after the
+		// first modifier released (Shift-held typing with a brushed Ctrl
+		// must not toggle when the surviving letter lands before Shift-up).
+		gChordClean = false
 	}
 
 	// bypass entirely: manually-excluded app (until toggled on) or non-US layout

@@ -87,6 +87,15 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			return 0
 		}
 		hookWatchdog()
+		// Resync tracked modifier state: a keyup can be missed (secure
+		// desktop, UAC prompt, hook gap) leaving stale held flags that
+		// corrupt the Ctrl+Shift chord tracking.
+		if gCtrlHeld && !keyDown(VK_LCONTROL) && !keyDown(VK_RCONTROL) {
+			gCtrlHeld = false
+		}
+		if gShiftHeld && !keyDown(VK_LSHIFT) && !keyDown(VK_RSHIFT) {
+			gShiftHeld = false
+		}
 		if !gTrayAdded {
 			trayAdd() // Explorer wasn't ready at boot — retry
 		}
