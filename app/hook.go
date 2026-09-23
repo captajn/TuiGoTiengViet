@@ -5,13 +5,14 @@ import (
 )
 
 var (
-	gHook       uintptr
-	gSending    bool // reentrancy guard for our own SendInput
-	gChordClean = true
-	gCtrlHeld   bool
-	gShiftHeld  bool
-	gEngine     Engine
-	gVietKey    = true
+	gHook         uintptr
+	gSending      bool // reentrancy guard for our own SendInput
+	gChordClean   = true
+	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
+	gCtrlHeld     bool
+	gShiftHeld    bool
+	gEngine       Engine
+	gVietKey      = true
 )
 
 func keyDown(vk uint32) bool {
@@ -136,13 +137,12 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		case VK_LSHIFT, VK_RSHIFT:
 			gShiftHeld = true
 		}
-		// modifier-only chord (Ctrl+Shift) if configured
+		// Modifier-only chord (Ctrl+Shift): ARM it here but fire on release —
+		// toggling on press steals real combos like Ctrl+Shift+S (Firefox
+		// screenshot). Any non-modifier key while held marks it dirty.
 		modChord := cfg.UseCtrlShift || (cfg.HotkeyVk == 0 && cfg.HotkeyMods == 3)
-		if modChord && !wasChord && gCtrlHeld && gShiftHeld && gChordClean {
-			toggleVietKey()
-			gChordClean = false // consumed — re-arms when a modifier releases
-		}
-		if !(gCtrlHeld && gShiftHeld) {
+		if modChord && !wasChord && gCtrlHeld && gShiftHeld {
+			gChordPending = true
 			gChordClean = true
 		}
 		return false // never swallow modifiers
@@ -188,7 +188,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 			}
 		}
 	}
-	if gCtrlHeld && gShiftHeld {
+	if gChordPending && gCtrlHeld && gShiftHeld {
 		gChordClean = false // e.g. Ctrl+Shift+Arrow text selection
 	}
 
@@ -285,13 +285,19 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 			switch wParam {
 			case WM_KEYUP, WM_SYSKEYUP:
 				switch p.vkCode {
-				case VK_LCONTROL, VK_RCONTROL:
-					gCtrlHeld = false
-				case VK_LSHIFT, VK_RSHIFT:
-					gShiftHeld = false
+				case VK_LCONTROL, VK_RCONTROL, VK_LSHIFT, VK_RSHIFT:
+					// Chord ends when a modifier releases: toggle only if
+					// the chord stayed clean (no other key while held).
+					if gChordPending && gChordClean && gCtrlHeld && gShiftHeld {
+						toggleVietKey()
+					}
+					gChordPending = false
+					if p.vkCode == VK_LCONTROL || p.vkCode == VK_RCONTROL {
+						gCtrlHeld = false
+					} else {
+						gShiftHeld = false
+					}
 				}
-				// Releasing a modifier ends the chord — re-arm the
-				// Ctrl+Shift toggle for the next press.
 				if isModifierKey(p.vkCode) {
 					gChordClean = true
 				}
