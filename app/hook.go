@@ -14,6 +14,7 @@ var (
 	gCtrlHeld     bool
 	gShiftHeld    bool
 	gModDownAt    time.Time // when the first chord modifier went down
+	gModUpAt      time.Time // when the first chord modifier came up
 	gEngine       Engine
 	gVietKey      = true
 )
@@ -297,16 +298,25 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 			case WM_KEYUP, WM_SYSKEYUP:
 				switch p.vkCode {
 				case VK_LCONTROL, VK_RCONTROL, VK_LSHIFT, VK_RSHIFT:
-					// Chord ends when a modifier releases: toggle only if
-					// the chord stayed clean (no other key while held).
-					if gChordPending && gChordClean && gCtrlHeld && gShiftHeld {
-						toggleVietKey("ctrl+shift")
-					}
-					gChordPending = false
 					if p.vkCode == VK_LCONTROL || p.vkCode == VK_RCONTROL {
 						gCtrlHeld = false
 					} else {
 						gShiftHeld = false
+					}
+					if gChordPending {
+						if gCtrlHeld || gShiftHeld {
+							// First release — the other modifier is still
+							// held. Brushing Ctrl while holding Shift for
+							// capitals lands here and must NOT toggle.
+							gModUpAt = time.Now()
+						} else {
+							// Both released: toggle only if the chord stayed
+							// clean and the pair was let go as one gesture.
+							if gChordClean && time.Since(gModUpAt) < 700*time.Millisecond {
+								toggleVietKey("ctrl+shift")
+							}
+							gChordPending = false
+						}
 					}
 				}
 				if isModifierKey(p.vkCode) {
