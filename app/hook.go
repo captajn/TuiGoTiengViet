@@ -6,6 +6,7 @@ import (
 
 var (
 	gHook         uintptr
+	gMouseHook    uintptr
 	gSending      bool // reentrancy guard for our own SendInput
 	gChordClean   = true
 	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
@@ -309,5 +310,20 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 		}
 	}
 	r, _, _ := pCallNextHookEx.Call(gHook, uintptr(nCode), wParam, lParam)
+	return r
+}
+
+// lowLevelMouseProc dirties a pending Ctrl+Shift chord when a mouse button is
+// pressed — Ctrl+Shift+Click (open link in new tab, multi-select, Explorer
+// shortcut-drag) must not toggle Vietnamese mode on modifier release.
+func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
+	defer func() { recoverCrash("mousehook") }()
+	if nCode == 0 && gChordPending {
+		switch wParam {
+		case WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, 0x020B: // +XBUTTON
+			gChordClean = false
+		}
+	}
+	r, _, _ := pCallNextHookEx.Call(gMouseHook, uintptr(nCode), wParam, lParam)
 	return r
 }

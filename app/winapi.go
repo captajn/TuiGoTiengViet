@@ -129,6 +129,10 @@ func loadArrowCursor() uintptr {
 
 const (
 	WH_KEYBOARD_LL   = 13
+	WH_MOUSE_LL      = 14
+	WM_LBUTTONDOWN   = 0x0201
+	WM_RBUTTONDOWN   = 0x0204
+	WM_MBUTTONDOWN   = 0x0207
 	WM_KEYDOWN       = 0x0100
 	WM_SYSKEYDOWN    = 0x0104
 	WM_KEYUP         = 0x0101

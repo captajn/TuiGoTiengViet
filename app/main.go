@@ -55,10 +55,8 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		switch uint32(lp) {
 		case WM_RBUTTONUP, WM_CONTEXTMENU:
 			showTrayMenu()
-		case WM_LBUTTONUP:
-			toggleVietKey()
-		case WM_LBUTTONDBLCLK:
-			openSettings()
+		case WM_LBUTTONUP, WM_LBUTTONDBLCLK:
+			openSettings() // click opens the panel; V/E toggles via hotkey/menu
 		}
 		return 0
 	case WM_COMMAND:
@@ -223,6 +221,7 @@ func main() {
 	}
 
 	pUnhookWindowsHook.Call(gHook)
+	pUnhookWindowsHook.Call(gMouseHook)
 	trayDelete()
 	// Distinguish a clean exit (WM_QUIT → r=0) from silent death: if the
 	// process vanishes without this line in crash.log, something external
@@ -230,13 +229,19 @@ func main() {
 	logLine(fmt.Sprintf("exit clean: GetMessage=%d msg=0x%X", int32(r), uint32(m.message)))
 }
 
-var hookCb uintptr
+var hookCb, mouseCb uintptr
 
 func installHook() bool {
 	if hookCb == 0 {
 		hookCb = windows.NewCallback(lowLevelKbProc)
 	}
+	if mouseCb == 0 {
+		mouseCb = windows.NewCallback(lowLevelMouseProc)
+	}
 	gHook, _, _ = pSetWindowsHookEx.Call(WH_KEYBOARD_LL, hookCb, 0, 0)
+	if gMouseHook == 0 {
+		gMouseHook, _, _ = pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCb, 0, 0)
+	}
 	return gHook != 0
 }
 
