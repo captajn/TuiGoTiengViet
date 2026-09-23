@@ -167,6 +167,7 @@ func toggleVietKey(src string) {
 		}
 		hudUpdate()
 		hudFlash()
+		pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator
 		return
 	}
 	gVietKey = !gVietKey
@@ -177,6 +178,7 @@ func toggleVietKey(src string) {
 	trayUpdate()
 	hudUpdate()
 	hudFlash()
+	pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator
 	saveSettings()
 }
 

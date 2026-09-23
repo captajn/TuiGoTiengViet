@@ -158,7 +158,6 @@ const (
 	cF12
 	cExcludeBrowse
 	// Mockup Tab 0 controls:
-	cHeroSwitch
 	cRadioTelex
 	cRadioVni
 	cRadioViqr
@@ -618,21 +617,35 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSelectObject.Call(dc, oldP)
 	pSelectObject.Call(dc, oldB)
 
-	// Hero Card text
+	// Hero Card text — status display only (no master switch, EVKey-style)
 	textX := cx + dp(18)
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontBold)
-	htrc := rect{textX, ct + dp(8), cx + cw - dp(64), ct + dp(30)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Bật gõ tiếng Việt"))),
+	htrc := rect{textX, ct + dp(8), cx + cw - dp(140), ct + dp(30)}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Chế độ gõ hiện tại"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&htrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	hdrc := rect{textX, ct + dp(30), cx + cw - dp(64), ct + dp(48)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Chuyển đổi giữa Tiếng Việt và English"))),
+	hdrc := rect{textX, ct + dp(30), cx + cw - dp(140), ct + dp(48)}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Bấm phím tắt để chuyển Tiếng Việt / English"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&hdrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+
+	// Mode indicator on the right where the switch used to be
+	modeTxt := "● Tiếng Việt"
+	modeCol := colJade
+	if !effectiveViet() {
+		modeTxt = "● English"
+		modeCol = colMuted
+	}
+	pSetTextColor.Call(dc, modeCol)
+	pSelectObject.Call(dc, fontBold)
+	mrc := rect{cx + cw - dp(140), ct, cx + cw - dp(18), ct + dp(56)}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(modeTxt))),
+		^uintptr(0), uintptr(unsafe.Pointer(&mrc)),
+		DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// Section 1: "Chế độ gõ"
 	pSetTextColor.Call(dc, colText)
@@ -988,55 +1001,6 @@ func drawRadio(di *drawItemStruct) {
 	pSelectObject.Call(dc, oldF)
 }
 
-func drawHeroSwitch(di *drawItemStruct) {
-	dc := di.hDC
-	rc := di.rcItem
-	on := effectiveViet()
-
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brHero)
-
-	pillH := dp(24)
-	pillW := dp(44)
-	py := rc.top + (rc.bottom-rc.top-pillH)/2
-	pill := rect{rc.left, py, rc.left + pillW, py + pillH}
-
-	pillCol := uintptr(colPill)
-	knobCol := uintptr(colMuted)
-	if on {
-		pillCol = colJade
-		knobCol = 0xFFFFFF
-	}
-
-	pbr, _, _ := pCreateSolidBrush.Call(pillCol)
-	oldB, _, _ := pSelectObject.Call(dc, pbr)
-	var pp uintptr
-	if on {
-		pp, _, _ = pCreatePen.Call(PS_SOLID, 1, pillCol)
-	} else {
-		pp, _, _ = pCreatePen.Call(PS_SOLID, 1, colBorder)
-	}
-	oldP, _, _ := pSelectObject.Call(dc, pp)
-	pRoundRect.Call(dc, uintptr(pill.left), uintptr(pill.top),
-		uintptr(pill.right), uintptr(pill.bottom), uintptr(pillH), uintptr(pillH))
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(pp)
-
-	kx := pill.left + dp(3)
-	if on {
-		kx = pill.right - dp(21)
-	}
-	kbr, _, _ := pCreateSolidBrush.Call(knobCol)
-	pSelectObject.Call(dc, kbr)
-	nullPen, _, _ := pGetStockObject.Call(NULL_PEN)
-	oldKP, _, _ := pSelectObject.Call(dc, nullPen)
-	pEllipse.Call(dc, uintptr(kx), uintptr(py+dp(3)),
-		uintptr(kx+dp(18)), uintptr(py+dp(21)))
-	pSelectObject.Call(dc, oldKP)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(kbr)
-	pDeleteObject.Call(pbr)
-}
-
 func drawLangBtn(di *drawItemStruct) {
 	dc := di.hDC
 	rc := di.rcItem
@@ -1238,8 +1202,6 @@ func buildControls(h uintptr) {
 
 	// ---- Tab 0: Tổng quan (Overview matching mockup) ----
 	curTab = 0
-	// Hero Switch
-	addBtn(cHeroSwitch, "")
 	// 3 Radio pills for Kiểu gõ
 	addRadio(cRadioTelex, "Telex", "Phổ biến, dễ sử dụng")
 	addRadio(cRadioVni, "VNI", "Tương thích rộng rãi")
@@ -1354,7 +1316,6 @@ func layoutAll() {
 	ct := dp(106)
 
 	// Tab 0 — Tổng quan
-	place(cHeroSwitch, cx+cw-dp(56), ct+dp(16), dp(44), dp(24))
 	pw := (cw - 2*dp(6)) / 3
 	place(cRadioTelex, cx, ct+dp(106), pw, dp(48))
 	place(cRadioVni, cx+pw+dp(6), ct+dp(106), pw, dp(48))
@@ -1660,10 +1621,6 @@ func settingsCommand(id int) {
 	case cUpdateBtn:
 		launchUpdater(true)
 		return
-	case cHeroSwitch:
-		toggleVietKey("settings")
-		pInvalidateRect.Call(gSettingsHwnd, 0, 1)
-		return
 	case cRadioTelex:
 		setIM(ImTelex)
 		return
@@ -1891,15 +1848,6 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			}
 		}
 
-		// Tab 0 Hero Card click: toggles VietKey
-		if gActiveTab == 0 {
-			heroRc := rect{railW + dp(24), dp(106), winW - dp(24), dp(106) + dp(56)}
-			if x >= heroRc.left && x <= heroRc.right && y >= heroRc.top && y <= heroRc.bottom {
-				settingsCommand(cHeroSwitch)
-				return 0
-			}
-		}
-
 	case WM_DRAWITEM:
 		di := (*drawItemStruct)(*(*unsafe.Pointer)(unsafe.Pointer(&lp)))
 		if di.ctlType == ODT_BUTTON {
@@ -1909,8 +1857,6 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 				drawCheckbox(di)
 			case isRadio[id]:
 				drawRadio(di)
-			case id == cHeroSwitch:
-				drawHeroSwitch(di)
 			case id == cLangBtn:
 				drawLangBtn(di)
 			case swIDs[id]:
