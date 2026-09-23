@@ -144,7 +144,7 @@ func main() {
 	gEngine.LoadKeymap(filepath.Join(dir, "keymap.txt"))
 	loadExclusions(dir)
 	loadStartup()
-	loadSettings()
+	settingsExisted := loadSettings()
 	gEngine.SetVietKey(gVietKey)
 	logLine("main: after loadSettings")
 
@@ -178,10 +178,15 @@ func main() {
 	if isElevated() && cfg.RunAsAdmin && cfg.RunAtStartup {
 		registerAdminTask()
 	}
-	if !isStartupLaunch() || cfg.ShowOnLaunch { // show panel on manual launch;
+	// Show the panel on first run (onboarding), or at Windows startup when the
+	// user opted in. A manual relaunch opens quietly in the tray — double-click
+	// the tray icon for settings.
+	if !settingsExisted || (isStartupLaunch() && cfg.ShowOnLaunch) {
 		logLine("main: before openSettings")
-		openSettings() // at Windows startup only if the user opted in
+		openSettings()
 		logLine("main: after openSettings")
+	} else if !isStartupLaunch() {
+		hudFlash() // manual relaunch: flash HUD so the user sees it started
 	}
 
 	logLine("main: before installHook")

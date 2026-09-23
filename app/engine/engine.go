@@ -109,7 +109,10 @@ type Engine struct {
 
 func New() *Engine {
 	e := &Engine{
-		vietKey:    true,
+		vietKey: true,
+		// UniKey defaults: strict Telex (FreeMarking=0) can't reach back
+		// through 'i' — "khoiwr" would stay literal instead of "khởi".
+		opts:       Options{FreeMarking: 1, ModernStyle: 1, SpellCheckEnabled: 1, MacroEnabled: 1},
 		input:      newInputProcessor(),
 		macStore:   &macroStore{items: map[string][]StdVnChar{}},
 		bufSize:    MaxUkEngine,

@@ -90,6 +90,8 @@ func TestTelex(t *testing.T) {
 		{"muwowngf", "mường"},
 		{"nghiengx", "nghiẽng"},
 		{"nghieengx", "nghiễng"},
+		{"khoiwr", "khởi"},
+		{"voiws", "với"},
 		{"quans", "quán"},
 	}
 	for _, c := range cases {

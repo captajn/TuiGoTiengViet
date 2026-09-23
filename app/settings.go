@@ -50,10 +50,12 @@ func saveSettings() {
 	k.SetDWordValue("HudY", uint32(int32(cfg.HudY)))
 }
 
-func loadSettings() {
+// loadSettings reads persisted config. Reports whether the registry key
+// already existed — false means first run (show the panel once for onboarding).
+func loadSettings() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, regKey, registry.READ)
 	if err != nil {
-		return
+		return false
 	}
 	defer k.Close()
 	if v, _, err := k.GetIntegerValue("VietKey"); err == nil {
@@ -130,4 +132,5 @@ func loadSettings() {
 	if v, _, err := k.GetIntegerValue("HudY"); err == nil {
 		cfg.HudY = int(int32(v))
 	}
+	return true
 }
