@@ -1,0 +1,8 @@
+build/
+*.exe
+*.obj
+*.lib
+*.exp
+*.pdb
+version.txt
+update-stamp.txt

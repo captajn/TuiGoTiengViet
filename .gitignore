@@ -1,0 +1,41 @@
+# Build outputs
+*.exe
+*.exe~
+*.dll
+*.o
+*.obj
+*.lib
+*.exp
+*.pdb
+build/
+
+# Logs & temp files
+*.log
+settings_hwnd.txt
+version.txt
+update-stamp.txt
+.zcodeignore
+*.png
+!assets/*.png
+
+# Source archives & extracted references
+*.zip
+*.tar.bz2
+*.tar.gz
+extracted/
+
+# Docs (local only)
+*.md
+
+# Internal reference & tooling (local only)
+app/core/
+app/windows/
+app/tests/
+tools/
+
+# README exception
+!README.md
+
+# Local UI reference images
+assets/ui-concept-*.jpg
+assets/logo-crop.png
