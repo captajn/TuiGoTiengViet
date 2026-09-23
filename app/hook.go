@@ -1,6 +1,7 @@
 package main
 
 import (
+	"time"
 	"unsafe"
 )
 
@@ -12,6 +13,7 @@ var (
 	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
 	gCtrlHeld     bool
 	gShiftHeld    bool
+	gModDownAt    time.Time // when the first chord modifier went down
 	gEngine       Engine
 	gVietKey      = true
 )
@@ -132,17 +134,25 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		// LL hook the async state can lag the event stream just enough to
 		// drop a fast chord tap.
 		wasChord := gCtrlHeld && gShiftHeld
+		noneHeld := !gCtrlHeld && !gShiftHeld
 		switch vk {
 		case VK_LCONTROL, VK_RCONTROL:
 			gCtrlHeld = true
 		case VK_LSHIFT, VK_RSHIFT:
 			gShiftHeld = true
 		}
+		if noneHeld {
+			gModDownAt = time.Now()
+		}
 		// Modifier-only chord (Ctrl+Shift): ARM it here but fire on release —
 		// toggling on press steals real combos like Ctrl+Shift+S (Firefox
-		// screenshot). Any non-modifier key while held marks it dirty.
+		// screenshot). Any non-modifier key or mouse click while held marks it
+		// dirty. The two presses must also land close together — a long-held
+		// Shift (typing capitals) plus an accidental Ctrl tap is not a chord.
 		modChord := cfg.UseCtrlShift || (cfg.HotkeyVk == 0 && cfg.HotkeyMods == 3)
-		if modChord && !wasChord && gCtrlHeld && gShiftHeld {
+		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
+			time.Since(gModDownAt) < 800*time.Millisecond &&
+			!keyDown(VK_MENU) && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
 			gChordPending = true
 			gChordClean = true
 		}

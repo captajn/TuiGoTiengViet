@@ -1511,23 +1511,20 @@ const excludeTemplate = `; App loại trừ — mỗi dòng một tên .exe
 ;   cad.exe|tcvn,vni   kết hợp nhiều tuỳ chọn bằng dấu phẩy
 `
 
+// openFileNameW mirrors Win32 OPENFILENAMEW (152 bytes on 64-bit).
+// Go pads uintptr fields automatically — do NOT add manual padding.
 type openFileNameW struct {
 	lStructSize       uint32
-	_                 uint32
 	hwndOwner         uintptr
 	hInstance         uintptr
 	lpstrFilter       uintptr
 	lpstrCustomFilter uintptr
 	nMaxCustFilter    uint32
-	_                 uint32
 	nFilterIndex      uint32
-	_                 uint32
 	lpstrFile         uintptr
 	nMaxFile          uint32
-	_                 uint32
 	lpstrFileTitle    uintptr
 	nMaxFileTitle     uint32
-	_                 uint32
 	lpstrInitialDir   uintptr
 	lpstrTitle        uintptr
 	flags             uint32
@@ -1549,7 +1546,7 @@ const (
 )
 
 func init() {
-	if unsafe.Sizeof(openFileNameW{}) != 160 {
+	if unsafe.Sizeof(openFileNameW{}) != 152 {
 		panic("OPENFILENAMEW struct size mismatch")
 	}
 }
