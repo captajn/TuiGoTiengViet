@@ -269,7 +269,7 @@ func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 					showTrayMenu()
 				} else {
 					// Clicked badge, switch, or status line: toggle VietKey
-					toggleVietKey()
+					toggleVietKey("hud")
 				}
 			} else {
 				var rc rect
@@ -281,6 +281,12 @@ func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		return 0
 	case WM_RBUTTONUP:
 		showTrayMenu()
+		return 0
+	case WM_ENDSESSION:
+		if wp != 0 { // session is ending (logoff/shutdown) — record it
+			logLine("exit: session end")
+			saveSettings()
+		}
 		return 0
 	case WM_ERASEBKGND:
 		return 1

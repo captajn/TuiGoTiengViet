@@ -126,7 +126,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 
 	// toggle hotkey: configured modifiers + key
 	if cfg.HotkeyVk != 0 && vk == uint32(cfg.HotkeyVk) && modsMatch(cfg.HotkeyMods) {
-		toggleVietKey()
+		toggleVietKey("hotkey")
 		return true
 	}
 	if vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_LCONTROL || vk == VK_RCONTROL {
@@ -166,14 +166,14 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		case VK_F1:
 			if cfg.FKeys&1 != 0 {
 				if !effectiveViet() {
-					toggleVietKey()
+					toggleVietKey("f1")
 				}
 				return true
 			}
 		case VK_F2:
 			if cfg.FKeys&2 != 0 {
 				if effectiveViet() {
-					toggleVietKey()
+					toggleVietKey("f2")
 				}
 				return true
 			}
@@ -300,7 +300,7 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 					// Chord ends when a modifier releases: toggle only if
 					// the chord stayed clean (no other key while held).
 					if gChordPending && gChordClean && gCtrlHeld && gShiftHeld {
-						toggleVietKey()
+						toggleVietKey("ctrl+shift")
 					}
 					gChordPending = false
 					if p.vkCode == VK_LCONTROL || p.vkCode == VK_RCONTROL {

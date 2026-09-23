@@ -62,7 +62,7 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_COMMAND:
 		switch wp & 0xFFFF {
 		case idmToggle:
-			toggleVietKey()
+			toggleVietKey("tray-menu")
 		case idmTelex:
 			setInputMethod(ImTelex)
 		case idmTelexSimple:
@@ -89,6 +89,10 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		hookWatchdog()
 		if !gTrayAdded {
 			trayAdd() // Explorer wasn't ready at boot — retry
+		}
+		tickCount++
+		if tickCount%10 == 0 {
+			logLine("alive") // heartbeat — if the app dies, the gap shows when
 		}
 		return 0
 	case WM_DESTROY:
@@ -248,6 +252,7 @@ func installHook() bool {
 var (
 	gPingSent   bool
 	gSeenAtPing uint64
+	tickCount   int
 )
 
 // hookWatchdog pings the hook with a harmless injected key-up (VK 0xE8,

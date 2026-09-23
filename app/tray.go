@@ -157,8 +157,9 @@ func showTrayMenu() {
 	pDestroyMenu.Call(menu)
 }
 
-func toggleVietKey() {
+func toggleVietKey(src string) {
 	spec, exe := foregroundApp()
+	logLine("toggleVN via " + src)
 	if spec.mode == appModeManual { // per-app toggle: does not touch global state
 		gPerAppViet[exe] = !gPerAppViet[exe]
 		if cfg.SoundOnToggle {

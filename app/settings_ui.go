@@ -1661,7 +1661,7 @@ func settingsCommand(id int) {
 		launchUpdater(true)
 		return
 	case cHeroSwitch:
-		toggleVietKey()
+		toggleVietKey("settings")
 		pInvalidateRect.Call(gSettingsHwnd, 0, 1)
 		return
 	case cRadioTelex:
