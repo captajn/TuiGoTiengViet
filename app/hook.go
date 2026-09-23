@@ -137,11 +137,16 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		// drop a fast chord tap.
 		wasChord := gCtrlHeld && gShiftHeld
 		noneHeld := !gCtrlHeld && !gShiftHeld
-		switch vk {
-		case VK_LCONTROL, VK_RCONTROL:
-			gCtrlHeld = true
-		case VK_LSHIFT, VK_RSHIFT:
-			gShiftHeld = true
+		// While Alt is held (Alt+Tab / Alt+Esc), Windows injects a phantom
+		// Ctrl that reaches LL hooks — don't let it count toward the chord.
+		altHeld := keyDown(VK_MENU)
+		if !altHeld {
+			switch vk {
+			case VK_LCONTROL, VK_RCONTROL:
+				gCtrlHeld = true
+			case VK_LSHIFT, VK_RSHIFT:
+				gShiftHeld = true
+			}
 		}
 		if noneHeld {
 			gModDownAt = time.Now()
@@ -155,7 +160,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
 			time.Since(gModDownAt) < 800*time.Millisecond &&
 			gLastKeyAt.Before(gModDownAt) && // no letters between the two presses
-			!keyDown(VK_MENU) && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
+			!altHeld && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
 			gChordPending = true
 			gChordClean = true
 		}
