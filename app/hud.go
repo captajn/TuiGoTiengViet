@@ -288,6 +288,13 @@ func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			saveSettings()
 		}
 		return 0
+	case WM_POWERBROADCAST:
+		if wp == PBT_APMSUSPEND {
+			logLine("power: suspend")
+		} else if wp == PBT_APMRESUME {
+			logLine("power: resume")
+		}
+		return 1
 	case WM_ERASEBKGND:
 		return 1
 	}

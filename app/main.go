@@ -126,6 +126,10 @@ func exeDir() string {
 
 func main() {
 	runtime.LockOSThread() // hook + message loop must live on one thread
+	// Runtime fatals (stack corruption, missed-keyup races, engine bugs)
+	// bypass recover(); "crash" makes the runtime hand them to WER so a
+	// silent death leaves an Event Viewer entry + dump instead of nothing.
+	debug.SetTraceback("crash")
 	// Route stderr into crash.log: Go *fatal errors* (e.g. access violations
 	// inside Win32 calls) bypass recover() and write to stderr — invisible
 	// in a windowsgui build unless we give stderr a real handle.
