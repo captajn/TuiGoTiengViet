@@ -27,14 +27,18 @@ const repoAPI = "https://api.github.com/repos/captajn/TuiGoTiengViet/releases/la
 const throttleSecs = 20 * 3600
 
 var (
-	user32          = windows.NewLazySystemDLL("user32.dll")
-	pMessageBox     = user32.NewProc("MessageBoxW")
-	pFindWindow     = user32.NewProc("FindWindowW")
-	pPostMessage    = user32.NewProc("PostMessageW")
-	shell32         = windows.NewLazySystemDLL("shell32.dll")
-	pShellExecute   = shell32.NewProc("ShellExecuteW")
-	kernel32        = windows.NewLazySystemDLL("kernel32.dll")
-	pGetModuleFileN = kernel32.NewProc("GetModuleFileNameW")
+	user32               = windows.NewLazySystemDLL("user32.dll")
+	pMessageBox          = user32.NewProc("MessageBoxW")
+	pFindWindow          = user32.NewProc("FindWindowW")
+	pPostMessage         = user32.NewProc("PostMessageW")
+	shell32              = windows.NewLazySystemDLL("shell32.dll")
+	pShellExecute        = shell32.NewProc("ShellExecuteW")
+	kernel32             = windows.NewLazySystemDLL("kernel32.dll")
+	pGetModuleFileN      = kernel32.NewProc("GetModuleFileNameW")
+	pOpenProcess         = kernel32.NewProc("OpenProcess")
+	pWaitForSingleObject = kernel32.NewProc("WaitForSingleObject")
+	pGetExitCodeProcess  = kernel32.NewProc("GetExitCodeProcess")
+	pCloseHandle         = kernel32.NewProc("CloseHandle")
 )
 
 func utf16ptr(s string) *uint16 {
@@ -214,9 +218,55 @@ func throttled(dir string) bool {
 	return err == nil && time.Now().Unix()-ts < throttleSecs
 }
 
+// wlog appends one timestamped line to crash.log next to the exe —
+// shared diagnostics with the main app.
+func wlog(format string, a ...any) {
+	f, err := os.OpenFile(filepath.Join(exeDir(), "crash.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s "+format+"\n",
+		append([]any{time.Now().Format("2006-01-02 15:04:05")}, a...)...)
+}
+
+// watchProcess blocks until the main app exits and records its exit code —
+// the only way to tell a clean exit (0), a Go fatal (2), a crash
+// (0xC0000005…), or an external TerminateProcess (killer-chosen code).
+func watchProcess(pid uint32) {
+	const syncAccess = 0x101000 // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+	h, _, _ := pOpenProcess.Call(syncAccess, 0, uintptr(pid))
+	if h == 0 {
+		wlog("watchdog: OpenProcess(%d) failed", pid)
+		return
+	}
+	defer pCloseHandle.Call(h)
+	pWaitForSingleObject.Call(h, 0xFFFFFFFF)
+	var code uint32
+	pGetExitCodeProcess.Call(h, uintptr(unsafe.Pointer(&code)))
+	wlog("watchdog: pid %d exited code=0x%X", pid, code)
+}
+
 func main() {
-	manual := len(os.Args) > 1 && os.Args[1] == "-now"
+	manual := false
+	var watchPID uint32
+	for i, a := range os.Args[1:] {
+		switch a {
+		case "-now":
+			manual = true
+		case "-watch":
+			if i+2 < len(os.Args) {
+				if v, err := strconv.ParseUint(os.Args[i+2], 10, 32); err == nil {
+					watchPID = uint32(v)
+				}
+			}
+		}
+	}
 	dir := exeDir()
+	if watchPID != 0 {
+		defer watchProcess(watchPID) // runs last — after update work
+	}
 
 	if !manual && throttled(dir) {
 		return

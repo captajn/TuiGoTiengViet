@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"time"
 	"unsafe"
 
@@ -146,6 +147,13 @@ func main() {
 		logLine("main: already exists -> exit")
 		return
 	}
+	if err != nil {
+		// Access denied = another instance owns the mutex at a different
+		// integrity level (elevated vs normal). Running anyway would stack
+		// two keyboard hooks and double-process every key.
+		logLine(fmt.Sprintf("main: mutex failed err=%v -> exit", err))
+		return
+	}
 	_ = mtx
 
 	eng, _ := newEngine()
@@ -220,7 +228,8 @@ func main() {
 	os.Remove(filepath.Join(dir, "tuigo.old.exe"))
 	os.Remove(filepath.Join(dir, "tuigo-updater.old.exe"))
 	if _, err := os.Stat(filepath.Join(dir, "tuigo-updater.exe")); err == nil {
-		if c := exec.Command(filepath.Join(dir, "tuigo-updater.exe")); c.Start() == nil {
+		if c := exec.Command(filepath.Join(dir, "tuigo-updater.exe"),
+			"-watch", strconv.Itoa(os.Getpid())); c.Start() == nil {
 			c.Process.Release()
 		}
 	}
