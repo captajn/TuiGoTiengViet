@@ -300,7 +300,7 @@ var gHookSeen uint64
 func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 	// A panic escaping a windows.NewCallback can't unwind through Windows
 	// frames — the process dies instantly and silently. Catch it here.
-	defer func() { recoverCrash("hook") }()
+	defer func() { recoverCrash("hook", recover()) }()
 	gHookSeen++
 	if nCode == 0 && !gSending { // HC_ACTION
 		p := (*kbdLLHookStruct)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam)))
@@ -348,7 +348,7 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 // pressed — Ctrl+Shift+Click (open link in new tab, multi-select, Explorer
 // shortcut-drag) must not toggle Vietnamese mode on modifier release.
 func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
-	defer func() { recoverCrash("mousehook") }()
+	defer func() { recoverCrash("mousehook", recover()) }()
 	if nCode == 0 && gChordPending {
 		switch wParam {
 		case WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, 0x020B: // +XBUTTON

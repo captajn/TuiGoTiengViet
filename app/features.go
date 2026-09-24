@@ -268,7 +268,7 @@ func injectViaClipboard(res Result) {
 
 	// restore clipboard after the target app processed the paste
 	go func(saved windows.Handle, sz int) {
-		defer func() { recoverCrash("clipboard") }()
+		defer func() { recoverCrash("clipboard", recover()) }()
 		time.Sleep(60 * time.Millisecond)
 		pOpenClipboard.Call(gHwnd)
 		pEmptyClipboard.Call()

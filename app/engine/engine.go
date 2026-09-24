@@ -271,6 +271,9 @@ func isValidCVC(c1 ConSeq, v VowelSeq, c2 ConSeq) bool {
 
 // ----------------------------------------------------------
 func (e *Engine) getTonePosition(vs VowelSeq, terminated bool) int {
+	if vs < 0 || int(vs) >= len(vSeqList) {
+		return 0 // invalid seq — C++ OOB-reads silently; Go must not panic
+	}
 	info := vSeqList[vs]
 	if info.length == 1 {
 		return 0
@@ -1508,9 +1511,26 @@ func (e *Engine) processBackspace() Result {
 	var curTonePos, newTonePos, tone, vStart, vEnd int
 
 	vEnd = e.current - e.buffer[e.current].vOffset
+	if vEnd < 0 {
+		e.current--
+		res.Backs = e.backs
+		e.synchKeyStrokeBuffer()
+		res.Consumed = e.backs > 1
+		return res
+	}
 	vs = e.buffer[vEnd].vseq()
-	vStart = vEnd - vSeqList[vs].length + 1
 	newVs = e.buffer[e.current-1].vseq()
+	if vs < 0 || int(vs) >= len(vSeqList) || newVs < 0 || int(newVs) >= len(vSeqList) {
+		// cell carries no valid vowel seq (empty/nonVn) — C++ would silently
+		// read out of bounds here; in Go that's a fatal panic, so fall back
+		// to the plain decrement path
+		e.current--
+		res.Backs = e.backs
+		e.synchKeyStrokeBuffer()
+		res.Consumed = e.backs > 1
+		return res
+	}
+	vStart = vEnd - vSeqList[vs].length + 1
 	curTonePos = vStart + e.getTonePosition(vs, vEnd == e.current)
 	newTonePos = vStart + e.getTonePosition(newVs, true)
 	tone = e.buffer[curTonePos].tone

@@ -22,10 +22,10 @@ var stderrFile *os.File       // keeps the stderr handle alive for fatal dumps
 // local builds keep this default.
 var appVersion = "0.0.1"
 
-// recoverCrash must be called from a deferred func in every windows.NewCallback
-// path — a panic escaping the callback kills the process silently.
-func recoverCrash(where string) {
-	r := recover()
+// recoverCrash must be deferred as `defer func() { recoverCrash(tag, recover()) }()`
+// in every windows.NewCallback path — recover() only works when called directly
+// inside the deferred function, NOT inside a helper it calls.
+func recoverCrash(where string, r any) {
 	if r == nil {
 		return
 	}
@@ -51,7 +51,7 @@ func logLine(s string) {
 }
 
 func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
-	defer func() { recoverCrash("wndproc") }()
+	defer func() { recoverCrash("wndproc", recover()) }()
 	switch msg {
 	case WM_TRAYICON:
 		switch uint32(lp) {
@@ -142,7 +142,7 @@ func main() {
 		windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd()))
 		stderrFile = f
 	}
-	defer func() { recoverCrash("main") }()
+	defer func() { recoverCrash("main", recover()) }()
 	logLine("main: entered")
 
 	mtx, err := windows.CreateMutex(nil, true, utf16ptr("BoGoTiengViet.SingleInstance"))

@@ -203,7 +203,7 @@ func hudPaint(hwnd uintptr) {
 }
 
 func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
-	defer func() { recoverCrash("hud") }()
+	defer func() { recoverCrash("hud", recover()) }()
 	switch msg {
 	case WM_PAINT:
 		hudPaint(hwnd)

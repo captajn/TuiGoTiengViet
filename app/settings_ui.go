@@ -1738,7 +1738,7 @@ type minmaxinfo struct {
 }
 
 func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
-	defer func() { recoverCrash("settings") }()
+	defer func() { recoverCrash("settings", recover()) }()
 	switch msg {
 	case WM_CREATE:
 		buildControls(hwnd)
