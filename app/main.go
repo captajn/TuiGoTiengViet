@@ -16,6 +16,7 @@ import (
 
 var gHwnd uintptr
 var gMsgTaskbarCreated uint32 // broadcast when Explorer (re)creates the taskbar
+var stderrFile *os.File       // keeps the stderr handle alive for fatal dumps
 
 // appVersion is injected at release time via -ldflags "-X main.appVersion=…";
 // local builds keep this default.
@@ -134,9 +135,12 @@ func main() {
 	// Route stderr into crash.log: Go *fatal errors* (e.g. access violations
 	// inside Win32 calls) bypass recover() and write to stderr — invisible
 	// in a windowsgui build unless we give stderr a real handle.
+	// The file MUST be kept in a global: os.File has a GC finalizer that
+	// closes the underlying handle — a dead stderr swallows the traceback.
 	if f, err := os.OpenFile(filepath.Join(exeDir(), "crash.log"),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
 		windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd()))
+		stderrFile = f
 	}
 	defer func() { recoverCrash("main") }()
 	logLine("main: entered")
