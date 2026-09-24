@@ -389,6 +389,24 @@ func adminTaskExists() bool {
 	return cmd.Run() == nil
 }
 
+// adminTaskPathOK reports whether the scheduled task still points at this
+// executable. Moving the exe leaves a stale task that silently fails at
+// logon — detectable without elevation (query is unprivileged).
+func adminTaskPathOK() bool {
+	exe := filepath.Join(os.Getenv("SystemRoot"), `System32\schtasks.exe`)
+	cmd := exec.Command(exe, "/Query", "/TN", taskName, "/V", "/FO", "LIST")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return true // can't verify — assume it's fine
+	}
+	me, err := os.Executable()
+	if err != nil {
+		return true
+	}
+	return strings.Contains(string(out), me)
+}
+
 func registerAdminTask() {
 	exe, _ := os.Executable()
 	tr := `"` + exe + `" -startup`
@@ -417,7 +435,9 @@ func isStartupLaunch() bool {
 }
 
 func loadStartup() {
-	cfg.RunAtStartup = adminTaskExists()
+	taskExists := adminTaskExists()
+	taskOK := taskExists && adminTaskPathOK()
+	cfg.RunAtStartup = taskExists
 	if k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.ALL_ACCESS); err == nil {
 		defer k.Close()
 		v, _, err := k.GetStringValue("TuiGo")
@@ -430,6 +450,20 @@ func loadStartup() {
 			// the current location or startup silently dies at next boot
 			if exe, _ := os.Executable(); !strings.Contains(v, exe) {
 				k.SetStringValue("TuiGo", `"`+exe+`" -startup`)
+			}
+			// admin task healthy again → the fallback Run key is redundant
+			// (double-launch would just hit the single-instance mutex)
+			if taskOK && cfg.RunAsAdmin {
+				k.DeleteValue("TuiGo")
+			}
+		} else if taskExists && !taskOK && !isElevated() {
+			// The admin task points at a moved/deleted exe and fixing it
+			// needs elevation. Fall back to the Run key at THIS exe's path
+			// so the app still starts next boot; an elevated run repairs
+			// the task and applyStartup removes this key again.
+			if exe, err := os.Executable(); err == nil {
+				k.SetStringValue("TuiGo", `"`+exe+`" -startup`)
+				cfg.RunAtStartup = true
 			}
 		}
 	}
