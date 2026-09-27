@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag release (vd: v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: app/go.sum
+
+      - name: Test engine
+        run: go test ./engine/ -v
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Resolve version
+        working-directory: .
+        run: |
+          $v = "${{ github.event.inputs.tag || github.ref_name }}" -replace '^v',''
+          echo "APP_VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Build x64
+        run: go build -ldflags "-H windowsgui -s -w -X main.appVersion=$env:APP_VERSION" -o tuigo.exe .
+
+      - name: Build ARM64
+        run: go build -ldflags "-H windowsgui -s -w -X main.appVersion=$env:APP_VERSION" -o tuigo-arm64.exe .
+        env:
+          GOARCH: arm64
+
+      - name: Build updater x64
+        run: go build -ldflags "-H windowsgui -s -w" -o tuigo-updater.exe ./updater
+
+      - name: Build updater ARM64
+        run: go build -ldflags "-H windowsgui -s -w" -o tuigo-updater-arm64.exe ./updater
+        env:
+          GOARCH: arm64
+
+      - name: Package
+        working-directory: app
+        run: |
+          Compress-Archive -Path tuigo.exe, tuigo-updater.exe -DestinationPath tuigo-x64.zip -Force
+          Compress-Archive -Path tuigo-arm64.exe, tuigo-updater-arm64.exe -DestinationPath tuigo-arm64.zip -Force
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Tui Gõ ${{ github.event.inputs.tag || github.ref_name }}
+          draft: false
+          generate_release_notes: true
+          files: |
+            app/tuigo-x64.zip
+            app/tuigo-arm64.zip
+            app/tuigo.exe
+            app/tuigo-arm64.exe
+            app/tuigo-updater.exe
+            app/tuigo-updater-arm64.exe

@@ -1,0 +1,7 @@
+; App loại trừ — mỗi dòng một tên .exe
+;   notepad.exe        tắt gõ trong app này, Alt+Z bật tạm cho riêng app
+;   notepad.exe|lock   tắt hẳn, Alt+Z không tác dụng
+;   notepad.exe|clip   gõ được, gửi chữ qua Clipboard
+;   cad.exe|tcvn       gõ được, xuất bảng mã TCVN3
+;   cad.exe|vni        dùng kiểu gõ VNI riêng cho app này
+;   cad.exe|tcvn,vni   kết hợp nhiều tuỳ chọn bằng dấu phẩy
