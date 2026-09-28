@@ -153,6 +153,9 @@ func modsMatch(m int) bool {
 // effectiveViet is the Vietnamese state in effect for the foreground window.
 func effectiveViet() bool {
 	spec, exe := foregroundApp()
+	if spec.mode == appModeLock {
+		return false
+	}
 	if spec.mode == appModeManual {
 		return gPerAppViet[exe]
 	}

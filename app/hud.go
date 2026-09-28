@@ -101,23 +101,22 @@ func hudPaint(hwnd uintptr) {
 	vnOn := effectiveViet()
 
 	// [ V ] / [ E ] badge
-	badgeCol := colPill
-	badgeTextCol := colMuted
+	p := palDark
+	if !isDark() {
+		p = palLight
+	}
+	badgeCol, badgeTextCol, badgeBorder := trayBadgeColors(vnOn, p)
 	badgeLetter := "E"
 	if vnOn {
-		badgeCol = colJade
-		badgeTextCol = 0x302A0B
-		if !isDark() {
-			badgeTextCol = 0xFFFFFF
-		}
 		badgeLetter = "V"
 	}
 	bbr, _, _ := pCreateSolidBrush.Call(badgeCol)
 	oldB, _, _ = pSelectObject.Call(dc, bbr)
-	nullPen, _, _ := pGetStockObject.Call(NULL_PEN)
-	oldP, _, _ = pSelectObject.Call(dc, nullPen)
+	badgePen, _, _ := pCreatePen.Call(PS_SOLID, 1, badgeBorder)
+	oldP, _, _ = pSelectObject.Call(dc, badgePen)
 	pRoundRect.Call(dc, 8, 25, 30, 47, 6, 6)
 	pSelectObject.Call(dc, oldP)
+	pDeleteObject.Call(badgePen)
 	pSelectObject.Call(dc, oldB)
 	pDeleteObject.Call(bbr)
 

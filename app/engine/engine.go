@@ -1290,7 +1290,11 @@ func (e *Engine) appendConsonnant(ev *keyEvent) int {
 		return 0
 	case VnwC, VnwVC, VnwCVC:
 		cs = prev.cseq()
-		if cSeqList[cs].length == 3 {
+		if cs < 0 || int(cs) >= len(cSeqList) {
+			// prev is a consonant entry with no real seq (bare h/j/w…) —
+			// C++ reads CSeqList[-1] out of bounds here; Go must not panic
+			newCs = CsNil
+		} else if cSeqList[cs].length == 3 {
 			newCs = CsNil
 		} else if cSeqList[cs].length == 2 {
 			newCs = lookupCSeq(cSeqList[cs].c[0], cSeqList[cs].c[1], lowerSym)
@@ -1776,7 +1780,20 @@ func (e *Engine) lastWordIsNonVn() bool {
 
 	switch e.buffer[e.current].form {
 	case VnwNonVn:
-		return true
+		// Abbreviation exception: an all-consonant word carrying a đ mark
+		// (HĐ, CĐT, ĐH…) is valid Vietnamese shorthand — keep it as typed
+		// instead of restoring the raw keystrokes.
+		hasDd := false
+		for i := e.current; i >= 0 && e.buffer[i].form != VnwEmpty; i-- {
+			sym := e.buffer[i].vnSym
+			if isVnVowel(sym) {
+				return true // has a vowel: a real (invalid) word — restore
+			}
+			if sym == Vnl_dd {
+				hasDd = true
+			}
+		}
+		return !hasDd
 	case VnwEmpty, VnwC:
 		return false
 	case VnwV, VnwCV:

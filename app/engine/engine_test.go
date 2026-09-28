@@ -227,6 +227,41 @@ func TestAutoNonVnRestore(t *testing.T) {
 	}
 }
 
+func TestDdAbbreviations(t *testing.T) {
+	// gõ tắt chữ Đ in consonant-only abbreviations (issue #2): kept as typed
+	opts := &Options{
+		FreeMarking:       1,
+		ModernStyle:       1,
+		SpellCheckEnabled: 1,
+		AutoNonVnRestore:  1,
+	}
+	cases := []struct {
+		keys string
+		want string
+	}{
+		{"HDD ", "HĐ "},
+		{"CDDT ", "CĐT "},
+		{"DDH ", "ĐH "},
+		{"DDCS ", "ĐCS "},
+		{"Hdd, CddT; DdH. ", "Hđ, CđT; ĐH. "},
+		{"hdd ", "hđ "},
+		{"cddt ", "cđt "},
+		{"ddh ", "đh "},
+		{"DD ", "Đ "},
+		{"ddasd ", "ddasd "}, // marked invalid word with vowels still restores
+		{"HCM ", "HCM "},     // consonant after bare 'h' must not panic
+		{"hn ", "hn "},
+	}
+	for _, c := range cases {
+		e := newEngine(opts)
+		d := &docSim{}
+		d.typeKeys(e, c.keys)
+		if got := d.String(); got != c.want {
+			t.Errorf("dd abbrev %q: got %q, want %q", c.keys, got, c.want)
+		}
+	}
+}
+
 func TestMacro(t *testing.T) {
 	e := newEngine(&Options{MacroEnabled: 1})
 	e.macStore.addItem("vn:Viet Nam")

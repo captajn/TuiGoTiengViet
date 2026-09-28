@@ -49,7 +49,7 @@ Engine tách riêng khỏi shell Windows (`app/engine/`) nên có thể tái s�
 - Backspace thông minh — hoàn tác đúng từng bước biến đổi
 - Chuyển V/E: phím tắt tùy chỉnh (mặc định `Alt+Z`, `Ctrl+Shift`), click tray, hoặc F1/F2
 - Phím nhanh: **F5** mở cài đặt · **F9** bật/tắt gõ tắt · **F12** reset bộ đệm
-- HUD trạng thái nổi + icon khay đổi màu theo V/E
+- HUD trạng thái nổi + icon khay V nền ngọc bích / E viền trung tính theo giao diện sáng, tối; trạng thái theo ứng dụng đang mở
 - Giao diện sáng / tối, cửa sổ cài đặt dạng tab
 - Chạy cùng Windows, tùy chọn quyền Admin (gõ được vào app elevated)
 - Đường gửi phím: **SendInput** mặc định, **Clipboard** cho app khó tính (Metro/UWP, game)
@@ -99,7 +99,7 @@ Không cần cài đặt — copy `tuigo.exe` đi đâu chạy cũng được. L
 |---|---|
 | `Alt+Z` (tùy chỉnh được) | Chuyển Tiếng Việt ↔ English |
 | `Ctrl+Shift` | Chuyển V/E (phím phụ) |
-| Click icon khay | Chuyển V/E · Double-click: mở cài đặt |
+| Click icon khay | Mở cài đặt · Chuột phải: menu có mục chuyển V/E |
 | `F1` / `F2` | Bật TV / tắt TV |
 | `F5` | Mở cài đặt |
 | `F9` | Bật/tắt gõ tắt |

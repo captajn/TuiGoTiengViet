@@ -82,6 +82,10 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case WM_TIMER:
+		if wp == 3 {
+			syncTrayState()
+			return 0
+		}
 		if wp == 2 { // HUD flash timeout
 			if !cfg.ShowHud && gHudHwnd != 0 {
 				pShowWindow.Call(gHudHwnd, 0) // SW_HIDE
@@ -191,8 +195,7 @@ func main() {
 
 	applyTheme()
 	logLine("main: after applyTheme")
-	gIconVn = makeTrayIcon(true)
-	gIconEn = makeTrayIcon(false)
+	refreshTrayIcons()
 	tm, _, _ := pRegisterWindowMsg.Call(uintptr(unsafe.Pointer(utf16ptr("TaskbarCreated"))))
 	gMsgTaskbarCreated = uint32(tm)
 	trayAdd()
@@ -225,6 +228,7 @@ func main() {
 	}
 	logLine("main: after installHook")
 	pSetTimer.Call(gHwnd, 1, 30000, 0)
+	pSetTimer.Call(gHwnd, 3, 500, 0) // tray follows the foreground app and theme
 
 	// Optional companion updater: if tuigo-updater.exe sits next to us, hand
 	// it off (it self-throttles). Deleting that file = fully offline again.

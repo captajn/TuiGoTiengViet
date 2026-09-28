@@ -37,45 +37,44 @@ type palette struct {
 // 墨青·夜 (Mặc Thanh · Dạ) — theo promo tiên hiệp: nền lam-ngọc sâu,
 // card ngọc bích, vàng đồng cổ ấm, công tắc ngọc bích phát sáng.
 var palDark = palette{
-	bg:          0x302A0B, // #0B2A30 deep ink teal
-	card:        0x403812, // #123840 jade card
-	border:      0x5E542A, // #2A545E jade card border
-	text:        0xE3EEF2, // #F2EEE3 warm ivory
-	gold:        0x78B9D8, // #D8B978 antique gold
-	amber:       0x63C5F2, // #F2C563 gold halo
-	jade:        0xB8D33E, // #3ED3B8 luminous mint jade (switches ON, badges)
-	vermilion:   0x354BDE, // #DE4B35 cinnabar red
-	muted:       0xA4A98F, // #8FA9A4 soft celadon mist
-	pill:        0x463F16, // #163F46 switch off track
-	goldDim:     0x5A8DA0, // #A08D5A dim antique gold filigree
-	btnBg:       0x504817, // #174850 tablet button fill
-	btnHover:    0x645A1E, // #1E5A64 tablet button hover
-	btnBorder:   0x847A3A, // #3A7A84 jade button border
-	btnText:     0xE3EEF2, // #F2EEE3 button text
-	navActiveBg: 0x544B1A, // #1A4B54 active tab jade pill
-	navActiveBd: 0x78B9D8, // #D8B978 active tab gold border
+	bg:          0x25211B, // #1B2125 slate
+	card:        0x302B24, // #242B30
+	border:      0x443D34, // #343D44
+	text:        0xEDF2EF, // #EFF2ED
+	gold:        0x78B9D8,
+	amber:       0x63C5F2,
+	jade:        0xB9D46C, // #6CD4B9
+	vermilion:   0x697BEB,
+	muted:       0xAAA89C, // #9CA8AA
+	pill:        0x494237,
+	goldDim:     0x667D88,
+	btnBg:       0x39322A,
+	btnHover:    0x473F34,
+	btnBorder:   0x5A5145,
+	btnText:     0xEDF2EF,
+	navActiveBg: 0x3B3D24, // #243D3B
+	navActiveBd: 0x3B3D24,
 }
 
-// Minh Ngọc · Nhật (Bright Jade · Day): clean trung tính — nền xám sáng
-// phẳng, card trắng tinh, border xám mờ, vàng đồng chỉ ở điểm nhấn.
+// Warm white, readable secondary text, and a soft mint selection surface.
 var palLight = palette{
-	bg:          0xF3F4F4, // #F4F4F3 flat neutral off-white
-	card:        0xFFFFFF, // #FFFFFF pure white card
-	border:      0xDEE2E3, // #E3E2DE faint gray hairline
-	text:        0x20211F, // #1F2120 near-black ink
-	gold:        0x2E7CA6, // #A67C2E bronze gold accent
-	amber:       0x1F7FC7, // #C77F1F warm amber
-	jade:        0x8A9E2E, // #2E9E8A deep mint jade (switches ON)
-	vermilion:   0x2437B3, // #B33724 cinnabar red
-	muted:       0x767A7A, // #7A7A76 neutral gray
-	pill:        0xDCDDE0, // #E0DDDC light gray track
-	goldDim:     0xBAC8CF, // #CFC8BA faint ornament line
-	btnBg:       0xF4F5F5, // #F5F5F4 button fill
-	btnHover:    0xFFFFFF, // #FFFFFF pure white hover
-	btnBorder:   0xCACACD, // #CDCACA soft gray-gold border
-	btnText:     0x20211F, // #1F2120 button text
-	navActiveBg: 0xE9EBEC, // #ECEBE9 neutral active plaque
-	navActiveBd: 0x3E8AB0, // #B08A3E active tab gold border
+	bg:          0xF5F7F7, // #F7F7F5
+	card:        0xFFFFFF,
+	border:      0xDFE5E3, // #E3E5DF
+	text:        0x2C3024, // #24302C
+	gold:        0x2E7CA6,
+	amber:       0x1F7FC7,
+	jade:        0x647F19, // #197F64
+	vermilion:   0x2437B3,
+	muted:       0x697568, // #687569
+	pill:        0xD9E0DC,
+	goldDim:     0xBAC8CF,
+	btnBg:       0xFFFFFF,
+	btnHover:    0xEDF3F0,
+	btnBorder:   0xC8D3CD,
+	btnText:     0x2C3024,
+	navActiveBg: 0xE7F0E2, // #E2F0E7
+	navActiveBd: 0xE7F0E2,
 }
 
 const (

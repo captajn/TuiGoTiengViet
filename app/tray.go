@@ -25,59 +25,58 @@ var (
 	gIM              = ImTelex
 )
 
-var (
-	pPrivateExtractIcons = user32.NewProc("PrivateExtractIconsW")
-	pDrawIconEx          = user32.NewProc("DrawIconEx")
-)
+// Icon handles are recreated only when theme or display scale changes.
+var trayDark bool
+var traySize int
+var trayLastViet bool
 
-const (
-	DI_MASK   = 1
-	DI_NORMAL = 3
-)
-
-// makeTrayIcon renders the embedded mascot at 32px with a status dot
-// bottom-right (jade = Vietnamese on, muted = off) -> HICON.
-func makeTrayIcon(on bool) uintptr {
-	const sz = 32
-	if len(gLogoBgra) == 0 {
-		initLogo()
+func refreshTrayIcons() {
+	dark := isDark()
+	size, _, _ := pGetSystemMetrics.Call(49) // SM_CXSMICON
+	if size < 16 || size > 128 {
+		size = 16
 	}
-
-	screen, _, _ := pGetDC.Call(0)
-	memC, _, _ := pCreateCompatibleDC.Call(screen)
-	bmp, _, _ := pCreateCompatibleBitmap.Call(screen, sz, sz)
-	var maskBits [sz * sz / 8]byte
-	mask, _, _ := pCreateBitmap.Call(sz, sz, 1, 1,
-		uintptr(unsafe.Pointer(&maskBits[0])))
-	oldC, _, _ := pSelectObject.Call(memC, bmp)
-
-	// Draw high-res chibi cultivation mascot scaled to 32x32 with rounded corners
-	drawAppMascot(memC, 0, 0, sz, sz, 6)
-
-	// Status dot bottom-right on color plane (jade when typing VN, muted when English)
-	dotCol := colMuted
-	if on {
-		dotCol = colJade
+	if gIconVn != 0 && gIconEn != 0 && trayDark == dark && traySize == int(size) {
+		return
 	}
-	dbr, _, _ := pCreateSolidBrush.Call(dotCol)
-	oldB, _, _ := pSelectObject.Call(memC, dbr)
-	penD, _, _ := pCreatePen.Call(PS_SOLID, 1, 0x101514) // dark rim around dot for contrast
-	oldP, _, _ := pSelectObject.Call(memC, penD)
-	pEllipse.Call(memC, 20, 20, 31, 31)
-	pSelectObject.Call(memC, oldP)
-	pDeleteObject.Call(penD)
-	pSelectObject.Call(memC, oldB)
-	pDeleteObject.Call(dbr)
+	p := palDark
+	if !dark {
+		p = palLight
+	}
+	vn, en := makeTrayIcon(true, int(size), p), makeTrayIcon(false, int(size), p)
+	if vn == 0 || en == 0 {
+		pDestroyIcon.Call(vn)
+		pDestroyIcon.Call(en)
+		return // retain the previous pair if allocation failed
+	}
+	oldVn, oldEn := gIconVn, gIconEn
+	gIconVn, gIconEn = vn, en
+	trayDark, traySize = dark, int(size)
+	if gTrayAdded {
+		trayUpdate()
+	}
+	if oldVn != 0 {
+		pDestroyIcon.Call(oldVn)
+	}
+	if oldEn != 0 {
+		pDestroyIcon.Call(oldEn)
+	}
+}
 
-	pSelectObject.Call(memC, oldC)
-
-	ii := iconInfo{fIcon: 1, hbmMask: mask, hbmColor: bmp}
-	ic, _, _ := pCreateIconIndirect.Call(uintptr(unsafe.Pointer(&ii)))
-	pDeleteObject.Call(bmp)
-	pDeleteObject.Call(mask)
-	pDeleteDC.Call(memC)
-	pReleaseDC.Call(0, screen)
-	return ic
+// Runs on the UI thread, including when focus changes without a keystroke.
+func syncTrayState() {
+	changed := effectiveViet() != trayLastViet
+	themeChanged := trayDark != isDark()
+	refreshTrayIcons()
+	if changed || themeChanged {
+		trayUpdate()
+		if gHudHwnd != 0 {
+			pInvalidateRect.Call(gHudHwnd, 0, 1)
+		}
+		if gSettingsHwnd != 0 {
+			pInvalidateRect.Call(gSettingsHwnd, 0, 1)
+		}
+	}
 }
 
 func notifyIcon(flags uint32) *notifyIconData {
@@ -88,12 +87,12 @@ func notifyIcon(flags uint32) *notifyIconData {
 		uFlags:           flags,
 		uCallbackMessage: WM_TRAYICON,
 	}
-	if gVietKey {
+	if effectiveViet() {
 		nid.hIcon = gIconVn
-		copy(nid.szTip[:], windows.StringToUTF16("Tui Gõ — đang bật tiếng Việt"))
+		copy(nid.szTip[:], windows.StringToUTF16("Tui Gõ · V — Tiếng Việt đang bật"))
 	} else {
 		nid.hIcon = gIconEn
-		copy(nid.szTip[:], windows.StringToUTF16("Tui Gõ — đang tắt (English)"))
+		copy(nid.szTip[:], windows.StringToUTF16("Tui Gõ · E — English / Tắt tiếng Việt"))
 	}
 	return nid
 }
@@ -107,14 +106,21 @@ func trayAdd() {
 	// WM_TIMER watchdog retries until it lands. TaskbarCreated broadcast
 	// re-adds after every Explorer (re)start too.
 	gTrayAdded = r != 0
+	trayLastViet = effectiveViet()
 }
 
 func trayUpdate() {
-	pShellNotifyIcon.Call(NIM_MODIFY, uintptr(unsafe.Pointer(notifyIcon(NIF_ICON|NIF_TIP))))
+	r, _, _ := pShellNotifyIcon.Call(NIM_MODIFY, uintptr(unsafe.Pointer(notifyIcon(NIF_ICON|NIF_TIP))))
+	gTrayAdded = r != 0
+	trayLastViet = effectiveViet()
 }
 
 func trayDelete() {
 	pShellNotifyIcon.Call(NIM_DELETE, uintptr(unsafe.Pointer(notifyIcon(0))))
+	gTrayAdded = false
+	pDestroyIcon.Call(gIconVn)
+	pDestroyIcon.Call(gIconEn)
+	gIconVn, gIconEn = 0, 0
 }
 
 func appendMenu(menu uintptr, flags uint32, id uintptr, text string) {
@@ -160,8 +166,12 @@ func showTrayMenu() {
 func toggleVietKey(src string) {
 	spec, exe := foregroundApp()
 	logLine("toggleVN via " + src)
+	if spec.mode == appModeLock {
+		return
+	}
 	if spec.mode == appModeManual { // per-app toggle: does not touch global state
 		gPerAppViet[exe] = !gPerAppViet[exe]
+		trayUpdate()
 		if cfg.SoundOnToggle {
 			pMessageBeep.Call(0x00000040) // MB_ICONASTERISK
 		}

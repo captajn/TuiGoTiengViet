@@ -1,0 +1,154 @@
+package main
+
+import (
+	"fmt"
+	"image/png"
+	"os"
+	"path/filepath"
+	"testing"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+// Exercise the actual Win32 conversion: incorrect DIB layout or mask stride
+// can yield a valid-looking PNG but an empty or corrupted notification icon.
+func TestTrayIconHandles(t *testing.T) {
+	getIconInfo := user32.NewProc("GetIconInfo")
+	getObject := gdi32.NewProc("GetObjectW")
+	type bitmap struct {
+		kind, width, height, widthBytes int32
+		planes, bitsPixel               uint16
+		bits                            uintptr
+	}
+	for _, theme := range []struct {
+		name string
+		p    palette
+	}{{"dark", palDark}, {"light", palLight}} {
+		for _, size := range []int{16, 20, 24, 32, 48} {
+			for _, on := range []bool{true, false} {
+				letter := "E"
+				if on {
+					letter = "V"
+				}
+				name := fmt.Sprintf("%s-%s-%d", theme.name, letter, size)
+				t.Run(name, func(t *testing.T) {
+					icon := makeTrayIcon(on, size, theme.p)
+					if icon == 0 {
+						t.Fatal("CreateIconIndirect failed")
+					}
+					defer pDestroyIcon.Call(icon)
+					var info iconInfo
+					if r, _, _ := getIconInfo.Call(icon, uintptr(unsafe.Pointer(&info))); r == 0 {
+						t.Fatal("GetIconInfo failed")
+					}
+					defer pDeleteObject.Call(info.hbmColor)
+					defer pDeleteObject.Call(info.hbmMask)
+					for _, h := range []uintptr{info.hbmColor, info.hbmMask} {
+						var bm bitmap
+						if r, _, _ := getObject.Call(h, unsafe.Sizeof(bm), uintptr(unsafe.Pointer(&bm))); r == 0 {
+							t.Fatal("GetObject failed")
+						}
+						if bm.width != int32(size) || bm.height != int32(size) {
+							t.Fatalf("unexpected native bitmap size: %dx%d", bm.width, bm.height)
+						}
+					}
+					checkTrayComposite(t, icon, size, on, theme.p)
+					// Optional visual inspection of the same renderer used by the app.
+					if dir := os.Getenv("TUIGO_TRAY_PREVIEW"); dir != "" {
+						if err := os.MkdirAll(dir, 0755); err != nil {
+							t.Fatal(err)
+						}
+						f, err := os.Create(filepath.Join(dir, name+".png"))
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer f.Close()
+						if err := png.Encode(f, renderTrayIcon(size, on, theme.p)); err != nil {
+							t.Fatal(err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func checkTrayComposite(t *testing.T, icon uintptr, size int, on bool, p palette) {
+	t.Helper()
+	bi := bitmapInfo{}
+	bi.bmiHeader.biSize = uint32(unsafe.Sizeof(bitmapInfoHeader{}))
+	bi.bmiHeader.biWidth, bi.bmiHeader.biHeight = int32(size), -int32(size)
+	bi.bmiHeader.biPlanes, bi.bmiHeader.biBitCount = 1, 32
+	var bits unsafe.Pointer
+	bmp, _, _ := pCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&bi)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+	if bmp == 0 {
+		t.Fatal("preview DIB allocation failed")
+	}
+	defer pDeleteObject.Call(bmp)
+	dc, _, _ := pCreateCompatibleDC.Call(0)
+	if dc == 0 {
+		t.Fatal("preview DC allocation failed")
+	}
+	defer pDeleteDC.Call(dc)
+	old, _, _ := pSelectObject.Call(dc, bmp)
+	defer pSelectObject.Call(dc, old)
+	pixels := unsafe.Slice((*byte)(bits), size*size*4)
+	clear(pixels)
+	if r, _, _ := user32.NewProc("DrawIconEx").Call(dc, 0, 0, icon, uintptr(size), uintptr(size), 0, 0, 3); r == 0 {
+		t.Fatal("DrawIconEx failed")
+	}
+	gdi32.NewProc("GdiFlush").Call()
+	want := renderTrayIcon(size, on, p)
+	for i := 0; i < len(pixels); i += 4 {
+		for c := 0; c < 3; c++ {
+			delta := int(pixels[i+c]) - int(want.Pix[i+2-c])
+			if delta < -1 || delta > 1 {
+				t.Fatalf("native alpha composite differs at pixel %d channel %d: delta=%d", i/4, c, delta)
+			}
+		}
+	}
+}
+
+func TestTrayEffectiveState(t *testing.T) {
+	oldHwnd, oldSpec, oldExe := lastFgHwnd, lastFgSpec, lastFgExe
+	oldGlobal, oldPerApp := gVietKey, gPerAppViet
+	oldVn, oldEn := gIconVn, gIconEn
+	gIconVn, gIconEn = 11, 22 // sentinel handles; notifyIcon does not dereference them
+	defer func() {
+		lastFgHwnd, lastFgSpec, lastFgExe = oldHwnd, oldSpec, oldExe
+		gVietKey, gPerAppViet = oldGlobal, oldPerApp
+		gIconVn, gIconEn = oldVn, oldEn
+	}()
+	for _, tc := range []struct {
+		name              string
+		mode              int
+		global, per, want bool
+	}{
+		{"global-on", appModeNone, true, false, true},
+		{"global-off", appModeNone, false, true, false},
+		{"manual-off", appModeManual, true, false, false},
+		{"manual-on", appModeManual, false, true, true},
+		{"locked", appModeLock, true, true, false},
+		{"clipboard", appModeClip, true, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Seed the existing foreground cache without changing desktop focus.
+			lastFgHwnd, _, _ = pGetForegroundWindow.Call()
+			lastFgSpec, lastFgExe = appSpec{mode: tc.mode, im: -1}, "tray-test.exe"
+			gVietKey = tc.global
+			gPerAppViet = map[string]bool{lastFgExe: tc.per}
+			if got := effectiveViet(); got != tc.want {
+				t.Fatalf("effectiveViet = %v, want %v", got, tc.want)
+			}
+			nid := notifyIcon(NIF_ICON | NIF_TIP)
+			icon, tip := gIconEn, "Tui Gõ · E — English / Tắt tiếng Việt"
+			if tc.want {
+				icon, tip = gIconVn, "Tui Gõ · V — Tiếng Việt đang bật"
+			}
+			if nid.hIcon != icon || windows.UTF16ToString(nid.szTip[:]) != tip {
+				t.Fatal("tray icon/tooltip disagree with effective input state")
+			}
+		})
+	}
+}

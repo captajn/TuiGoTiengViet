@@ -63,7 +63,6 @@ var (
 	pRectangle              = gdi32.NewProc("Rectangle")
 	pCreatePen              = gdi32.NewProc("CreatePen")
 	pPolygon                = gdi32.NewProc("Polygon")
-	pArc                    = gdi32.NewProc("Arc")
 	pGetStockObject         = gdi32.NewProc("GetStockObject")
 	pPolyline               = gdi32.NewProc("Polyline")
 	pMoveToEx               = gdi32.NewProc("MoveToEx")
