@@ -163,25 +163,30 @@ func showTrayMenu() {
 	pDestroyMenu.Call(menu)
 }
 
-func toggleVietKey(src string) {
+// flipVietKey flips the effective Vietnamese state. Cheap — pure memory
+// ops plus the cached foreground-app lookup — so it can run inside the
+// keyboard hook and the very next keystroke already sees the new state.
+// Returns false when the foreground app is locked (toggle ignored).
+func flipVietKey() bool {
 	spec, exe := foregroundApp()
-	logLine("toggleVN via " + src)
 	if spec.mode == appModeLock {
-		return
+		return false
 	}
 	if spec.mode == appModeManual { // per-app toggle: does not touch global state
 		gPerAppViet[exe] = !gPerAppViet[exe]
-		trayUpdate()
-		if cfg.SoundOnToggle {
-			pMessageBeep.Call(0x00000040) // MB_ICONASTERISK
-		}
-		hudUpdate()
-		hudFlash()
-		pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator
-		return
+		return true
 	}
 	gVietKey = !gVietKey
 	gEngine.SetVietKey(gVietKey) // off: pass-through, macros still expand
+	return true
+}
+
+// toggleEffects is the heavyweight half of a toggle — log file, beep, tray
+// RPC, HUD flash, registry save. Posted onto the message loop so the hook
+// never pays for it.
+func toggleEffects(src string) {
+	spec, _ := foregroundApp()
+	logLine("toggleVN via " + src)
 	if cfg.SoundOnToggle {
 		pMessageBeep.Call(0x00000040) // MB_ICONASTERISK
 	}
@@ -189,7 +194,15 @@ func toggleVietKey(src string) {
 	hudUpdate()
 	hudFlash()
 	pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator
-	saveSettings()
+	if spec.mode != appModeManual {
+		saveSettings()
+	}
+}
+
+func toggleVietKey(src string) {
+	if flipVietKey() {
+		toggleEffects(src)
+	}
 }
 
 // toggleMacro flips macro expansion (F9 quick action).

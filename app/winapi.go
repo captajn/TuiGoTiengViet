@@ -32,6 +32,7 @@ var (
 	pDefWindowProc      = user32.NewProc("DefWindowProcW")
 	pDestroyWindow      = user32.NewProc("DestroyWindow")
 	pPostQuitMessage    = user32.NewProc("PostQuitMessage")
+	pPostMessage        = user32.NewProc("PostMessageW")
 	pCreatePopupMenu    = user32.NewProc("CreatePopupMenu")
 	pAppendMenu         = user32.NewProc("AppendMenuW")
 	pTrackPopupMenu     = user32.NewProc("TrackPopupMenu")
@@ -150,6 +151,7 @@ const (
 	WM_CONTEXTMENU    = 0x007B
 	WM_APP            = 0x8000
 	WM_TRAYICON       = WM_APP + 1
+	WM_TOGGLE_VN      = WM_APP + 2 // posted by the hook: defer toggle work to the loop
 
 	LLKHF_INJECTED          = 0x10
 	LLKHF_LOWER_IL_INJECTED = 0x02

@@ -139,15 +139,22 @@ func foregroundApp() (appSpec, string) {
 }
 
 // modsMatch reports whether the currently held modifiers equal bitmask m
-// (bit0 Ctrl, bit1 Shift, bit2 Alt, bit3 Win).
+// (bit0 Ctrl, bit1 Shift, bit2 Alt, bit3 Win). Reads the hook-tracked state:
+// GetAsyncKeyState lags the LL event stream and also sees injected keys —
+// AltGr and the phantom Ctrl Windows sends while Alt is held, which would
+// otherwise randomly disqualify Alt-based hotkeys.
 func modsMatch(m int) bool {
-	lw, _, _ := pGetAsyncKeyState.Call(VK_LWIN)
-	rw, _, _ := pGetAsyncKeyState.Call(VK_RWIN)
-	win := (lw|rw)&0x8000 != 0
-	return keyDown(VK_CONTROL) == (m&1 != 0) &&
-		keyDown(VK_SHIFT) == (m&2 != 0) &&
-		keyDown(VK_MENU) == (m&4 != 0) &&
-		win == (m&8 != 0)
+	ctrl := gCtrlHeld
+	if !ctrl && gAltHeld {
+		// A real Ctrl press while Alt is held is indistinguishable from the
+		// phantom (injected, and never tracked) — except on the RIGHT side:
+		// the phantom is always left Ctrl.
+		ctrl = keyDown(VK_RCONTROL)
+	}
+	return ctrl == (m&1 != 0) &&
+		gShiftHeld == (m&2 != 0) &&
+		gAltHeld == (m&4 != 0) &&
+		gWinHeld == (m&8 != 0)
 }
 
 // effectiveViet is the Vietnamese state in effect for the foreground window.

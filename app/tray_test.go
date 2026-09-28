@@ -152,3 +152,75 @@ func TestTrayEffectiveState(t *testing.T) {
 		})
 	}
 }
+
+// flipVietKey must apply every call — no debounce, so rapid hotkey presses
+// each land. Lock-mode apps still ignore the toggle; manual mode flips the
+// per-app flag only.
+func TestFlipVietKeyRapid(t *testing.T) {
+	eng, err := newEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldEngine, oldGlobal, oldPerApp := gEngine, gVietKey, gPerAppViet
+	oldHwnd, oldSpec, oldExe := lastFgHwnd, lastFgSpec, lastFgExe
+	defer func() {
+		gEngine, gVietKey, gPerAppViet = oldEngine, oldGlobal, oldPerApp
+		lastFgHwnd, lastFgSpec, lastFgExe = oldHwnd, oldSpec, oldExe
+	}()
+	gEngine = eng
+	lastFgHwnd, _, _ = pGetForegroundWindow.Call()
+	lastFgSpec, lastFgExe = appSpec{im: -1}, "flip-test.exe"
+	gVietKey = true
+	for i := 0; i < 20; i++ {
+		if !flipVietKey() {
+			t.Fatalf("flip %d ignored", i)
+		}
+		want := i%2 != 0
+		if gVietKey != want {
+			t.Fatalf("flip %d: gVietKey = %v, want %v", i, gVietKey, want)
+		}
+	}
+
+	lastFgSpec = appSpec{mode: appModeLock, im: -1}
+	if flipVietKey() {
+		t.Fatal("lock-mode app must ignore the toggle")
+	}
+
+	lastFgSpec = appSpec{mode: appModeManual, im: -1}
+	gPerAppViet = map[string]bool{"flip-test.exe": false}
+	if !flipVietKey() || !gPerAppViet["flip-test.exe"] || !gVietKey {
+		t.Fatal("manual mode must flip only the per-app flag")
+	}
+}
+
+// modsMatch reads hook-tracked modifier state (in-order, injection-filtered)
+// — GetAsyncKeyState lag or the phantom Ctrl under Alt must not disqualify.
+func TestModsMatchTrackedState(t *testing.T) {
+	old := [4]bool{gCtrlHeld, gShiftHeld, gAltHeld, gWinHeld}
+	defer func() {
+		gCtrlHeld, gShiftHeld, gAltHeld, gWinHeld = old[0], old[1], old[2], old[3]
+	}()
+	set := func(c, s, a, w bool) {
+		gCtrlHeld, gShiftHeld, gAltHeld, gWinHeld = c, s, a, w
+	}
+	for _, tc := range []struct {
+		name       string
+		c, s, a, w bool
+		mask       int
+		want       bool
+	}{
+		{"alt-only matches alt", false, false, true, false, 4, true},
+		{"alt-only vs ctrl+alt", false, false, true, false, 5, false},
+		{"ctrl+shift matches", true, true, false, false, 3, true},
+		{"shift alone misses chord", false, true, false, false, 3, false},
+		{"bare matches none", false, false, false, false, 0, true},
+		{"stray shift misses bare", false, true, false, false, 0, false},
+		{"win matches", false, false, false, true, 8, true},
+		{"extra shift misses alt", false, true, true, false, 4, false},
+	} {
+		set(tc.c, tc.s, tc.a, tc.w)
+		if got := modsMatch(tc.mask); got != tc.want {
+			t.Fatalf("%s: modsMatch(%d) = %v, want %v", tc.name, tc.mask, got, tc.want)
+		}
+	}
+}

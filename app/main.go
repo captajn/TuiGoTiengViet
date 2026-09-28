@@ -53,6 +53,18 @@ func logLine(s string) {
 func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	defer func() { recoverCrash("wndproc", recover()) }()
 	switch msg {
+	case WM_TOGGLE_VN:
+		src := "hotkey"
+		switch wp {
+		case 1:
+			src = "ctrl+shift"
+		case 2:
+			src = "f1"
+		case 3:
+			src = "f2"
+		}
+		toggleEffects(src)
+		return 0
 	case WM_TRAYICON:
 		switch uint32(lp) {
 		case WM_RBUTTONUP, WM_CONTEXTMENU:
@@ -101,6 +113,15 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		if gShiftHeld && !keyDown(VK_LSHIFT) && !keyDown(VK_RSHIFT) {
 			gShiftHeld = false
+		}
+		if gAltHeld && !keyDown(VK_LMENU) && !keyDown(VK_RMENU) {
+			gAltHeld = false
+		}
+		if gWinHeld && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
+			gWinHeld = false
+		}
+		if gHotkeyDown && cfg.HotkeyVk != 0 && !keyDown(uint32(cfg.HotkeyVk)) {
+			gHotkeyDown = false
 		}
 		if !gTrayAdded {
 			trayAdd() // Explorer wasn't ready at boot — retry
