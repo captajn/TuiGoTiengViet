@@ -13,6 +13,9 @@ var (
 	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
 	gCtrlHeld     bool
 	gShiftHeld    bool
+	gAltHeld      bool
+	gWinHeld      bool
+	gHotkeyDown   bool      // hotkey vk is held — auto-repeat must not re-toggle
 	gModDownAt    time.Time // when the first chord modifier went down
 	gModUpAt      time.Time // when the first chord modifier came up
 	gLastKeyAt    time.Time // last non-modifier keydown (chord purity check)
@@ -50,7 +53,7 @@ func injectOutput(res Result) {
 // vkToChar translates a virtual key to the ASCII char the engine expects.
 func vkToChar(vk, scan uint32) (byte, bool) {
 	var kb [256]byte
-	if keyDown(VK_SHIFT) {
+	if gShiftHeld {
 		kb[VK_SHIFT] = 0x80
 	}
 	if r, _, _ := pGetKeyState.Call(VK_CAPITAL); r&1 != 0 {
@@ -100,6 +103,14 @@ func isModifierKey(vk uint32) bool {
 	return false
 }
 
+// postToggle defers the actual toggle work (registry writes, tray RPC, HUD)
+// to the message loop so the hook returns instantly — rapid hotkey presses
+// then queue as cheap messages instead of serializing key events behind I/O.
+// wParam identifies the source for the crash.log line.
+func postToggle(src uintptr) {
+	pPostMessage.Call(gHwnd, WM_TOGGLE_VN, src, 0)
+}
+
 // handleKeyDown returns true if the key must be swallowed.
 func handleKeyDown(p *kbdLLHookStruct) bool {
 	vk := p.vkCode
@@ -125,9 +136,15 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		return false
 	}
 
-	// toggle hotkey: configured modifiers + key
+	// toggle hotkey: configured modifiers + key. One toggle per press —
+	// the auto-repeat stream while held must not toggle back and forth.
 	if cfg.HotkeyVk != 0 && vk == uint32(cfg.HotkeyVk) && modsMatch(cfg.HotkeyMods) {
-		toggleVietKey("hotkey")
+		if !gHotkeyDown {
+			gHotkeyDown = true
+			if flipVietKey() {
+				postToggle(0)
+			}
+		}
 		return true
 	}
 	if vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_LCONTROL || vk == VK_RCONTROL {
@@ -159,28 +176,39 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
 			time.Since(gModDownAt) < 800*time.Millisecond &&
 			gLastKeyAt.Before(gModDownAt) && // no letters between the two presses
-			!altHeld && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
+			!altHeld && !gWinHeld {
 			gChordPending = true
 			gChordClean = true
 		}
 		return false // never swallow modifiers
 	}
 
+	// Track Alt/Win like the chord modifiers — the rest of this function
+	// reads tracked state because GetAsyncKeyState lags the event stream
+	// inside an LL hook and sees injected keys (AltGr, the phantom Ctrl
+	// Windows sends while Alt is held).
+	switch vk {
+	case VK_MENU, VK_LMENU, VK_RMENU:
+		gAltHeld = true
+	case VK_LWIN, VK_RWIN:
+		gWinHeld = true
+	}
+
 	// quick-action F keys (raw, no modifiers held)
 	if cfg.FKeys != 0 && vk >= VK_F1 && vk <= VK_F24 &&
-		!keyDown(VK_CONTROL) && !keyDown(VK_MENU) && !keyDown(VK_SHIFT) {
+		!gCtrlHeld && !gAltHeld && !gShiftHeld {
 		switch vk {
 		case VK_F1:
 			if cfg.FKeys&1 != 0 {
-				if !effectiveViet() {
-					toggleVietKey("f1")
+				if !effectiveViet() && flipVietKey() {
+					postToggle(2)
 				}
 				return true
 			}
 		case VK_F2:
 			if cfg.FKeys&2 != 0 {
-				if effectiveViet() {
-					toggleVietKey("f2")
+				if effectiveViet() && flipVietKey() {
+					postToggle(3)
 				}
 				return true
 			}
@@ -235,7 +263,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		return false
 	}
 	// shortcuts (Ctrl/Alt held) bypass the engine
-	if keyDown(VK_CONTROL) || keyDown(VK_MENU) {
+	if gCtrlHeld || gAltHeld {
 		return false
 	}
 
@@ -322,12 +350,20 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 						} else {
 							// Both released: toggle only if the chord stayed
 							// clean and the pair was let go as one gesture.
-							if gChordClean && time.Since(gModUpAt) < 700*time.Millisecond {
-								toggleVietKey("ctrl+shift")
+							if gChordClean && time.Since(gModUpAt) < 700*time.Millisecond &&
+								flipVietKey() {
+								postToggle(1)
 							}
 							gChordPending = false
 						}
 					}
+				case VK_MENU, VK_LMENU, VK_RMENU:
+					gAltHeld = false
+				case VK_LWIN, VK_RWIN:
+					gWinHeld = false
+				}
+				if p.vkCode == uint32(cfg.HotkeyVk) {
+					gHotkeyDown = false
 				}
 				if isModifierKey(p.vkCode) {
 					gChordClean = true
