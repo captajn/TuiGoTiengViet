@@ -24,6 +24,8 @@ var (
 	pGetDpiForWindow = user32.NewProc("GetDpiForWindow")
 	pGetDpiForSystem = user32.NewProc("GetDpiForSystem")
 	pGetClientRect   = user32.NewProc("GetClientRect")
+	pIsZoomed        = user32.NewProc("IsZoomed")
+	pIsIconic        = user32.NewProc("IsIconic")
 )
 
 const (
@@ -65,6 +67,7 @@ const (
 	SW_SHOW            = 5
 	SW_RESTORE         = 9
 	SW_MINIMIZE        = 6
+	SW_MAXIMIZE        = 3
 	SWP_NOMOVE         = 0x0002
 )
 
@@ -87,6 +90,8 @@ var (
 	curTab        = -1
 	gActiveTab    int
 	gHoveredTab   = -1
+	gCaptionHover = -1
+	gCaptionDown  = -1
 
 	fontNormal  uintptr
 	fontBold    uintptr
@@ -306,42 +311,120 @@ func drawLogo(dc uintptr, cx, cy int32) {
 	diamond(dc, cx, cy-dp(5), dp(2), colGold)
 }
 
-// Window control buttons: — □ ✕
-func drawWindowControls(dc uintptr, winW int32) {
-	minRc := rect{winW - dp(96), dp(8), winW - dp(70), dp(34)}
-	maxRc := rect{winW - dp(66), dp(8), winW - dp(40), dp(34)}
-	clsRc := rect{winW - dp(36), dp(8), winW - dp(10), dp(34)}
+const (
+	captionMinimize = iota
+	captionMaximize
+	captionClose
+)
 
-	ctrlCol := colMuted
-	if isDark() {
-		ctrlCol = 0x8FA2A0 // soft luminous silver-teal
-	}
-	pp, _, _ := pCreatePen.Call(PS_SOLID, 2, ctrlCol)
-	oldP, _, _ := pSelectObject.Call(dc, pp)
-
-	// Minimize '—'
-	pMoveToEx.Call(dc, uintptr(minRc.left+dp(6)), uintptr(minRc.top+dp(13)), 0)
-	pLineTo.Call(dc, uintptr(minRc.right-dp(6)), uintptr(minRc.top+dp(13)))
-
-	// Maximize '□'
-	nullBr, _, _ := pGetStockObject.Call(NULL_BRUSH)
-	oldB, _, _ := pSelectObject.Call(dc, nullBr)
-	pRectangle.Call(dc, uintptr(maxRc.left+dp(7)), uintptr(maxRc.top+dp(8)),
-		uintptr(maxRc.right-dp(7)), uintptr(maxRc.bottom-dp(10)))
-	pSelectObject.Call(dc, oldB)
-
-	// Close '✕'
-	pMoveToEx.Call(dc, uintptr(clsRc.left+dp(7)), uintptr(clsRc.top+dp(8)), 0)
-	pLineTo.Call(dc, uintptr(clsRc.right-dp(7)), uintptr(clsRc.bottom-dp(10)))
-	pMoveToEx.Call(dc, uintptr(clsRc.right-dp(7)), uintptr(clsRc.top+dp(8)), 0)
-	pLineTo.Call(dc, uintptr(clsRc.left+dp(7)), uintptr(clsRc.bottom-dp(10)))
-
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(pp)
+// One geometry source for painting and hit testing. Each control has a full
+// 46x42 dpi-scaled target; glyphs stay centered in that target.
+func captionRect(winW int32, id int) rect {
+	left := winW - dp(int32((3-id)*46))
+	return rect{left, 0, left + dp(46), dp(42)}
 }
 
-// Top titlebar: Mascot + "Tui Gõ" + Subtitle + Window controls + Golden cloud filigree
-func drawTopHeader(dc uintptr, winW int32) {
+func captionBarRect(winW int32) rect {
+	return rect{captionRect(winW, captionMinimize).left, 0, winW, dp(42)}
+}
+
+func captionAt(winW, x, y int32) int {
+	if y < 0 || y >= dp(42) {
+		return -1
+	}
+	for id := captionMinimize; id <= captionClose; id++ {
+		r := captionRect(winW, id)
+		if x >= r.left && x < r.right {
+			return id
+		}
+	}
+	return -1
+}
+
+func drawWindowControls(dc uintptr, hwnd uintptr, winW int32) {
+	for id := captionMinimize; id <= captionClose; id++ {
+		r := captionRect(winW, id)
+		hovered := gCaptionHover == id
+		pressed := gCaptionDown == id && hovered
+		if hovered || pressed {
+			fill := colCard
+			if pressed {
+				fill = colPill
+			}
+			if id == captionClose {
+				fill = 0x002311E8 // Windows close red (#E81123)
+				if pressed {
+					fill = 0x00100CAD
+				}
+			}
+			br, _, _ := pCreateSolidBrush.Call(fill)
+			pFillRect.Call(dc, uintptr(unsafe.Pointer(&r)), br)
+			pDeleteObject.Call(br)
+		}
+
+		ink := colText
+		if id == captionClose && hovered {
+			ink = 0xFFFFFF
+		}
+		pen, _, _ := pCreatePen.Call(PS_SOLID, uintptr(max(int32(1), dp(2))), ink)
+		oldPen, _, _ := pSelectObject.Call(dc, pen)
+		cx, cy := (r.left+r.right)/2, dp(21)
+		line := func(x1, y1, x2, y2 int32) {
+			pMoveToEx.Call(dc, uintptr(x1), uintptr(y1), 0)
+			pLineTo.Call(dc, uintptr(x2), uintptr(y2))
+		}
+		switch id {
+		case captionMinimize:
+			line(cx-dp(6), cy+dp(4), cx+dp(7), cy+dp(4))
+		case captionMaximize:
+			nullBrush, _, _ := pGetStockObject.Call(NULL_BRUSH)
+			oldBrush, _, _ := pSelectObject.Call(dc, nullBrush)
+			if zoomed, _, _ := pIsZoomed.Call(hwnd); zoomed != 0 {
+				pRectangle.Call(dc, uintptr(cx-dp(6)), uintptr(cy-dp(2)), uintptr(cx+dp(3)), uintptr(cy+dp(6)))
+				line(cx-dp(3), cy-dp(5), cx+dp(6), cy-dp(5))
+				line(cx+dp(5), cy-dp(5), cx+dp(5), cy+dp(3))
+			} else {
+				pRectangle.Call(dc, uintptr(cx-dp(5)), uintptr(cy-dp(5)), uintptr(cx+dp(6)), uintptr(cy+dp(5)))
+			}
+			pSelectObject.Call(dc, oldBrush)
+		case captionClose:
+			line(cx-dp(5), cy-dp(5), cx+dp(6), cy+dp(6))
+			line(cx+dp(5), cy-dp(5), cx-dp(6), cy+dp(6))
+		}
+		pSelectObject.Call(dc, oldPen)
+		pDeleteObject.Call(pen)
+	}
+}
+
+func toggleSettingsMaximize(hwnd uintptr) {
+	if zoomed, _, _ := pIsZoomed.Call(hwnd); zoomed != 0 {
+		pShowWindow.Call(hwnd, SW_RESTORE)
+	} else {
+		pShowWindow.Call(hwnd, SW_MAXIMIZE)
+	}
+}
+
+func updateSettingsRegion(hwnd uintptr) {
+	if zoomed, _, _ := pIsZoomed.Call(hwnd); zoomed != 0 {
+		pSetWindowRgn.Call(hwnd, 0, 1) // square screen edges when maximized
+		return
+	}
+	var r rect
+	pGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	w, h := r.right-r.left, r.bottom-r.top
+	if w <= 0 || h <= 0 {
+		return
+	}
+	rgn, _, _ := pCreateRoundRectRgn.Call(0, 0, uintptr(w+1), uintptr(h+1), uintptr(dp(18)), uintptr(dp(18)))
+	if rgn != 0 {
+		if ok, _, _ := pSetWindowRgn.Call(hwnd, rgn, 1); ok == 0 {
+			pDeleteObject.Call(rgn) // SetWindowRgn owns it only on success
+		}
+	}
+}
+
+// Top titlebar: brand, subtitle, and system-style window controls.
+func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
 	drawAppMascot(dc, dp(14), dp(6), dp(36), dp(36), dp(8))
 
 	pSetBkMode.Call(dc, TRANSPARENT)
@@ -361,7 +444,7 @@ func drawTopHeader(dc uintptr, winW int32) {
 
 	pSelectObject.Call(dc, oldF)
 
-	drawWindowControls(dc, winW)
+	drawWindowControls(dc, hwnd, winW)
 }
 
 // Sidebar navigation renderer
@@ -1628,10 +1711,19 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	switch msg {
 	case WM_CREATE:
 		gHoveredTab = -1
+		gCaptionHover, gCaptionDown = -1, -1
 		buildControls(hwnd)
 		return 0
 	case WM_MOUSEMOVE:
 		x, y := int32(int16(lp&0xFFFF)), int32(int16((lp>>16)&0xFFFF))
+		var client rect
+		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+		caption := captionAt(client.right, x, y)
+		if caption != gCaptionHover {
+			gCaptionHover = caption
+			r := captionBarRect(client.right)
+			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
+		}
 		hovered := -1
 		for i := range tabItems {
 			r := navRect(i)
@@ -1650,6 +1742,13 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track)))
 		return 0
 	case 0x02A3: // WM_MOUSELEAVE
+		if gCaptionHover != -1 {
+			gCaptionHover = -1
+			var client rect
+			pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+			r := captionBarRect(client.right)
+			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
+		}
 		if gHoveredTab != -1 {
 			gHoveredTab = -1
 			r := rect{0, dp(50), railW, dp(320)}
@@ -1658,6 +1757,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		return 0
 	case WM_SIZE:
 		if wp != 1 {
+			updateSettingsRegion(hwnd)
 			layoutAll()
 		}
 		return 0
@@ -1677,6 +1777,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		pSetWindowPos.Call(hwnd, 0, uintptr(sr.left), uintptr(sr.top),
 			uintptr(sr.right-sr.left), uintptr(sr.bottom-sr.top),
 			SWP_NOZORDER|SWP_NOACTIVATE)
+		updateSettingsRegion(hwnd)
 		layoutAll()
 		return 0
 	case WM_COMMAND:
@@ -1731,19 +1832,18 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		x := int32(int16(lp & 0xFFFF))
 		y := int32(int16(lp >> 16))
 
-		// Top header area: window controls & window dragging
+		// Capture the whole button. Activating on mouse-up avoids accidental
+		// close/minimize when the pointer is dragged away.
+		if id := captionAt(winW, x, y); id != -1 {
+			gCaptionHover, gCaptionDown = id, id
+			pSetCapture.Call(hwnd)
+			r := captionRect(winW, id)
+			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
+			return 0
+		}
+
+		// Top header area: window dragging
 		if y < dp(46) {
-			if x >= winW-dp(36) && x <= winW-dp(8) { // Close button
-				pShowWindow.Call(hwnd, SW_HIDE)
-				return 0
-			}
-			if x >= winW-dp(68) && x <= winW-dp(40) { // Maximize / Restore
-				return 0
-			}
-			if x >= winW-dp(100) && x <= winW-dp(72) { // Minimize -> Hide to tray
-				pShowWindow.Call(hwnd, SW_HIDE)
-				return 0
-			}
 			// Drag window natively
 			pReleaseCapture.Call()
 			pSendMessage.Call(hwnd, 0x00A1, 2, 0)
@@ -1759,6 +1859,42 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 					return 0
 				}
 			}
+		}
+	case WM_LBUTTONUP:
+		if gCaptionDown != -1 {
+			id := gCaptionDown
+			gCaptionDown = -1
+			pReleaseCapture.Call()
+			var client rect
+			pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+			x, y := int32(int16(lp&0xFFFF)), int32(int16((lp>>16)&0xFFFF))
+			r := captionRect(client.right, id)
+			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
+			if captionAt(client.right, x, y) == id {
+				switch id {
+				case captionMinimize:
+					pShowWindow.Call(hwnd, SW_MINIMIZE)
+				case captionMaximize:
+					toggleSettingsMaximize(hwnd)
+				case captionClose:
+					pShowWindow.Call(hwnd, SW_HIDE)
+				}
+			}
+			return 0
+		}
+	case 0x0215: // WM_CAPTURECHANGED
+		if gCaptionDown != -1 {
+			gCaptionDown = -1
+			pInvalidateRect.Call(hwnd, 0, 0)
+		}
+		return 0
+	case WM_LBUTTONDBLCLK:
+		x, y := int32(int16(lp&0xFFFF)), int32(int16((lp>>16)&0xFFFF))
+		var client rect
+		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+		if y >= 0 && y < dp(46) && captionAt(client.right, x, y) == -1 {
+			toggleSettingsMaximize(hwnd)
+			return 0
 		}
 
 	case WM_DRAWITEM:
@@ -1824,7 +1960,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		pSelectObject.Call(wp, oldB)
 
 		// 3. Top bar: brand title, subtitle, and window controls
-		drawTopHeader(wp, winW)
+		drawTopHeader(wp, hwnd, winW)
 
 		// 4. Sidebar vertical divider
 		divLine := rect{railW, dp(50), railW + 1, winH - dp(14)}
@@ -1853,6 +1989,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		return 0
 	case WM_DESTROY:
 		gSettingsHwnd = 0
+		gCaptionHover, gCaptionDown = -1, -1
 		if rethemed {
 			rethemed = false
 			applyTheme()
@@ -1867,7 +2004,11 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 func openSettings() {
 	if gSettingsHwnd != 0 {
 		syncControls() // state may have changed via tray menu/hotkeys while hidden
-		pShowWindow.Call(gSettingsHwnd, SW_SHOW)
+		if iconic, _, _ := pIsIconic.Call(gSettingsHwnd); iconic != 0 {
+			pShowWindow.Call(gSettingsHwnd, SW_RESTORE)
+		} else {
+			pShowWindow.Call(gSettingsHwnd, SW_SHOW)
+		}
 		pSetForegroundWnd.Call(gSettingsHwnd)
 		return
 	}
@@ -1875,6 +2016,7 @@ func openSettings() {
 	hIcon := loadAppIcon()
 	wc := wndClassEx{
 		cbSize:        uint32(unsafe.Sizeof(wndClassEx{})),
+		style:         0x0008, // CS_DBLCLKS: double-click titlebar to maximize
 		lpfnWndProc:   windows.NewCallback(settingsProc),
 		hIcon:         hIcon,
 		hIconSm:       hIcon,
@@ -1908,8 +2050,7 @@ func openSettings() {
 		uintptr(posX), uintptr(posY), uintptr(winW), uintptr(winH),
 		0, 0, 0, 0)
 
-	rgn, _, _ := pCreateRoundRectRgn.Call(0, 0, uintptr(winW+1), uintptr(winH+1), uintptr(dp(18)), uintptr(dp(18)))
-	pSetWindowRgn.Call(gSettingsHwnd, rgn, 1)
+	updateSettingsRegion(gSettingsHwnd)
 
 	pShowWindow.Call(gSettingsHwnd, SW_SHOW)
 	pSetForegroundWnd.Call(gSettingsHwnd)
