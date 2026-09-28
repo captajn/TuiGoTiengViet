@@ -69,6 +69,12 @@ const (
 	SW_MINIMIZE        = 6
 	SW_MAXIMIZE        = 3
 	SWP_NOMOVE         = 0x0002
+	WS_CLIPCHILDREN    = 0x02000000
+	SRCCOPY            = 0x00CC0020
+	RDW_INVALIDATE     = 0x0001
+	RDW_ERASE          = 0x0004
+	RDW_ALLCHILDREN    = 0x0080
+	RDW_UPDATENOW      = 0x0100
 )
 
 var (
@@ -1944,46 +1950,36 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		pSetBkMode.Call(wp, TRANSPARENT)
 		return brCard
 	case WM_ERASEBKGND:
+		return 1 // WM_PAINT repaints everything — no separate erase pass
+	case WM_PAINT:
+		var ps paintStruct
+		dc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		var rc rect
 		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 		winW, winH := rc.right, rc.bottom
-
-		// 1. Fill entire window background
-		pFillRect.Call(wp, uintptr(unsafe.Pointer(&rc)), brBg)
-
-		// 2. Quiet outer border, shared by both themes.
-		outerPen := penBorder
-		oldB, _, _ := pSelectObject.Call(wp, brBg)
-		oldP, _, _ := pSelectObject.Call(wp, outerPen)
-		pRoundRect.Call(wp, 0, 0, uintptr(winW), uintptr(winH), uintptr(dp(18)), uintptr(dp(18)))
-		pSelectObject.Call(wp, oldP)
-		pSelectObject.Call(wp, oldB)
-
-		// 3. Top bar: brand title, subtitle, and window controls
-		drawTopHeader(wp, hwnd, winW)
-
-		// 4. Sidebar vertical divider
-		divLine := rect{railW, dp(50), railW + 1, winH - dp(14)}
-		pFillRect.Call(wp, uintptr(unsafe.Pointer(&divLine)), brBorder)
-
-		// 5. Sidebar tabs
-		drawNav(wp)
-
-		// 6. Right Content Pane depending on tab
-		cx := railW + dp(24)
-		cw := winW - cx - dp(24)
-		ct := dp(106)
-
-		switch gActiveTab {
-		case 0:
-			drawOverviewTab(wp, cx, ct, cw, winH)
-		case 4:
-			drawAboutTab(wp, cx, ct, cw, winH)
-		default:
-			drawSettingsTab(wp, gActiveTab, cx, ct, cw)
+		// Paint into a back buffer, then blit once: drawing straight onto the
+		// window DC lets DWM present the bare background mid-paint (the white
+		// flash on open/tab switch).
+		mem, _, _ := pCreateCompatibleDC.Call(dc)
+		bmp, _, _ := pCreateCompatibleBitmap.Call(dc, uintptr(winW), uintptr(winH))
+		if mem != 0 && bmp != 0 {
+			oldBmp, _, _ := pSelectObject.Call(mem, bmp)
+			paintSettings(mem, hwnd)
+			pBitBlt.Call(dc, 0, 0, uintptr(winW), uintptr(winH), mem, 0, 0, SRCCOPY)
+			pSelectObject.Call(mem, oldBmp)
+			pDeleteObject.Call(bmp)
+			pDeleteDC.Call(mem)
+		} else {
+			if bmp != 0 {
+				pDeleteObject.Call(bmp)
+			}
+			if mem != 0 {
+				pDeleteDC.Call(mem)
+			}
+			paintSettings(dc, hwnd)
 		}
-
-		return 1
+		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+		return 0
 	case WM_CLOSE:
 		pShowWindow.Call(hwnd, SW_HIDE)
 		return 0
@@ -2001,9 +1997,54 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	return r
 }
 
+// paintSettings renders the full client area into dc (back buffer or screen).
+func paintSettings(dc, hwnd uintptr) {
+	var rc rect
+	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
+	winW, winH := rc.right, rc.bottom
+
+	// 1. Fill entire window background
+	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
+
+	// 2. Quiet outer border, shared by both themes.
+	outerPen := penBorder
+	oldB, _, _ := pSelectObject.Call(dc, brBg)
+	oldP, _, _ := pSelectObject.Call(dc, outerPen)
+	pRoundRect.Call(dc, 0, 0, uintptr(winW), uintptr(winH), uintptr(dp(18)), uintptr(dp(18)))
+	pSelectObject.Call(dc, oldP)
+	pSelectObject.Call(dc, oldB)
+
+	// 3. Top bar: brand title, subtitle, and window controls
+	drawTopHeader(dc, hwnd, winW)
+
+	// 4. Sidebar vertical divider
+	divLine := rect{railW, dp(50), railW + 1, winH - dp(14)}
+	pFillRect.Call(dc, uintptr(unsafe.Pointer(&divLine)), brBorder)
+
+	// 5. Sidebar tabs
+	drawNav(dc)
+
+	// 6. Right Content Pane depending on tab
+	cx := railW + dp(24)
+	cw := winW - cx - dp(24)
+	ct := dp(106)
+
+	switch gActiveTab {
+	case 0:
+		drawOverviewTab(dc, cx, ct, cw, winH)
+	case 4:
+		drawAboutTab(dc, cx, ct, cw, winH)
+	default:
+		drawSettingsTab(dc, gActiveTab, cx, ct, cw)
+	}
+}
+
 func openSettings() {
 	if gSettingsHwnd != 0 {
 		syncControls() // state may have changed via tray menu/hotkeys while hidden
+		// Repaint while still hidden so the first visible frame is complete.
+		pRedrawWindow.Call(gSettingsHwnd, 0, 0,
+			RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW)
 		if iconic, _, _ := pIsIconic.Call(gSettingsHwnd); iconic != 0 {
 			pShowWindow.Call(gSettingsHwnd, SW_RESTORE)
 		} else {
@@ -2042,16 +2083,21 @@ func openSettings() {
 	posX := (int32(screenW) - winW) / 2
 	posY := (int32(screenH) - winH) / 2
 
+	// WS_CLIPCHILDREN keeps the parent paint out of child controls —
+	// otherwise every repaint overdraws them and they flicker back on top.
 	gSettingsHwnd, _, _ = pCreateWindowEx.Call(
 		0x00040000,
 		uintptr(unsafe.Pointer(cls)),
 		uintptr(unsafe.Pointer(utf16ptr("Tui Gõ — Cài đặt"))),
-		0x80000000|0x00020000|0x00010000,
+		0x80000000|0x02000000|0x00020000|0x00010000,
 		uintptr(posX), uintptr(posY), uintptr(winW), uintptr(winH),
 		0, 0, 0, 0)
 
 	updateSettingsRegion(gSettingsHwnd)
 
+	// Paint once while still hidden so the window never presents blank.
+	pRedrawWindow.Call(gSettingsHwnd, 0, 0,
+		RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW)
 	pShowWindow.Call(gSettingsHwnd, SW_SHOW)
 	pSetForegroundWnd.Call(gSettingsHwnd)
 }

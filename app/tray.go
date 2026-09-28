@@ -89,10 +89,10 @@ func notifyIcon(flags uint32) *notifyIconData {
 	}
 	if effectiveViet() {
 		nid.hIcon = gIconVn
-		copy(nid.szTip[:], windows.StringToUTF16("Tui Gõ · V — Tiếng Việt đang bật"))
+		copy(nid.szTip[:], windows.StringToUTF16("Tiếng Việt đang bật"))
 	} else {
 		nid.hIcon = gIconEn
-		copy(nid.szTip[:], windows.StringToUTF16("Tui Gõ · E — English / Tắt tiếng Việt"))
+		copy(nid.szTip[:], windows.StringToUTF16("Tiếng Việt đang tắt"))
 	}
 	return nid
 }

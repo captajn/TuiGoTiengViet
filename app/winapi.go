@@ -69,6 +69,8 @@ var (
 	pLineTo                 = gdi32.NewProc("LineTo")
 	pEllipse                = gdi32.NewProc("Ellipse")
 	pCreateRoundRectRgn     = gdi32.NewProc("CreateRoundRectRgn")
+	pBitBlt                 = gdi32.NewProc("BitBlt")
+	pRedrawWindow           = user32.NewProc("RedrawWindow")
 	pSetWindowRgn           = user32.NewProc("SetWindowRgn")
 	pBeginPaint             = user32.NewProc("BeginPaint")
 	pEndPaint               = user32.NewProc("EndPaint")
