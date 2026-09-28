@@ -142,9 +142,9 @@ func TestTrayEffectiveState(t *testing.T) {
 				t.Fatalf("effectiveViet = %v, want %v", got, tc.want)
 			}
 			nid := notifyIcon(NIF_ICON | NIF_TIP)
-			icon, tip := gIconEn, "Tui Gõ · E — English / Tắt tiếng Việt"
+			icon, tip := gIconEn, "Tiếng Việt đang tắt"
 			if tc.want {
-				icon, tip = gIconVn, "Tui Gõ · V — Tiếng Việt đang bật"
+				icon, tip = gIconVn, "Tiếng Việt đang bật"
 			}
 			if nid.hIcon != icon || windows.UTF16ToString(nid.szTip[:]) != tip {
 				t.Fatal("tray icon/tooltip disagree with effective input state")
