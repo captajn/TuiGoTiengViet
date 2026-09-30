@@ -290,10 +290,17 @@ func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_POWERBROADCAST:
 		if wp == PBT_APMSUSPEND {
 			logLine("power: suspend")
-		} else if wp == PBT_APMRESUME {
+		} else if wp == PBT_APMRESUME || wp == PBT_RESUMESUSPEND {
 			logLine("power: resume")
+			reinstallHooks() // sleep/hibernate can silently drop LL hooks
 		}
 		return 1
+	case WM_WTSSESSION_CHANGE:
+		if wp == WTS_SESSION_UNLOCK {
+			reinstallHooks()
+			logLine("session unlock: hooks reinstalled")
+		}
+		return 0
 	case WM_ERASEBKGND:
 		return 1
 	}

@@ -7,12 +7,13 @@ import (
 )
 
 var (
-	user32  = windows.NewLazySystemDLL("user32.dll")
-	gdi32   = windows.NewLazySystemDLL("gdi32.dll")
-	sh32    = windows.NewLazySystemDLL("shell32.dll")
-	dwmapi  = windows.NewLazySystemDLL("dwmapi.dll")
-	uxtheme = windows.NewLazySystemDLL("uxtheme.dll")
-	kern32  = windows.NewLazySystemDLL("kernel32.dll")
+	user32   = windows.NewLazySystemDLL("user32.dll")
+	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
+	sh32     = windows.NewLazySystemDLL("shell32.dll")
+	dwmapi   = windows.NewLazySystemDLL("dwmapi.dll")
+	uxtheme  = windows.NewLazySystemDLL("uxtheme.dll")
+	kern32   = windows.NewLazySystemDLL("kernel32.dll")
+	wtsapi32 = windows.NewLazySystemDLL("wtsapi32.dll")
 
 	pSetWindowsHookEx   = user32.NewProc("SetWindowsHookExW")
 	pCallNextHookEx     = user32.NewProc("CallNextHookEx")
@@ -91,6 +92,8 @@ var (
 	pLoadCursor       = user32.NewProc("LoadCursorW")
 	pSetWindowPos     = user32.NewProc("SetWindowPos")
 	pGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+
+	pWTSRegister = wtsapi32.NewProc("WTSRegisterSessionNotification")
 )
 
 // loadAppIcon returns the application mascot icon or falls back to exe icon.
@@ -145,13 +148,17 @@ const (
 	WM_POWERBROADCAST = 0x0218
 	PBT_APMSUSPEND    = 0x0004
 	PBT_APMRESUME     = 0x0012 // RESUMEAUTOMATIC
-	WM_TIMER          = 0x0113
-	WM_RBUTTONUP      = 0x0205
-	WM_LBUTTONDBLCLK  = 0x0203
-	WM_CONTEXTMENU    = 0x007B
-	WM_APP            = 0x8000
-	WM_TRAYICON       = WM_APP + 1
-	WM_TOGGLE_VN      = WM_APP + 2 // posted by the hook: defer toggle work to the loop
+	PBT_RESUMESUSPEND = 0x0007 // RESUMESUSPEND
+
+	WM_WTSSESSION_CHANGE = 0x02B1
+	WTS_SESSION_UNLOCK   = 0x8
+	WM_TIMER             = 0x0113
+	WM_RBUTTONUP         = 0x0205
+	WM_LBUTTONDBLCLK     = 0x0203
+	WM_CONTEXTMENU       = 0x007B
+	WM_APP               = 0x8000
+	WM_TRAYICON          = WM_APP + 1
+	WM_TOGGLE_VN         = WM_APP + 2 // posted by the hook: defer toggle work to the loop
 
 	LLKHF_INJECTED          = 0x10
 	LLKHF_LOWER_IL_INJECTED = 0x02

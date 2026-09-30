@@ -131,6 +131,15 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			logLine("alive") // heartbeat — if the app dies, the gap shows when
 		}
 		return 0
+	case WM_WTSSESSION_CHANGE:
+		// Lock/unlock crosses to the secure desktop: Windows may silently
+		// drop our LL hooks, and GetLastInputInfo keeps moving on the lock
+		// screen — reinstall on unlock instead of trusting the watchdog.
+		if wp == WTS_SESSION_UNLOCK {
+			reinstallHooks()
+			logLine("session unlock: hooks reinstalled")
+		}
+		return 0
 	case WM_DESTROY:
 		saveSettings()
 		pPostQuitMessage.Call(0)
@@ -224,6 +233,11 @@ func main() {
 	logLine("main: after trayAdd")
 	hudInit()
 	logLine("main: after hudInit")
+	// Session lock/unlock notifications: needed to reinstall LL hooks that
+	// Windows drops across the secure-desktop switch. Register on both —
+	// the message-only hwnd is a fallback if HUD creation failed.
+	pWTSRegister.Call(gHwnd, 0) // NOTIFY_FOR_THIS_SESSION
+	pWTSRegister.Call(gHudHwnd, 0)
 	// Elevated + startup: this instance can register the scheduled task
 	// without another UAC prompt (user just granted elevation).
 	if isElevated() && cfg.RunAsAdmin && cfg.RunAtStartup {
@@ -301,10 +315,23 @@ func installHook() bool {
 		mouseCb = windows.NewCallback(lowLevelMouseProc)
 	}
 	gHook, _, _ = pSetWindowsHookEx.Call(WH_KEYBOARD_LL, hookCb, 0, 0)
-	if gMouseHook == 0 {
-		gMouseHook, _, _ = pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCb, 0, 0)
-	}
+	gMouseHook, _, _ = pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCb, 0, 0)
 	return gHook != 0
+}
+
+// reinstallHooks force-reinstalls both hooks. Handles are zeroed first —
+// Windows can remove a hook silently, leaving a stale non-zero handle that
+// would otherwise make the reinstall a no-op.
+func reinstallHooks() {
+	if gHook != 0 {
+		pUnhookWindowsHook.Call(gHook)
+		gHook = 0
+	}
+	if gMouseHook != 0 {
+		pUnhookWindowsHook.Call(gMouseHook)
+		gMouseHook = 0
+	}
+	installHook()
 }
 
 var (
@@ -334,10 +361,8 @@ func hookWatchdog() {
 	}
 	inputMoved := lii.dwTime != gPrevInputTick
 	hooksMoved := gHookSeen != gPrevHookSeen || gMouseSeen != gPrevMouseSeen
-	if inputMoved && !hooksMoved && gHook != 0 {
-		pUnhookWindowsHook.Call(gHook)
-		pUnhookWindowsHook.Call(gMouseHook)
-		installHook()
+	if inputMoved && !hooksMoved {
+		reinstallHooks()
 		logLine("hook dead: reinstalled")
 	}
 	gPrevInputTick = lii.dwTime
