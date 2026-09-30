@@ -253,15 +253,22 @@ func main() {
 
 	// Optional companion updater: if tuigo-updater.exe sits next to us, hand
 	// it off (it self-throttles). Deleting that file = fully offline again.
+	// Spawn on a goroutine after a short delay: CreateProcess blocks 10-15s
+	// on machines whose AV/SmartScreen cloud-scans a fresh unsigned exe, and
+	// on this thread that stall freezes the LL hooks = dead keyboard.
 	os.WriteFile(filepath.Join(dir, "version.txt"), []byte(appVersion), 0644)
 	os.Remove(filepath.Join(dir, "tuigo.old.exe"))
 	os.Remove(filepath.Join(dir, "tuigo-updater.old.exe"))
-	if _, err := os.Stat(filepath.Join(dir, "tuigo-updater.exe")); err == nil {
-		if c := exec.Command(filepath.Join(dir, "tuigo-updater.exe"),
-			"-watch", strconv.Itoa(os.Getpid())); c.Start() == nil {
+	go func() {
+		time.Sleep(5 * time.Second)
+		up := filepath.Join(dir, "tuigo-updater.exe")
+		if _, err := os.Stat(up); err != nil {
+			return
+		}
+		if c := exec.Command(up, "-watch", strconv.Itoa(os.Getpid())); c.Start() == nil {
 			c.Process.Release()
 		}
-	}
+	}()
 
 	var m msg
 	var r uintptr
