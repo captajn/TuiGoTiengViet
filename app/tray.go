@@ -168,7 +168,7 @@ func showTrayMenu() {
 // keyboard hook and the very next keystroke already sees the new state.
 // Returns false when the foreground app is locked (toggle ignored).
 func flipVietKey() bool {
-	spec, exe := foregroundApp()
+	spec, exe, _ := foregroundApp()
 	if spec.mode == appModeLock {
 		return false
 	}
@@ -185,7 +185,7 @@ func flipVietKey() bool {
 // RPC, HUD flash, registry save. Posted onto the message loop so the hook
 // never pays for it.
 func toggleEffects(src string) {
-	spec, _ := foregroundApp()
+	spec, _, _ := foregroundApp()
 	logLine("toggleVN via " + src)
 	if cfg.SoundOnToggle {
 		pMessageBeep.Call(0x00000040) // MB_ICONASTERISK

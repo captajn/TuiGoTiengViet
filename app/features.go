@@ -108,11 +108,12 @@ var lastFgHwnd uintptr
 var lastFgSpec appSpec
 var lastFgExe string
 
-// foregroundApp returns the per-app spec and exe name of the active window.
-func foregroundApp() (appSpec, string) {
+// foregroundApp returns the per-app spec, exe name and HWND of the active
+// window.
+func foregroundApp() (appSpec, string, uintptr) {
 	hwnd, _, _ := pGetForegroundWindow.Call()
 	if hwnd == lastFgHwnd {
-		return lastFgSpec, lastFgExe
+		return lastFgSpec, lastFgExe, hwnd
 	}
 	spec, name := appSpec{im: -1}, ""
 	var pid uint32
@@ -135,7 +136,7 @@ func foregroundApp() (appSpec, string) {
 		}
 	}
 	lastFgHwnd, lastFgSpec, lastFgExe = hwnd, spec, name
-	return spec, name
+	return spec, name, hwnd
 }
 
 // modsMatch reports whether the currently held modifiers equal bitmask m
@@ -159,7 +160,7 @@ func modsMatch(m int) bool {
 
 // effectiveViet is the Vietnamese state in effect for the foreground window.
 func effectiveViet() bool {
-	spec, exe := foregroundApp()
+	spec, exe, _ := foregroundApp()
 	if spec.mode == appModeLock {
 		return false
 	}

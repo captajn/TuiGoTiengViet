@@ -16,6 +16,7 @@ var (
 	gAltHeld      bool
 	gWinHeld      bool
 	gHotkeyDown   bool      // hotkey vk is held — auto-repeat must not re-toggle
+	gLastKeyHwnd  uintptr   // foreground window of the last key event
 	gModDownAt    time.Time // when the first chord modifier went down
 	gModUpAt      time.Time // when the first chord modifier came up
 	gLastKeyAt    time.Time // last non-modifier keydown (chord purity check)
@@ -114,7 +115,14 @@ func postToggle(src uintptr) {
 // handleKeyDown returns true if the key must be swallowed.
 func handleKeyDown(p *kbdLLHookStruct) bool {
 	vk := p.vkCode
-	spec, exe := foregroundApp()
+	spec, exe, hwnd := foregroundApp()
+	if hwnd != gLastKeyHwnd {
+		// Focus moved (Alt+Tab, taskbar click, Win+<n>) — the tracked
+		// word belongs to the previous window's edit field.
+		gLastKeyHwnd = hwnd
+		gEngine.Reset()
+		gAutoCapNext = false
+	}
 	gForceClip = spec.mode == appModeClip
 	gForceTCVN = spec.tcvn
 	gSafeDel = spec.safeDel || gSafeDelExes[exe]
@@ -262,8 +270,12 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 	if isModifierKey(vk) {
 		return false
 	}
-	// shortcuts (Ctrl/Alt held) bypass the engine
-	if gCtrlHeld || gAltHeld {
+	// shortcuts (Ctrl/Alt/Win held) bypass the engine — and invalidate its
+	// word: Ctrl+A/C/X/V, Ctrl+Backspace, Win combos change the text,
+	// selection or focus behind the engine's back.
+	if gCtrlHeld || gAltHeld || gWinHeld {
+		gEngine.Reset()
+		gAutoCapNext = false
 		return false
 	}
 
@@ -379,18 +391,27 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 	return r
 }
 
-// lowLevelMouseProc dirties a pending Ctrl+Shift chord when a mouse button is
-// pressed — Ctrl+Shift+Click (open link in new tab, multi-select, Explorer
-// shortcut-drag) must not toggle Vietnamese mode on modifier release.
+// lowLevelMouseProc handles two jobs on any button press:
+//   - dirty a pending Ctrl+Shift chord — Ctrl+Shift+Click (open link in new
+//     tab, multi-select, Explorer shortcut-drag) must not toggle Vietnamese
+//   - reset the engine — a click can move the caret, select a word, or
+//     switch focus, so the tracked word no longer matches the edit field.
+//     Without this, Backspace/typing "corrects" text at the wrong offset
+//     (click before "xóa" + retype x → "õa", omnibox → "àáá").
 var gMouseSeen uint64 // liveness counter, mirrors gHookSeen
 
 func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
 	defer func() { recoverCrash("mousehook", recover()) }()
 	gMouseSeen++
-	if nCode == 0 && gChordPending {
+	if nCode == 0 {
 		switch wParam {
-		case WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, 0x020B: // +XBUTTON
-			gChordClean = false
+		case WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, WM_XBUTTONDOWN,
+			WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NCMBUTTONDOWN, WM_NCXBUTTONDOWN:
+			gEngine.Reset()
+			gAutoCapNext = false
+			if gChordPending {
+				gChordClean = false
+			}
 		}
 	}
 	r, _, _ := pCallNextHookEx.Call(gMouseHook, uintptr(nCode), wParam, lParam)
