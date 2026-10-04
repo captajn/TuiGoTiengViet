@@ -258,24 +258,17 @@ var (
 //     lone Backspace eats the suggestion instead of the letter the engine
 //     meant to remove — "hà" came out "haà". A forward-Delete first clears
 //     the selection; with no selection at end-of-text it is a no-op.
-//   - caret mid-text: no inline suggestion exists there, and forward-Delete
-//     would erase the real character after the caret (fixing "bánh" ate
-//     the 'n' -> "báh"). Shift+Left selects exactly the previous char, then
-//     Backspace removes it — correct with or without a live selection.
+//   - caret mid-text: forward-Delete would erase the real character after
+//     the caret (fixing "bánh" ate the 'n' -> "báh"), and no inline
+//     suggestion tail exists there anyway. A lone Backspace is correct —
+//     and if the field selected the just-typed char, Backspace removes
+//     exactly that selection.
 func appendBackspaces(inputs []input, n int) []input {
-	if gSafeDel {
+	if gSafeDel && gCaretAtEnd {
 		for i := 0; i < n; i++ {
-			if gCaretAtEnd {
-				inputs = append(inputs,
-					keyEvent(VK_DELETE, 0, 0), keyEvent(VK_DELETE, 0, KEYEVENTF_KEYUP),
-					keyEvent(VK_BACK, 0, 0), keyEvent(VK_BACK, 0, KEYEVENTF_KEYUP))
-			} else {
-				inputs = append(inputs,
-					keyEvent(VK_SHIFT, 0, 0),
-					keyEvent(VK_LEFT, 0, 0), keyEvent(VK_LEFT, 0, KEYEVENTF_KEYUP),
-					keyEvent(VK_SHIFT, 0, KEYEVENTF_KEYUP),
-					keyEvent(VK_BACK, 0, 0), keyEvent(VK_BACK, 0, KEYEVENTF_KEYUP))
-			}
+			inputs = append(inputs,
+				keyEvent(VK_DELETE, 0, 0), keyEvent(VK_DELETE, 0, KEYEVENTF_KEYUP),
+				keyEvent(VK_BACK, 0, 0), keyEvent(VK_BACK, 0, KEYEVENTF_KEYUP))
 		}
 		return inputs
 	}

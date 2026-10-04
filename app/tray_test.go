@@ -233,15 +233,17 @@ func TestAppendBackspaces(t *testing.T) {
 		t.Fatalf("safe-end mode: got %v", got)
 	}
 
-	// safe mode, caret mid-text: Shift+Left+Backspace — no VK_DELETE anywhere
+	// safe mode, caret mid-text: plain Backspace — no VK_DELETE and no
+	// Shift+Left (extending a live selection past the target eats the
+	// preceding char — "bánh" lost its 'b')
 	gCaretAtEnd = false
 	got := appendBackspaces(nil, 1)
 	for _, in := range got {
-		if in.Ki.wVk == VK_DELETE {
-			t.Fatalf("mid-text mode emitted VK_DELETE: %v", vks(got))
+		if in.Ki.wVk == VK_DELETE || in.Ki.wVk == VK_LEFT || in.Ki.wVk == VK_SHIFT {
+			t.Fatalf("mid-text mode emitted VK_DELETE/Shift+Left: %v", vks(got))
 		}
 	}
-	want = []uint16{VK_SHIFT, VK_LEFT, VK_LEFT, VK_SHIFT, VK_BACK, VK_BACK}
+	want = []uint16{VK_BACK, VK_BACK}
 	if !equal(vks(got), want) {
 		t.Fatalf("mid-text mode: got %v", vks(got))
 	}
