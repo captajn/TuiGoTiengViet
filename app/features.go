@@ -46,8 +46,8 @@ var cfg config
 //	app.exe|lock       hard-excluded: all keys pass through, toggle ignored
 //	app.exe|clip       text is sent via clipboard paste in this app
 //	app.exe|tcvn       output TCVN3 instead of Unicode in this app
-//	app.exe|safedel    delete via Delete+Backspace pairs (fields whose
-//	                   autocomplete selects its suggestion; browsers auto)
+//	app.exe|safedel    selection-safe delete (fields whose autocomplete
+//	                   selects its suggestion; browsers get this auto)
 //	app.exe|vni        use VNI in this app (telex/stelex/viqr/msvi too)
 //	app.exe|clip,vni   flags combine with commas
 const (
@@ -61,7 +61,7 @@ type appSpec struct {
 	mode    int
 	im      int  // -1 = use global input method
 	tcvn    bool // convert output to TCVN3
-	safeDel bool // backspace via Shift+Left+BS (autocomplete fields)
+	safeDel bool // selection-safe delete (autocomplete fields)
 }
 
 var gExcluded = map[string]appSpec{}
@@ -69,7 +69,14 @@ var gPerAppViet = map[string]bool{} // per-app Vietnamese state (manual mode)
 var gForceClip bool                 // foreground app forces clipboard send
 var gForceTCVN bool                 // foreground app wants TCVN3 output
 var gSafeDel bool                   // foreground app needs selection-safe delete
-var gLastIM = -1                    // input method currently set on the engine
+
+// gCaretAtEnd tracks whether the edit caret is believed to sit at the end of
+// the text (or a live selection may exist). Only then is a forward-Delete
+// harmless: mid-text it would erase the real character after the caret.
+// Cleared by backward caret moves (Left/Up/Home/PgUp) and mouse clicks; set
+// by End/Down/PgDn and focus changes.
+var gCaretAtEnd = true
+var gLastIM = -1 // input method currently set on the engine
 
 // Apps whose text fields inline-autocomplete with a live selection (browser
 // omniboxes, Explorer's address bar). A plain Backspace there deletes the
@@ -245,17 +252,30 @@ var (
 )
 
 // appendBackspaces emits N char deletions. Safe mode (autocompleting fields
-// like browser omniboxes) pairs each Backspace with a forward-Delete: the
-// field keeps its inline suggestion SELECTED, so a lone Backspace eats the
-// suggestion instead of the letter the engine meant to remove — "hà" came
-// out "haà". Delete clears the selection first; with no selection and the
-// caret at end-of-text, Delete is a harmless no-op.
+// like browser omniboxes) has two variants, chosen by where the caret is
+// believed to be:
+//   - caret at end: the field keeps its inline suggestion SELECTED, so a
+//     lone Backspace eats the suggestion instead of the letter the engine
+//     meant to remove — "hà" came out "haà". A forward-Delete first clears
+//     the selection; with no selection at end-of-text it is a no-op.
+//   - caret mid-text: no inline suggestion exists there, and forward-Delete
+//     would erase the real character after the caret (fixing "bánh" ate
+//     the 'n' -> "báh"). Shift+Left selects exactly the previous char, then
+//     Backspace removes it — correct with or without a live selection.
 func appendBackspaces(inputs []input, n int) []input {
 	if gSafeDel {
 		for i := 0; i < n; i++ {
-			inputs = append(inputs,
-				keyEvent(VK_DELETE, 0, 0), keyEvent(VK_DELETE, 0, KEYEVENTF_KEYUP),
-				keyEvent(VK_BACK, 0, 0), keyEvent(VK_BACK, 0, KEYEVENTF_KEYUP))
+			if gCaretAtEnd {
+				inputs = append(inputs,
+					keyEvent(VK_DELETE, 0, 0), keyEvent(VK_DELETE, 0, KEYEVENTF_KEYUP),
+					keyEvent(VK_BACK, 0, 0), keyEvent(VK_BACK, 0, KEYEVENTF_KEYUP))
+			} else {
+				inputs = append(inputs,
+					keyEvent(VK_SHIFT, 0, 0),
+					keyEvent(VK_LEFT, 0, 0), keyEvent(VK_LEFT, 0, KEYEVENTF_KEYUP),
+					keyEvent(VK_SHIFT, 0, KEYEVENTF_KEYUP),
+					keyEvent(VK_BACK, 0, 0), keyEvent(VK_BACK, 0, KEYEVENTF_KEYUP))
+			}
 		}
 		return inputs
 	}

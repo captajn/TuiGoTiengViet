@@ -122,6 +122,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		gLastKeyHwnd = hwnd
 		gEngine.Reset()
 		gAutoCapNext = false
+		gCaretAtEnd = true // fresh focus: caret at end or whole text selected
 	}
 	gForceClip = spec.mode == appModeClip
 	gForceTCVN = spec.tcvn
@@ -265,6 +266,15 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 	if isResetKey(vk) {
 		gEngine.Reset()
 		gAutoCapNext = cfg.AutoCap && vk == VK_RETURN
+		// Caret-movement keys decide whether a forward-Delete in the
+		// safeDel correction path is harmless (end-of-text/selection) or
+		// eats a real character (mid-text).
+		switch vk {
+		case VK_LEFT, VK_UP, VK_HOME, VK_PRIOR, VK_RETURN:
+			gCaretAtEnd = false
+		case VK_END, VK_DOWN, VK_NEXT:
+			gCaretAtEnd = true
+		}
 		return false
 	}
 	if isModifierKey(vk) {
@@ -409,6 +419,9 @@ func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
 			WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NCMBUTTONDOWN, WM_NCXBUTTONDOWN:
 			gEngine.Reset()
 			gAutoCapNext = false
+			// A click may land the caret mid-text — forward-Delete there
+			// would erase a real character.
+			gCaretAtEnd = false
 			if gChordPending {
 				gChordClean = false
 			}
