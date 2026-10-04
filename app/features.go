@@ -238,6 +238,14 @@ func lpBytes(v uintptr) *byte {
 	return (*byte)(*(*unsafe.Pointer)(unsafe.Pointer(&v)))
 }
 
+func lpUint16(v uintptr) *uint16 {
+	return (*uint16)(*(*unsafe.Pointer)(unsafe.Pointer(&v)))
+}
+
+func lpUintptr(v uintptr) *uintptr {
+	return (*uintptr)(*(*unsafe.Pointer)(unsafe.Pointer(&v)))
+}
+
 var (
 	pOpenClipboard    = user32.NewProc("OpenClipboard")
 	pEmptyClipboard   = user32.NewProc("EmptyClipboard")
@@ -251,20 +259,15 @@ var (
 	pIsCBFormat       = user32.NewProc("IsClipboardFormatAvailable")
 )
 
-// appendBackspaces emits N char deletions. Safe mode (autocompleting fields
-// like browser omniboxes) has two variants, chosen by where the caret is
-// believed to be:
-//   - caret at end: the field keeps its inline suggestion SELECTED, so a
-//     lone Backspace eats the suggestion instead of the letter the engine
-//     meant to remove — "hà" came out "haà". A forward-Delete first clears
-//     the selection; with no selection at end-of-text it is a no-op.
-//   - caret mid-text: forward-Delete would erase the real character after
-//     the caret (fixing "bánh" ate the 'n' -> "báh"), and no inline
-//     suggestion tail exists there anyway. A lone Backspace is correct —
-//     and if the field selected the just-typed char, Backspace removes
-//     exactly that selection.
-func appendBackspaces(inputs []input, n int) []input {
-	if gSafeDel && gCaretAtEnd {
+// appendBackspaces emits N char deletions. delPairs selects the legacy
+// Delete+Backspace pair used when a field may hold a live selection we did
+// not get to inspect (autocomplete suggestion tail in omniboxes): the
+// forward-Delete clears the selection first so the Backspace hits real
+// text. With no selection at end-of-text the Delete is a no-op — but
+// mid-text it erases the character after the caret, so pairs are only
+// used when the caret is believed to be at the end and no probe ran.
+func appendBackspaces(inputs []input, n int, delPairs bool) []input {
+	if delPairs {
 		for i := 0; i < n; i++ {
 			inputs = append(inputs,
 				keyEvent(VK_DELETE, 0, 0), keyEvent(VK_DELETE, 0, KEYEVENTF_KEYUP),
@@ -278,9 +281,83 @@ func appendBackspaces(inputs []input, n int) []input {
 	return inputs
 }
 
+// probeSelectionCut asks the focused field to cut its active selection and
+// watches the clipboard sequence number. Returns the number of UTF-16
+// units that were cut (0 when nothing was selected) and whether the probe
+// succeeded at all — on failure the caller must fall back to the caret
+// heuristic.
+//
+// This resolves the ambiguity keystrokes alone cannot: after typing 'a'
+// in an omnibox the field may hold no selection, an inline suggestion
+// tail, or may even have selected the 'a' itself (Edge). Only a real
+// selection change tells them apart. Ctrl+X with no selection is a no-op,
+// and the user's clipboard is preserved via an OleGetClipboard snapshot.
+func probeSelectionCut() (cut int, ok bool) {
+	var saved uintptr
+	pOleInitialize.Call(0)
+	if r, _, _ := pOleGetClipboard.Call(uintptr(unsafe.Pointer(&saved))); int32(r) < 0 || saved == 0 {
+		return 0, false
+	}
+	seq0, _, _ := pClipboardSeq.Call()
+	gSending = true
+	sendInput([]input{
+		keyEvent(VK_CONTROL, 0, 0), keyEvent('X', 0, 0),
+		keyEvent('X', 0, KEYEVENTF_KEYUP), keyEvent(VK_CONTROL, 0, KEYEVENTF_KEYUP)})
+	gSending = false
+
+	// An app that honours Ctrl+X writes the clipboard within a few ms; a
+	// field with no selection never writes at all, so keep the wait short —
+	// this runs inside the keyboard hook and delays the key queue.
+	deadline := time.Now().Add(30 * time.Millisecond)
+	for {
+		seq, _, _ := pClipboardSeq.Call()
+		if seq != seq0 {
+			cut = clipboardTextLen()
+			pOleSetClipboard.Call(saved) // hand the user's clipboard back
+			comRelease(saved)
+			return cut, true
+		}
+		if time.Now().After(deadline) {
+			// No clipboard write: no selection was active (or the field
+			// refuses to cut) — nothing was clobbered.
+			comRelease(saved)
+			return 0, true
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// clipboardTextLen returns the length in UTF-16 units of the text
+// currently on the clipboard (0 if none or it cannot be read).
+func clipboardTextLen() int {
+	n := 0
+	if r, _, _ := pOpenClipboard.Call(gHwnd); r != 0 {
+		if f, _, _ := pIsCBFormat.Call(cfUnicodeText); f != 0 {
+			if h, _, _ := pGetClipboardData.Call(cfUnicodeText); h != 0 {
+				if p, _, _ := pGlobalLock.Call(h); p != 0 {
+					for n < 1<<20 && *lpUint16(p) != 0 {
+						n++
+						p += 2
+					}
+					pGlobalUnlock.Call(h)
+				}
+			}
+		}
+		pCloseClipboard.Call()
+	}
+	return n
+}
+
+// comRelease invokes IUnknown::Release (vtable slot 2) on a COM object.
+func comRelease(obj uintptr) {
+	vt := *lpUintptr(obj)
+	release := *lpUintptr(vt + 2*unsafe.Sizeof(uintptr(0)))
+	syscall.SyscallN(release, obj)
+}
+
 // injectViaClipboard sends backspaces via SendInput and the text via
 // clipboard paste — fallback for apps that ignore injected keys.
-func injectViaClipboard(res Result) {
+func injectViaClipboard(res Result, delPairs bool) {
 	var saved windows.Handle
 	var savedSz int
 	pOpenClipboard.Call(gHwnd)
@@ -318,7 +395,7 @@ func injectViaClipboard(res Result) {
 
 	// send backspaces + Ctrl+V
 	inputs := make([]input, 0, res.Backs*4+4)
-	inputs = appendBackspaces(inputs, res.Backs)
+	inputs = appendBackspaces(inputs, res.Backs, delPairs)
 	inputs = append(inputs,
 		keyEvent(VK_CONTROL, 0, 0), keyEvent('V', 0, 0),
 		keyEvent('V', 0, KEYEVENTF_KEYUP), keyEvent(VK_CONTROL, 0, KEYEVENTF_KEYUP))

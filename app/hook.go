@@ -33,12 +33,27 @@ func injectOutput(res Result) {
 	if (cfg.Charset == 1 || gForceTCVN) && !res.KeyOut {
 		gEngine.ConvertTCVN(res.Out)
 	}
+	// In selection-happy fields (browser omniboxes) what a "Backspace"
+	// actually deletes depends on live state keystrokes can't reveal: an
+	// inline suggestion tail may be selected, or the field may have
+	// selected the just-typed char itself (Edge). Cut-probing resolves it.
+	// Skipped while Shift is held so the injected chord stays a plain
+	// Ctrl+X — Ctrl+Shift+X opens side panels in a few apps.
+	delPairs := gSafeDel && gCaretAtEnd
+	if gSafeDel && res.Backs > 0 && !res.KeyOut && !gShiftHeld {
+		if cut, ok := probeSelectionCut(); ok {
+			delPairs = false // selection resolved: plain Backspaces suffice
+			if cut == res.Backs {
+				res.Backs = 0 // the selection WAS the text to replace
+			}
+		}
+	}
 	if (cfg.UseClipboard || gForceClip) && !res.KeyOut && len(res.Out) > 0 {
-		injectViaClipboard(res)
+		injectViaClipboard(res, delPairs)
 		return
 	}
 	inputs := make([]input, 0, res.Backs*4+len(res.Out)*2)
-	inputs = appendBackspaces(inputs, res.Backs)
+	inputs = appendBackspaces(inputs, res.Backs, delPairs)
 	for _, ch := range res.Out {
 		inputs = append(inputs,
 			keyEvent(0, ch, KEYEVENTF_UNICODE),
@@ -419,9 +434,16 @@ func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
 			WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NCMBUTTONDOWN, WM_NCXBUTTONDOWN:
 			gEngine.Reset()
 			gAutoCapNext = false
-			// A click may land the caret mid-text — forward-Delete there
-			// would erase a real character.
-			gCaretAtEnd = false
+			// A click inside the window already receiving keys may land the
+			// caret mid-text — forward-Delete there would erase a real
+			// character. A click on another window refocuses it; the field
+			// then typically selects all text or sits at end-of-text.
+			var pt point
+			pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+			w, _, _ := pWindowFromPoint.Call(
+				uintptr(uint32(pt.x)) | uintptr(uint32(pt.y))<<32)
+			clicked, _, _ := pGetAncestor.Call(w, GA_ROOT)
+			gCaretAtEnd = clicked != gLastKeyHwnd
 			if gChordPending {
 				gChordClean = false
 			}

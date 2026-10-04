@@ -193,14 +193,11 @@ func TestFlipVietKeyRapid(t *testing.T) {
 	}
 }
 
-// appendBackspaces must never emit a forward-Delete when the caret may be
-// mid-text (it would erase the real char after the caret — "bánh" lost its
-// 'n'), and must keep the Delete+Backspace pairing only for the end-of-text
-// selection case it was built for.
+// appendBackspaces must never emit a forward-Delete unless delPairs is set
+// — mid-text it would erase the real char after the caret ("bánh" lost its
+// 'n'). Pairs remain the fallback for end-of-text suggestions when no
+// cut-probe ran.
 func TestAppendBackspaces(t *testing.T) {
-	oldDel, oldEnd := gSafeDel, gCaretAtEnd
-	defer func() { gSafeDel, gCaretAtEnd = oldDel, oldEnd }()
-
 	vks := func(in []input) []uint16 {
 		out := make([]uint16, len(in))
 		for i, in := range in {
@@ -221,31 +218,14 @@ func TestAppendBackspaces(t *testing.T) {
 	}
 
 	// plain mode: Backspace only
-	gSafeDel = false
-	if got := vks(appendBackspaces(nil, 2)); !equal(got, []uint16{VK_BACK, VK_BACK, VK_BACK, VK_BACK}) {
+	if got := vks(appendBackspaces(nil, 2, false)); !equal(got, []uint16{VK_BACK, VK_BACK, VK_BACK, VK_BACK}) {
 		t.Fatalf("plain mode: got %v", got)
 	}
 
-	// safe mode, caret at end: Delete+Backspace pairs keep working
-	gSafeDel, gCaretAtEnd = true, true
+	// pair mode (selection unresolved, caret at end): Delete+Backspace
 	want := []uint16{VK_DELETE, VK_DELETE, VK_BACK, VK_BACK}
-	if got := vks(appendBackspaces(nil, 1)); !equal(got, want) {
-		t.Fatalf("safe-end mode: got %v", got)
-	}
-
-	// safe mode, caret mid-text: plain Backspace — no VK_DELETE and no
-	// Shift+Left (extending a live selection past the target eats the
-	// preceding char — "bánh" lost its 'b')
-	gCaretAtEnd = false
-	got := appendBackspaces(nil, 1)
-	for _, in := range got {
-		if in.Ki.wVk == VK_DELETE || in.Ki.wVk == VK_LEFT || in.Ki.wVk == VK_SHIFT {
-			t.Fatalf("mid-text mode emitted VK_DELETE/Shift+Left: %v", vks(got))
-		}
-	}
-	want = []uint16{VK_BACK, VK_BACK}
-	if !equal(vks(got), want) {
-		t.Fatalf("mid-text mode: got %v", vks(got))
+	if got := vks(appendBackspaces(nil, 1, true)); !equal(got, want) {
+		t.Fatalf("pair mode: got %v", got)
 	}
 }
 
