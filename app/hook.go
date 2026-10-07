@@ -40,9 +40,11 @@ func injectOutput(res Result) {
 	// Skipped while Shift is held so the injected chord stays a plain
 	// Ctrl+X — Ctrl+Shift+X opens side panels in a few apps.
 	delPairs := gSafeDel && gCaretAtEnd
+	var savedClip uintptr
 	if gSafeDel && res.Backs > 0 && !res.KeyOut && !gShiftHeld {
-		if cut, ok := probeSelectionCut(); ok {
+		if cut, saved, ok := probeSelectionCut(); ok {
 			delPairs = false // selection resolved: plain Backspaces suffice
+			savedClip = saved
 			if cut == res.Backs {
 				res.Backs = 0 // the selection WAS the text to replace
 			}
@@ -50,9 +52,25 @@ func injectOutput(res Result) {
 	}
 	if (cfg.UseClipboard || gForceClip) && !res.KeyOut && len(res.Out) > 0 {
 		injectViaClipboard(res, delPairs)
+		if savedClip != 0 {
+			comRelease(savedClip)
+		}
 		return
 	}
-	inputs := make([]input, 0, res.Backs*4+len(res.Out)*2)
+	inputs := make([]input, 0, res.Backs*4+len(res.Out)*2+4)
+	if savedClip != 0 && !gNoGuard {
+		// The probe resolved the selection as of a moment ago, but an
+		// omnibox can attach a NEW suggestion tail asynchronously at any
+		// point — including during the probe's clipboard wait. A bare
+		// Backspace then deletes the tail instead of the char ("hôm" →
+		// "hoôm"). This guard Ctrl+X rides in the same batch: no-op when
+		// nothing is selected, cuts whatever tail exists when the
+		// backspaces execute. If it does cut, restoreClipboardLater puts
+		// the user's clipboard back.
+		inputs = append(inputs,
+			keyEvent(VK_CONTROL, 0, 0), keyEvent('X', 0, 0),
+			keyEvent('X', 0, KEYEVENTF_KEYUP), keyEvent(VK_CONTROL, 0, KEYEVENTF_KEYUP))
+	}
 	inputs = appendBackspaces(inputs, res.Backs, delPairs)
 	for _, ch := range res.Out {
 		inputs = append(inputs,
@@ -60,9 +78,15 @@ func injectOutput(res Result) {
 			keyEvent(0, ch, KEYEVENTF_UNICODE|KEYEVENTF_KEYUP))
 	}
 	if len(inputs) > 0 {
+		seq0, _, _ := pClipboardSeq.Call()
 		gSending = true
 		sendInput(inputs)
 		gSending = false
+		if savedClip != 0 {
+			restoreClipboardLater(savedClip, seq0)
+		}
+	} else if savedClip != 0 {
+		comRelease(savedClip)
 	}
 }
 
@@ -368,7 +392,8 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 	gHookSeen++
 	if nCode == 0 && !gSending { // HC_ACTION
 		p := (*kbdLLHookStruct)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam)))
-		if p.flags&(LLKHF_INJECTED|LLKHF_LOWER_IL_INJECTED) == 0 {
+		injected := p.flags&(LLKHF_INJECTED|LLKHF_LOWER_IL_INJECTED) != 0
+		if !injected || (gTestMagic != 0 && p.dwExtraInfo == gTestMagic) {
 			switch wParam {
 			case WM_KEYUP, WM_SYSKEYUP:
 				switch p.vkCode {

@@ -20,7 +20,7 @@ var stderrFile *os.File       // keeps the stderr handle alive for fatal dumps
 
 // appVersion is injected at release time via -ldflags "-X main.appVersion=…";
 // local builds keep this default.
-var appVersion = "0.0.1"
+var appVersion = "0.0.4"
 
 // recoverCrash must be deferred as `defer func() { recoverCrash(tag, recover()) }()`
 // in every windows.NewCallback path — recover() only works when called directly
@@ -208,6 +208,7 @@ func main() {
 	settingsExisted := loadSettings()
 	gEngine.SetVietKey(gVietKey)
 	logLine("main: after loadSettings")
+	logLine(fmt.Sprintf("main: testMagic=%d", gTestMagic))
 
 	// hidden message-only window for tray callbacks
 	className := utf16ptr("BoGoTiengVietWnd")

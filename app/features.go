@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -89,6 +91,21 @@ var gSafeDelExes = map[string]bool{
 	"explorer.exe": true,
 }
 var gAutoCapNext = false
+
+// Test hook: when TUIGO_TEST_MAGIC is set to a nonzero value, keystrokes
+// injected via SendInput carrying that exact dwExtraInfo are fed through
+// the engine like real keys — lets an external driver exercise the full
+// pipeline (engine + probe + injection) against real apps. Zero (unset)
+// disables it; our own SendInput events carry dwExtraInfo=0 so they can
+// never match.
+var gTestMagic = func() uintptr {
+	v, _ := strconv.ParseUint(os.Getenv("TUIGO_TEST_MAGIC"), 0, 64)
+	return uintptr(v)
+}()
+
+// TUIGO_NO_GUARD disables the in-batch Ctrl+X selection guard — kept for
+// A/B regression-testing the omnibox fix.
+var gNoGuard = os.Getenv("TUIGO_NO_GUARD") != ""
 
 // ---- layout / foreground app ----------------------------------------------
 
@@ -283,20 +300,20 @@ func appendBackspaces(inputs []input, n int, delPairs bool) []input {
 
 // probeSelectionCut asks the focused field to cut its active selection and
 // watches the clipboard sequence number. Returns the number of UTF-16
-// units that were cut (0 when nothing was selected) and whether the probe
-// succeeded at all — on failure the caller must fall back to the caret
-// heuristic.
+// units that were cut (0 when nothing was selected), the saved clipboard
+// snapshot (caller releases it — possibly via restoreClipboardLater), and
+// whether the probe succeeded at all — on failure the caller must fall
+// back to the caret heuristic.
 //
 // This resolves the ambiguity keystrokes alone cannot: after typing 'a'
 // in an omnibox the field may hold no selection, an inline suggestion
 // tail, or may even have selected the 'a' itself (Edge). Only a real
 // selection change tells them apart. Ctrl+X with no selection is a no-op,
 // and the user's clipboard is preserved via an OleGetClipboard snapshot.
-func probeSelectionCut() (cut int, ok bool) {
-	var saved uintptr
+func probeSelectionCut() (cut int, saved uintptr, ok bool) {
 	pOleInitialize.Call(0)
 	if r, _, _ := pOleGetClipboard.Call(uintptr(unsafe.Pointer(&saved))); int32(r) < 0 || saved == 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	seq0, _, _ := pClipboardSeq.Call()
 	gSending = true
@@ -314,17 +331,35 @@ func probeSelectionCut() (cut int, ok bool) {
 		if seq != seq0 {
 			cut = clipboardTextLen()
 			pOleSetClipboard.Call(saved) // hand the user's clipboard back
-			comRelease(saved)
-			return cut, true
+			return cut, saved, true
 		}
 		if time.Now().After(deadline) {
 			// No clipboard write: no selection was active (or the field
 			// refuses to cut) — nothing was clobbered.
-			comRelease(saved)
-			return 0, true
+			return 0, saved, true
 		}
 		time.Sleep(time.Millisecond)
 	}
+}
+
+// restoreClipboardLater releases the probe's saved clipboard snapshot,
+// first giving the injected batch a moment to execute: if a late-arriving
+// suggestion tail got cut by the batch's guard Ctrl+X, the clipboard
+// sequence will have moved and the user's real clipboard is put back.
+// Runs off-thread because the wait must not stall the keyboard hook.
+func restoreClipboardLater(saved uintptr, seq0 uintptr) {
+	go func() {
+		defer func() { recoverCrash("cliprestore", recover()) }()
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		time.Sleep(60 * time.Millisecond)
+		pOleInitialize.Call(0)
+		defer pOleUninitialize.Call()
+		if seq, _, _ := pClipboardSeq.Call(); seq != seq0 {
+			pOleSetClipboard.Call(saved)
+		}
+		comRelease(saved)
+	}()
 }
 
 // clipboardTextLen returns the length in UTF-16 units of the text

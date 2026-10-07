@@ -46,6 +46,7 @@ var (
 	pClipboardSeq      = user32.NewProc("GetClipboardSequenceNumber")
 
 	pOleInitialize      = ole32dll.NewProc("OleInitialize")
+	pOleUninitialize    = ole32dll.NewProc("OleUninitialize")
 	pOleGetClipboard    = ole32dll.NewProc("OleGetClipboard")
 	pOleSetClipboard    = ole32dll.NewProc("OleSetClipboard")
 	pMessageBox         = user32.NewProc("MessageBoxW")
