@@ -177,6 +177,10 @@ func flipVietKey() bool {
 		return true
 	}
 	gVietKey = !gVietKey
+	// The global toggle is the master switch: drop every per-app override
+	// so an excluded app toggled on earlier returns to exclusion — without
+	// this it stays un-excluded for the whole session with no way back.
+	gPerAppViet = map[string]bool{}
 	gEngine.SetVietKey(gVietKey) // off: pass-through, macros still expand
 	return true
 }
