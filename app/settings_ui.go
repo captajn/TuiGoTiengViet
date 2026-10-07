@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -80,6 +83,21 @@ const (
 var (
 	rethemed      bool
 	gSettingsHwnd uintptr
+	gSettingsIcon uintptr // cached — loadAppIcon creates a new HICON each call
+
+	// appBuildStamp is the running exe's modification time — the "last
+	// update" shown in the footer. The updater replaces the exe in place,
+	// so its mtime tracks the installed build.
+	appBuildStamp = func() string {
+		exe, err := os.Executable()
+		if err == nil {
+			if fi, err := os.Stat(exe); err == nil {
+				return fi.ModTime().Format("02/01/2006 15:04")
+			}
+		}
+		return "?"
+	}()
+
 	ctlHnd        = map[int]uintptr{}
 	allCtls       []uintptr
 	goldCtls      = map[uintptr]bool{}
@@ -732,7 +750,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
 	st2 := rect{sx + dp(18), ftRc.top + dp(25), statusRight, ftRc.top + dp(44)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Phiên bản "+appVersion+" | Cập nhật lần cuối: 2026"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Phiên bản "+appVersion+" | Cập nhật lần cuối: "+appBuildStamp))),
 		^uintptr(0), uintptr(unsafe.Pointer(&st2)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -850,7 +868,10 @@ func drawCheckbox(di *drawItemStruct) {
 		pSelectObject.Call(dc, oldP)
 		pSelectObject.Call(dc, oldB)
 
-		oldP2, _, _ := pSelectObject.Call(dc, penWhite2)
+		// A fat check mark reads at a glance; a 1-2px tick on tinted jade
+		// looked like noise at smaller sizes.
+		chkPen, _, _ := pCreatePen.Call(PS_SOLID, uintptr(max(int32(2), dp(3))), 0xFFFFFF)
+		oldP2, _, _ := pSelectObject.Call(dc, chkPen)
 		pts := []point{
 			{bx + dp(4), by + dp(9)},
 			{bx + dp(7), by + dp(13)},
@@ -858,9 +879,12 @@ func drawCheckbox(di *drawItemStruct) {
 		}
 		pPolyline.Call(dc, uintptr(unsafe.Pointer(&pts[0])), uintptr(len(pts)))
 		pSelectObject.Call(dc, oldP2)
+		pDeleteObject.Call(chkPen)
 	} else {
+		// penBorder is nearly invisible on both palettes — same treatment
+		// as the unselected radio ring (muted gray outline).
 		oldB, _, _ := pSelectObject.Call(dc, brHero)
-		oldP, _, _ := pSelectObject.Call(dc, penBorder)
+		oldP, _, _ := pSelectObject.Call(dc, penMuted)
 		pRoundRect.Call(dc, uintptr(bx), uintptr(by), uintptr(bx+boxS), uintptr(by+boxS), uintptr(dp(4)), uintptr(dp(4)))
 		pSelectObject.Call(dc, oldP)
 		pSelectObject.Call(dc, oldB)
@@ -1273,7 +1297,7 @@ func buildControls(h uintptr) {
 	}
 	layoutAll()
 	syncControls()
-	setTab(0)
+	setTab(gActiveTab) // reopen on the tab the user last had open
 }
 
 func place(id int, x, y, w, h int32) {
@@ -1981,15 +2005,32 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	case WM_CLOSE:
-		pShowWindow.Call(hwnd, SW_HIDE)
+		// Destroy rather than hide: a hidden settings window keeps ~10MB
+		// of controls, paint buffers and Go heap alive forever. Reopening
+		// rebuilds everything via WM_CREATE anyway.
+		pDestroyWindow.Call(hwnd)
 		return 0
 	case WM_DESTROY:
 		gSettingsHwnd = 0
 		gCaptionHover, gCaptionDown = -1, -1
+		deleteGdiObj(&fontNormal)
+		deleteGdiObj(&fontBold)
+		deleteGdiObj(&fontTitle)
+		deleteGdiObj(&fontSection)
+		deleteGdiObj(&fontHint)
+		deleteGdiObj(&fontTagline)
 		if rethemed {
 			rethemed = false
 			applyTheme()
 			openSettings()
+		} else {
+			// The window's controls and buffers are now garbage — hand the
+			// freed pages back so idle RSS drops again after the UI closes.
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				runtime.GC()
+				debug.FreeOSMemory()
+			}()
 		}
 		return 0
 	}
@@ -2054,7 +2095,10 @@ func openSettings() {
 		return
 	}
 	cls := utf16ptr("BoGoSettingsWnd")
-	hIcon := loadAppIcon()
+	if gSettingsIcon == 0 {
+		gSettingsIcon = loadAppIcon()
+	}
+	hIcon := gSettingsIcon
 	wc := wndClassEx{
 		cbSize:        uint32(unsafe.Sizeof(wndClassEx{})),
 		style:         0x0008, // CS_DBLCLKS: double-click titlebar to maximize

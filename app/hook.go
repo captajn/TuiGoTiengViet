@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 	"unsafe"
 )
@@ -41,14 +42,30 @@ func injectOutput(res Result) {
 	// Ctrl+X — Ctrl+Shift+X opens side panels in a few apps.
 	delPairs := gSafeDel && gCaretAtEnd
 	var savedClip uintptr
+	guarded := false
 	if gSafeDel && res.Backs > 0 && !res.KeyOut && !gShiftHeld {
-		if cut, saved, ok := probeSelectionCut(); ok {
+		cut, saved, ok := probeSelectionCut()
+		if ok {
 			delPairs = false // selection resolved: plain Backspaces suffice
 			savedClip = saved
 			if cut == res.Backs {
 				res.Backs = 0 // the selection WAS the text to replace
 			}
 		}
+		// An omnibox attaches its suggestion tail asynchronously — during
+		// the probe's clipboard wait, and between any two events of our
+		// own batch (Firefox refills fast). A bare Backspace then deletes
+		// the tail instead of the char ("hôm" → "hoôm"). Guard EVERY
+		// backspace with Ctrl+X riding in the same batch: no-op when
+		// nothing is selected, cuts whatever tail exists when that
+		// backspace executes. A successful probe's snapshot lets
+		// restoreClipboardLater undo a guard cut; a failed probe still
+		// guards — a real user selection here is far rarer than a tail.
+		// delPairs already carries a per-step selection-clearing Delete,
+		// so pairs need no X.
+		guarded = !delPairs && !gNoGuard
+		logLine(fmt.Sprintf("inject: backs=%d cut=%d ok=%v caretEnd=%v guard=%v",
+			res.Backs, cut, ok, gCaretAtEnd, guarded))
 	}
 	if (cfg.UseClipboard || gForceClip) && !res.KeyOut && len(res.Out) > 0 {
 		injectViaClipboard(res, delPairs)
@@ -57,21 +74,15 @@ func injectOutput(res Result) {
 		}
 		return
 	}
-	inputs := make([]input, 0, res.Backs*4+len(res.Out)*2+4)
-	if savedClip != 0 && !gNoGuard {
-		// The probe resolved the selection as of a moment ago, but an
-		// omnibox can attach a NEW suggestion tail asynchronously at any
-		// point — including during the probe's clipboard wait. A bare
-		// Backspace then deletes the tail instead of the char ("hôm" →
-		// "hoôm"). This guard Ctrl+X rides in the same batch: no-op when
-		// nothing is selected, cuts whatever tail exists when the
-		// backspaces execute. If it does cut, restoreClipboardLater puts
-		// the user's clipboard back.
-		inputs = append(inputs,
-			keyEvent(VK_CONTROL, 0, 0), keyEvent('X', 0, 0),
-			keyEvent('X', 0, KEYEVENTF_KEYUP), keyEvent(VK_CONTROL, 0, KEYEVENTF_KEYUP))
+	inputs := make([]input, 0, res.Backs*6+len(res.Out)*2+4)
+	for i := 0; i < res.Backs; i++ {
+		if guarded {
+			inputs = append(inputs,
+				keyEvent(VK_CONTROL, 0, 0), keyEvent('X', 0, 0),
+				keyEvent('X', 0, KEYEVENTF_KEYUP), keyEvent(VK_CONTROL, 0, KEYEVENTF_KEYUP))
+		}
+		inputs = appendBackspaces(inputs, 1, delPairs)
 	}
-	inputs = appendBackspaces(inputs, res.Backs, delPairs)
 	for _, ch := range res.Out {
 		inputs = append(inputs,
 			keyEvent(0, ch, KEYEVENTF_UNICODE),
