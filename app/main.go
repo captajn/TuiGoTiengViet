@@ -69,8 +69,14 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		switch uint32(lp) {
 		case WM_RBUTTONUP, WM_CONTEXTMENU:
 			showTrayMenu()
-		case WM_LBUTTONUP, WM_LBUTTONDBLCLK:
-			openSettings() // click opens the panel; V/E toggles via hotkey/menu
+		case WM_LBUTTONUP:
+			// Defer the toggle past the double-click window: a following
+			// DBLCLK opens settings instead — firing now would toggle twice.
+			t, _, _ := pGetDoubleClickTime.Call()
+			pSetTimer.Call(gHwnd, 4, t, 0)
+		case WM_LBUTTONDBLCLK:
+			pKillTimer.Call(gHwnd, 4)
+			openSettings()
 		}
 		return 0
 	case WM_COMMAND:
@@ -94,6 +100,11 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case WM_TIMER:
+		if wp == 4 { // deferred tray single-click — no double-click followed
+			pKillTimer.Call(gHwnd, 4)
+			toggleVietKey("tray-icon")
+			return 0
+		}
 		if wp == 3 {
 			syncTrayState()
 			return 0
