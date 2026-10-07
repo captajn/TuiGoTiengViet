@@ -84,6 +84,9 @@ var (
 	rethemed      bool
 	gSettingsHwnd uintptr
 	gSettingsIcon uintptr // cached — loadAppIcon creates a new HICON each call
+	// Cached once: the settings window is created/destroyed repeatedly and
+	// every NewCallback call permanently allocates a runtime callback thunk.
+	settingsProcCb uintptr
 
 	// appBuildStamp is the running exe's modification time — the "last
 	// update" shown in the footer. The updater replaces the exe in place,
@@ -1354,6 +1357,18 @@ func imIdx(im int) int {
 	return 0
 }
 
+// repaintRadioGroup refreshes the three "Chế độ gõ" cards. They are child
+// HWNDs — InvalidateRect on the parent never reaches them, so without this
+// the previously selected card kept its stale "selected" pixels next to the
+// freshly clicked one.
+func repaintRadioGroup() {
+	for _, id := range []int{cRadioTelex, cRadioVni, cRadioViqr} {
+		if h := ctlHnd[id]; h != 0 {
+			pInvalidateRect.Call(h, 0, 1)
+		}
+	}
+}
+
 func setIM(im int) {
 	setInputMethod(im)
 	if ctlHnd[cIMCombo] != 0 {
@@ -1869,7 +1884,9 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 				case captionMaximize:
 					toggleSettingsMaximize(hwnd)
 				case captionClose:
-					pShowWindow.Call(hwnd, SW_HIDE)
+					// Destroy, same as WM_CLOSE: hiding keeps ~10MB of
+					// controls and buffers alive with no path to free them.
+					pDestroyWindow.Call(hwnd)
 				}
 			}
 			return 0
@@ -2006,6 +2023,10 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 				time.Sleep(200 * time.Millisecond)
 				runtime.GC()
 				debug.FreeOSMemory()
+				// FreeOSMemory decommits free spans but they still count in
+				// the working set until the memory manager trims — (HANDLE)-1,
+				// -1, -1 asks Windows to do it now so Task Manager shows it.
+				pTrimWorkingSet.Call(^uintptr(0), ^uintptr(0), ^uintptr(0))
 			}()
 		}
 		return 0
@@ -2071,14 +2092,17 @@ func openSettings() {
 		return
 	}
 	cls := utf16ptr("BoGoSettingsWnd")
+	if settingsProcCb == 0 {
+		settingsProcCb = windows.NewCallback(settingsProc)
+	}
 	if gSettingsIcon == 0 {
 		gSettingsIcon = loadAppIcon()
 	}
 	hIcon := gSettingsIcon
 	wc := wndClassEx{
 		cbSize:        uint32(unsafe.Sizeof(wndClassEx{})),
-		style:         0x0008, // CS_DBLCLKS: double-click titlebar to maximize
-		lpfnWndProc:   windows.NewCallback(settingsProc),
+		style:         0x0008,         // CS_DBLCLKS: double-click titlebar to maximize
+		lpfnWndProc:   settingsProcCb, // cached — each NewCallback grows the runtime's callback table
 		hIcon:         hIcon,
 		hIconSm:       hIcon,
 		hCursor:       loadArrowCursor(),

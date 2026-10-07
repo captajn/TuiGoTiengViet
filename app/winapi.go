@@ -96,6 +96,7 @@ var (
 	pSetStretchBltMode      = gdi32.NewProc("SetStretchBltMode")
 
 	pGetModuleHandle  = kern32.NewProc("GetModuleHandleW")
+	pTrimWorkingSet   = kern32.NewProc("SetProcessWorkingSetSize")
 	pExtractIcon      = sh32.NewProc("ExtractIconW")
 	pDwmSetWndAttr    = dwmapi.NewProc("DwmSetWindowAttribute")
 	pSetWindowTheme   = uxtheme.NewProc("SetWindowTheme")
