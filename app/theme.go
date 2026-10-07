@@ -13,68 +13,100 @@ var (
 	colCard        uintptr // card fill
 	colBorder      uintptr // card/pill border
 	colText        uintptr // primary text
-	colGold        uintptr // 鎏金 hoàng kim accent — branding, title, border glow
-	colAmber       uintptr // 琥珀 hổ phách — glowing paw, accents
-	colJade        uintptr // 灵玉 ngọc bích / mint — HUD dot, active switches
-	colVermilion   uintptr // 朱砂 chu sa — stamps, badges, red seal
+	colGold        uintptr // primary accent (modern azure blue)
+	colAmber       uintptr // secondary accent
+	colJade        uintptr // active switch / indicator (emerald)
+	colVermilion   uintptr // badges / alerts
 	colMuted       uintptr // secondary text
 	colPill        uintptr // switch off track
-	colGoldDim     uintptr // 鎏金 phai — ornament hairlines, celestial arcs
-	colBtnBg       uintptr // owner-drawn button background
-	colBtnHover    uintptr // button hover / active
+	colGoldDim     uintptr // subtle divider / keycap border
+	colBtnBg       uintptr // button background
+	colBtnHover    uintptr // button hover
 	colBtnBorder   uintptr // button border
 	colBtnText     uintptr // button text
 	colNavActiveBg uintptr // active sidebar nav tab fill
 	colNavActiveBd uintptr // active sidebar nav tab border
+
+	// GDI+ 32-bit ARGB tokens for smooth anti-aliased rendering
+	argbBg        uint32
+	argbCard      uint32
+	argbBorder    uint32
+	argbText      uint32
+	argbMuted     uint32
+	argbAccent    uint32
+	argbSwitchOn  uint32
+	argbSwitchOff uint32
+	argbKeycap    uint32
 )
 
 type palette struct {
 	bg, card, border, text, gold, amber, jade, vermilion uintptr
 	muted, pill, goldDim, btnBg, btnHover, btnBorder     uintptr
 	btnText, navActiveBg, navActiveBd                    uintptr
+	aBg, aCard, aBorder, aText, aMuted, aAccent          uint32
+	aSwitchOn, aSwitchOff, aKeycap                       uint32
 }
 
-// 墨青·夜 (Mặc Thanh · Dạ) — theo promo tiên hiệp: nền lam-ngọc sâu,
-// card ngọc bích, vàng đồng cổ ấm, công tắc ngọc bích phát sáng.
+// Minimal Obsidian / Deep Zinc Dark Mode (Liquid Glass với tông xanh lá ngọc bích theo logo)
 var palDark = palette{
-	bg:          0x25211B, // #1B2125 slate
-	card:        0x302B24, // #242B30
-	border:      0x443D34, // #343D44
-	text:        0xEDF2EF, // #EFF2ED
-	gold:        0x78B9D8,
-	amber:       0x63C5F2,
-	jade:        0xB9D46C, // #6CD4B9
-	vermilion:   0x697BEB,
-	muted:       0xAAA89C, // #9CA8AA
-	pill:        0x494237,
-	goldDim:     0x667D88,
-	btnBg:       0x39322A,
-	btnHover:    0x473F34,
-	btnBorder:   0x5A5145,
-	btnText:     0xEDF2EF,
-	navActiveBg: 0x3B3D24, // #243D3B
-	navActiveBd: 0x3B3D24,
+	bg:          0x15110F, // #0F1115
+	card:        0x201A18, // #181A20
+	border:      0x352B27, // #272B35
+	text:        0xFCFAF8, // #F8FAFC
+	gold:        0xB8D33E, // #3ED3B8 xanh lá ngọc bích dạ quang (luminous mint jade)
+	amber:       0x70CDBB, // #BBCD70
+	jade:        0xB8D33E, // #3ED3B8 xanh lá ngọc bích
+	vermilion:   0x4444EF, // #EF4444
+	muted:       0xB8A394, // #94A3B8
+	pill:        0x463833, // #333846
+	goldDim:     0x3B291E, // #1E293B
+	btnBg:       0x302622, // #222630
+	btnHover:    0x40332D, // #2D3340
+	btnBorder:   0x55443D, // #3D4455
+	btnText:     0xFCFAF8, // #F8FAFC
+	navActiveBg: 0x3B3D24, // #243D3B nền ngọc bích trầm
+	navActiveBd: 0xB8D33E, // #3ED3B8 viền ngọc bích
+
+	aBg:        0xFF0F1115,
+	aCard:      0xFF181A20,
+	aBorder:    0xFF272B35,
+	aText:      0xFFF8FAFC,
+	aMuted:     0xFF94A3B8,
+	aAccent:    0xFF3ED3B8, // #3ED3B8 Xanh lá ngọc bích chủ đạo theo logo
+	aSwitchOn:  0xFF3ED3B8, // #3ED3B8
+	aSwitchOff: 0xFF333846,
+	aKeycap:    0xFF222630,
 }
 
-// Warm white, readable secondary text, and a soft mint selection surface.
+// Minimal Pristine Slate / Pure White Light Mode với tông xanh lá ngọc bích theo logo
 var palLight = palette{
-	bg:          0xF5F7F7, // #F7F7F5
-	card:        0xFFFFFF,
-	border:      0xDFE5E3, // #E3E5DF
-	text:        0x2C3024, // #24302C
-	gold:        0x2E7CA6,
-	amber:       0x1F7FC7,
-	jade:        0x647F19, // #197F64
-	vermilion:   0x2437B3,
-	muted:       0x697568, // #687569
-	pill:        0xD9E0DC,
-	goldDim:     0xBAC8CF,
-	btnBg:       0xFFFFFF,
-	btnHover:    0xEDF3F0,
-	btnBorder:   0xC8D3CD,
-	btnText:     0x2C3024,
-	navActiveBg: 0xE7F0E2, // #E2F0E7
-	navActiveBd: 0xE7F0E2,
+	bg:          0xFCFAF8, // #F8FAFC
+	card:        0xFFFFFF, // #FFFFFF
+	border:      0xF0E8E2, // #E2E8F0
+	text:        0x2A170F, // #0F172A
+	gold:        0x647F19, // #197F64 xanh lá ngọc bích trầm (rich jade green)
+	amber:       0x409E2E, // #2E9E40
+	jade:        0x647F19, // #197F64 xanh lá ngọc bích
+	vermilion:   0x2626DC, // #DC2626
+	muted:       0x8B7464, // #64748B
+	pill:        0xE1D5CB, // #CBD5E1
+	goldDim:     0xF0E8E2, // #E2E8F0
+	btnBg:       0xFFFFFF, // #FFFFFF
+	btnHover:    0xF9F5F1, // #F1F5F9
+	btnBorder:   0xE1D5CB, // #CBD5E1
+	btnText:     0x2A170F, // #0F172A
+	navActiveBg: 0xE7F0E2, // #E2F0E7 nền ngọc bích sáng dịu
+	navActiveBd: 0x647F19, // #197F64 viền ngọc bích
+
+	aBg:        0xFFF8FAFC,
+	aCard:      0xFFFFFFFF,
+	aBorder:    0xFFE2E8F0,
+	aText:      0xFF0F172A,
+	aMuted:     0xFF64748B,
+	aAccent:    0xFF197F64, // #197F64 Xanh lá ngọc bích chủ đạo theo logo
+	aSwitchOn:  0xFF197F64, // #197F64
+	aSwitchOff: 0xFFCBD5E1,
+	aKeycap:    0xFFF1F5F9,
 }
 
 const (
@@ -128,6 +160,9 @@ func applyTheme() {
 	colPill, colGoldDim = p.pill, p.goldDim
 	colBtnBg, colBtnHover, colBtnBorder = p.btnBg, p.btnHover, p.btnBorder
 	colBtnText, colNavActiveBg, colNavActiveBd = p.btnText, p.navActiveBg, p.navActiveBd
+	argbBg, argbCard, argbBorder = p.aBg, p.aCard, p.aBorder
+	argbText, argbMuted, argbAccent = p.aText, p.aMuted, p.aAccent
+	argbSwitchOn, argbSwitchOff, argbKeycap = p.aSwitchOn, p.aSwitchOff, p.aKeycap
 
 	// clean up existing brushes/pens
 	deleteGdiObj(&brBg)

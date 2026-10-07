@@ -169,6 +169,9 @@ const (
 	cSound
 	cShowHud
 	cTheme
+	cThemeAuto
+	cThemeLight
+	cThemeDark
 	cToggleCombo
 	cExcludeEdit
 	cCharset
@@ -429,40 +432,29 @@ func toggleSettingsMaximize(hwnd uintptr) {
 }
 
 func updateSettingsRegion(hwnd uintptr) {
-	if zoomed, _, _ := pIsZoomed.Call(hwnd); zoomed != 0 {
-		pSetWindowRgn.Call(hwnd, 0, 1) // square screen edges when maximized
-		return
-	}
-	var r rect
-	pGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
-	w, h := r.right-r.left, r.bottom-r.top
-	if w <= 0 || h <= 0 {
-		return
-	}
-	rgn, _, _ := pCreateRoundRectRgn.Call(0, 0, uintptr(w+1), uintptr(h+1), uintptr(dp(18)), uintptr(dp(18)))
-	if rgn != 0 {
-		if ok, _, _ := pSetWindowRgn.Call(hwnd, rgn, 1); ok == 0 {
-			pDeleteObject.Call(rgn) // SetWindowRgn owns it only on success
-		}
-	}
+	applyWindowChrome(hwnd)
 }
 
-// Top titlebar: brand, subtitle, and system-style window controls.
+// Top titlebar: minimalist brand, subtitle, and system-style window controls.
 func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
-	drawAppMascot(dc, dp(14), dp(6), dp(36), dp(36), dp(8))
+	gfx := NewGfx(dc)
+	if gfx != nil {
+		drawMinimalBrandMark(gfx, float32(dp(16)), float32(dp(8)), float32(dp(32)))
+		gfx.Destroy()
+	}
 
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontTitle)
-	trc := rect{dp(58), dp(7), dp(280), dp(29)}
+	trc := rect{dp(60), dp(7), dp(280), dp(29)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	sbc := rect{dp(58), dp(27), dp(280), dp(43)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Gõ tiếng Việt thông minh hơn"))),
+	sbc := rect{dp(60), dp(27), dp(280), dp(43)}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Gõ tiếng Việt tối giản & hiện đại"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sbc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -471,69 +463,64 @@ func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
 	drawWindowControls(dc, hwnd, winW)
 }
 
-// Sidebar navigation renderer
+// Sidebar navigation renderer with zero-aliased vector icons and liquid glass pills
 func drawNav(dc uintptr) {
+	gfx := NewGfx(dc)
+	defer func() {
+		if gfx != nil {
+			gfx.Destroy()
+		}
+	}()
+
 	for i := 0; i < len(tabItems); i++ {
 		r := navRect(i)
 		active := (i == gActiveTab)
+		hover := (i == gHoveredTab)
+
+		x, y, w, h := float32(r.left), float32(r.top), float32(r.right-r.left), float32(r.bottom-r.top)
+		radius := float32(dp(8))
 
 		if active {
-			oldB, _, _ := pSelectObject.Call(dc, brNavActive)
-			oldP, _, _ := pSelectObject.Call(dc, penNavActive)
-			pRoundRect.Call(dc, uintptr(r.left), uintptr(r.top),
-				uintptr(r.right), uintptr(r.bottom), uintptr(dp(10)), uintptr(dp(10)))
-			pSelectObject.Call(dc, oldP)
-			pSelectObject.Call(dc, oldB)
-
-			// Match the selected tab indicator to the functional jade accent.
-			gbar, _, _ := pCreateSolidBrush.Call(colJade)
-			oldB2, _, _ := pSelectObject.Call(dc, gbar)
-			nullPen, _, _ := pGetStockObject.Call(NULL_PEN)
-			oldP2, _, _ := pSelectObject.Call(dc, nullPen)
-			pRoundRect.Call(dc, uintptr(r.left+dp(4)), uintptr(r.top+dp(10)),
-				uintptr(r.left+dp(7)), uintptr(r.bottom-dp(10)), uintptr(dp(3)), uintptr(dp(3)))
-			pSelectObject.Call(dc, oldP2)
-			pSelectObject.Call(dc, oldB2)
-			pDeleteObject.Call(gbar)
-		} else if i == gHoveredTab {
-			oldB, _, _ := pSelectObject.Call(dc, brCard)
-			nullPen, _, _ := pGetStockObject.Call(NULL_PEN)
-			oldP, _, _ := pSelectObject.Call(dc, nullPen)
-			pRoundRect.Call(dc, uintptr(r.left), uintptr(r.top),
-				uintptr(r.right), uintptr(r.bottom), uintptr(dp(10)), uintptr(dp(10)))
-			pSelectObject.Call(dc, oldP)
-			pSelectObject.Call(dc, oldB)
+			if gfx != nil {
+				// Liquid glass active pill
+				bgTop := HexAlphaARGB(0x35, argbAccent&0x00FFFFFF)
+				bgBottom := HexAlphaARGB(0x18, argbAccent&0x00FFFFFF)
+				gfx.FillRoundedRectGradient(x, y, w, h, radius, bgTop, bgBottom)
+				gfx.DrawRoundedRect(x, y, w, h, radius, HexAlphaARGB(0x60, argbAccent&0x00FFFFFF), 1.0)
+				// Left indicator bar
+				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(8)), float32(dp(3)), h-float32(dp(16)), 1.5, argbAccent)
+			}
+		} else if hover {
+			if gfx != nil {
+				gfx.FillRoundedRect(x, y, w, h, radius, HexAlphaARGB(0x18, 0xFFFFFF))
+			}
 		}
 
-		iconCol := colMuted
+		iconCol := argbMuted
 		if active {
-			iconCol = colJade
+			iconCol = argbAccent
 		}
-		ix := r.left + dp(14)
-		iy := r.top + (r.bottom-r.top-dp(20))/2
-		iconBg := colBg
-		if active {
-			iconBg = colNavActiveBg
-		} else if i == gHoveredTab {
-			iconBg = colCard
+		ix := float32(r.left + dp(16))
+		iy := float32(r.top + (r.bottom-r.top)/2)
+		if gfx != nil {
+			drawSmoothVectorIcon(gfx, ix+float32(dp(8)), iy, float32(dp(18)), i, iconCol)
 		}
-		drawNavIcon(dc, ix, iy, dp(20), i, iconCol, iconBg)
 
 		pSetBkMode.Call(dc, TRANSPARENT)
 		titleColor := colText
 		if active {
-			titleColor = colJade
+			titleColor = colGold
 		}
 		pSetTextColor.Call(dc, titleColor)
 		oldF, _, _ := pSelectObject.Call(dc, fontBold)
-		trc := rect{r.left + dp(42), r.top + dp(6), r.right - dp(6), r.top + dp(24)}
+		trc := rect{r.left + dp(46), r.top + dp(6), r.right - dp(6), r.top + dp(24)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabItems[i].name))),
 			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 		pSetTextColor.Call(dc, colMuted)
 		pSelectObject.Call(dc, fontHint)
-		drc := rect{r.left + dp(42), r.top + dp(24), r.right - dp(6), r.bottom - dp(4)}
+		drc := rect{r.left + dp(46), r.top + dp(24), r.right - dp(6), r.bottom - dp(4)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabItems[i].desc))),
 			^uintptr(0), uintptr(unsafe.Pointer(&drc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -563,12 +550,12 @@ func drawTitleBlock(dc uintptr, cx, cw int32, title, desc string) {
 }
 
 func drawSettingsCard(dc uintptr, r rect) {
-	oldBrush, _, _ := pSelectObject.Call(dc, brCard)
-	oldPen, _, _ := pSelectObject.Call(dc, penBorder)
-	pRoundRect.Call(dc, uintptr(r.left), uintptr(r.top), uintptr(r.right), uintptr(r.bottom),
-		uintptr(dp(10)), uintptr(dp(10)))
-	pSelectObject.Call(dc, oldPen)
-	pSelectObject.Call(dc, oldBrush)
+	gfx := NewGfx(dc)
+	if gfx == nil {
+		return
+	}
+	defer gfx.Destroy()
+	gfx.DrawGlassCard(float32(r.left), float32(r.top), float32(r.right-r.left), float32(r.bottom-r.top), float32(dp(10)), isDark(), false)
 }
 
 func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
@@ -583,15 +570,16 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 		// The native EDIT has no border; this frame gives it the same shape and
 		// tint as the selected modifier keys.
 		field := rect{cx + dp(70), ct + dp(97), cx + dp(142), ct + dp(125)}
-		oldBrush, _, _ := pSelectObject.Call(dc, brRadioActive)
-		oldPen, _, _ := pSelectObject.Call(dc, penJade)
-		pRoundRect.Call(dc, uintptr(field.left), uintptr(field.top), uintptr(field.right), uintptr(field.bottom),
-			uintptr(dp(6)), uintptr(dp(6)))
-		pSelectObject.Call(dc, oldPen)
-		pSelectObject.Call(dc, oldBrush)
+		gfx := NewGfx(dc)
+		if gfx != nil {
+			fx, fy, fw, fh := float32(field.left), float32(field.top), float32(field.right-field.left), float32(field.bottom-field.top)
+			gfx.FillRoundedRect(fx, fy, fw, fh, float32(dp(6)), HexAlphaARGB(0x30, argbAccent&0x00FFFFFF))
+			gfx.DrawRoundedRect(fx, fy, fw, fh, float32(dp(6)), argbAccent, 1.2)
+			gfx.Destroy()
+		}
 	case 3: // Appearance, system, and app exclusions
-		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(264)})
-		drawSettingsCard(dc, rect{cx, ct + dp(276), cx + cw, ct + dp(398)})
+		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(268)})
+		drawSettingsCard(dc, rect{cx, ct + dp(274), cx + cw, ct + dp(388)})
 	}
 }
 
@@ -601,12 +589,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 
 	// Hero Card
 	heroRc := rect{cx, ct, cx + cw, ct + dp(56)}
-	oldB, _, _ := pSelectObject.Call(dc, brHero)
-	oldP, _, _ := pSelectObject.Call(dc, penBorder)
-	pRoundRect.Call(dc, uintptr(heroRc.left), uintptr(heroRc.top),
-		uintptr(heroRc.right), uintptr(heroRc.bottom), uintptr(dp(10)), uintptr(dp(10)))
-	pSelectObject.Call(dc, oldP)
-	pSelectObject.Call(dc, oldB)
+	drawSettingsCard(dc, heroRc)
 
 	// Hero Card text — status display only (no master switch, EVKey-style)
 	textX := cx + dp(18)
@@ -683,54 +666,22 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 		footerHeight = dp(64)
 	}
 	ftRc := rect{cx, ct + dp(336), cx + cw, ct + dp(336) + footerHeight}
-	oldB, _, _ = pSelectObject.Call(dc, brFooter)
-	oldP, _, _ = pSelectObject.Call(dc, penBorder)
-	pRoundRect.Call(dc, uintptr(ftRc.left), uintptr(ftRc.top),
-		uintptr(ftRc.right), uintptr(ftRc.bottom), uintptr(dp(10)), uintptr(dp(10)))
-	pSelectObject.Call(dc, oldP)
-	pSelectObject.Call(dc, oldB)
+	drawSettingsCard(dc, ftRc)
 
 	sx := cx + dp(22)
 	sy := ftRc.top + dp(24)
-	sr := dp(6)
-	sunCol := colJade
-	if !effectiveViet() {
-		sunCol = colMuted
+	gfx := NewGfx(dc)
+	if gfx != nil {
+		dotCol := argbSwitchOn
+		if !effectiveViet() {
+			dotCol = argbMuted
+		}
+		// Glowing outer ring
+		gfx.FillCircle(float32(sx), float32(sy), float32(dp(8)), HexAlphaARGB(0x28, dotCol&0x00FFFFFF))
+		// Core status dot
+		gfx.FillCircle(float32(sx), float32(sy), float32(dp(4)), dotCol)
+		gfx.Destroy()
 	}
-	sbr, _, _ := pCreateSolidBrush.Call(sunCol)
-	oldB, _, _ = pSelectObject.Call(dc, sbr)
-	nullP, _, _ := pGetStockObject.Call(NULL_PEN)
-	oldP, _, _ = pSelectObject.Call(dc, nullP)
-	pEllipse.Call(dc, uintptr(sx-sr), uintptr(sy-sr), uintptr(sx+sr), uintptr(sy+sr))
-	pSelectObject.Call(dc, oldP)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(sbr)
-
-	// Celestial radiating sun rays
-	sp, _, _ := pCreatePen.Call(PS_SOLID, 1, sunCol)
-	oldP, _, _ = pSelectObject.Call(dc, sp)
-	r1 := sr + dp(2)
-	r2 := sr + dp(4)
-	d1 := int32(float64(r1) * 0.707)
-	d2 := int32(float64(r2) * 0.707)
-	pMoveToEx.Call(dc, uintptr(sx+r1), uintptr(sy), 0)
-	pLineTo.Call(dc, uintptr(sx+r2), uintptr(sy))
-	pMoveToEx.Call(dc, uintptr(sx-r1), uintptr(sy), 0)
-	pLineTo.Call(dc, uintptr(sx-r2), uintptr(sy))
-	pMoveToEx.Call(dc, uintptr(sx), uintptr(sy+r1), 0)
-	pLineTo.Call(dc, uintptr(sx), uintptr(sy+r2))
-	pMoveToEx.Call(dc, uintptr(sx), uintptr(sy-r1), 0)
-	pLineTo.Call(dc, uintptr(sx), uintptr(sy-r2))
-	pMoveToEx.Call(dc, uintptr(sx+d1), uintptr(sy+d1), 0)
-	pLineTo.Call(dc, uintptr(sx+d2), uintptr(sy+d2))
-	pMoveToEx.Call(dc, uintptr(sx-d1), uintptr(sy+d1), 0)
-	pLineTo.Call(dc, uintptr(sx-d2), uintptr(sy+d2))
-	pMoveToEx.Call(dc, uintptr(sx+d1), uintptr(sy-d1), 0)
-	pLineTo.Call(dc, uintptr(sx+d2), uintptr(sy-d2))
-	pMoveToEx.Call(dc, uintptr(sx-d1), uintptr(sy-d1), 0)
-	pLineTo.Call(dc, uintptr(sx-d2), uintptr(sy-d2))
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(sp)
 
 	stTitle := "Tiếng Việt đang hoạt động"
 	if !effectiveViet() {
@@ -979,22 +930,11 @@ func drawLangBtn(di *drawItemStruct) {
 	rc := di.rcItem
 	pressed := di.itemState&ODS_SELECTED != 0
 
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
-
-	bgCol := colBtnBg
-	if pressed {
-		bgCol = colBtnHover
+	gfx := NewGfx(dc)
+	if gfx != nil {
+		gfx.DrawGlassCard(float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top), float32(dp(6)), isDark(), pressed)
+		gfx.Destroy()
 	}
-	bbr, _, _ := pCreateSolidBrush.Call(bgCol)
-	oldB, _, _ := pSelectObject.Call(dc, bbr)
-	pp, _, _ := pCreatePen.Call(PS_SOLID, 1, colBorder)
-	oldP, _, _ := pSelectObject.Call(dc, pp)
-	pRoundRect.Call(dc, uintptr(rc.left), uintptr(rc.top),
-		uintptr(rc.right), uintptr(rc.bottom), uintptr(dp(6)), uintptr(dp(6)))
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(pp)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(bbr)
 
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
@@ -1262,12 +1202,12 @@ func buildControls(h uintptr) {
 	// ---- Tab 3: Giao diện & Hệ thống ----
 	curTab = 3
 	stSysSection = addSection("GIAO DIỆN & HỆ THỐNG")
-	stLbTheme = addLabel("Giao diện")
-	cth := mkCtl(h, ctlDef{cTheme, "COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, "", 0, 0, 10, 10})
-	comboAdd(cth, []string{"Theo hệ thống", "Tối (Thanh Đại)", "Sáng (Bạch Ngọc)"}, cfg.Theme)
-	if isDark() {
-		darkCtl(cth)
-	}
+	btnIDs[cThemeAuto] = true
+	btnIDs[cThemeLight] = true
+	btnIDs[cThemeDark] = true
+	mkCtl(h, ctlDef{cThemeAuto, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Hệ thống", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeLight, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Sáng", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeDark, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Tối", 0, 0, 10, 10})
 	addSw(cShowHud, "Hiện thanh trạng thái nổi")
 	addSw(cSound, "Âm thanh khi chuyển chế độ")
 	addSw(cSkipLayout, "Tự tắt khi bàn phím không phải kiểu US")
@@ -1364,16 +1304,19 @@ func layoutAll() {
 
 	// Tab 3 — Giao diện & Hệ thống
 	place(stSysSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
-	place(stLbTheme, cx+dp(16), ct+dp(42), dp(76), dp(22))
-	place(cTheme, cx+dp(108), ct+dp(40), dp(194), dp(140))
+	btnW := (cw - dp(32) - dp(16)) / 3
+	place(cThemeAuto, cx+dp(16), ct+dp(38), btnW, dp(48))
+	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(38), btnW, dp(48))
+	place(cThemeDark, cx+dp(16)+2*(btnW+dp(8)), ct+dp(38), cw-dp(16)-(cx+dp(16)+2*(btnW+dp(8))), dp(48))
+
 	sysSw := []int{cShowHud, cSound, cSkipLayout, cClipboard, cAdmin, cShowDlg}
 	for row, id := range sysSw {
-		place(id, cx+dp(16), ct+dp(80)+int32(row)*dp(28), cw-dp(32), dp(26))
+		place(id, cx+dp(16), ct+dp(98)+int32(row)*dp(27), cw-dp(32), dp(26))
 	}
-	place(stExcludeSection, cx+dp(16), ct+dp(288), cw-dp(32), dp(20))
-	place(cExcludeBrowse, cx+dp(16), ct+dp(318), dp(120), dp(30))
-	place(cExcludeEdit, cx+dp(144), ct+dp(318), dp(170), dp(30))
-	place(stExcludeHint, cx+dp(16), ct+dp(356), cw-dp(32), dp(36))
+	place(stExcludeSection, cx+dp(16), ct+dp(278), cw-dp(32), dp(20))
+	place(cExcludeBrowse, cx+dp(16), ct+dp(306), dp(120), dp(30))
+	place(cExcludeEdit, cx+dp(144), ct+dp(306), dp(170), dp(30))
+	place(stExcludeHint, cx+dp(16), ct+dp(344), cw-dp(32), dp(36))
 
 	// Tab 4 — Giới thiệu (button sits inside the second card)
 	place(cUpdateBtn, cx+cw-dp(20)-dp(170), ct+dp(317), dp(170), dp(32))
@@ -1427,7 +1370,11 @@ func syncControls() {
 	}
 	pSendMessage.Call(ctlHnd[cIMCombo], CB_SETCURSEL, uintptr(imIdx(gIM)), 0)
 	pSendMessage.Call(ctlHnd[cCharset], CB_SETCURSEL, uintptr(cfg.Charset), 0)
-	pSendMessage.Call(ctlHnd[cTheme], CB_SETCURSEL, uintptr(cfg.Theme), 0)
+	for _, tid := range []int{cThemeAuto, cThemeLight, cThemeDark} {
+		if ctlHnd[tid] != 0 {
+			pInvalidateRect.Call(ctlHnd[tid], 0, 1)
+		}
+	}
 
 	o := gEngine.GetOptions()
 	setCheck(cModern, o.ModernStyle != 0)
@@ -1714,6 +1661,21 @@ func settingsCommand(id int) {
 	case cExcludeEdit:
 		editFile("exclude.txt")
 		loadExclusions(exeDir())
+	case cThemeAuto, cThemeLight, cThemeDark:
+		newTheme := themeAuto
+		switch id {
+		case cThemeLight:
+			newTheme = themeLight
+		case cThemeDark:
+			newTheme = themeDark
+		}
+		if newTheme != cfg.Theme {
+			cfg.Theme = newTheme
+			saveSettings()
+			rethemed = true
+			pDestroyWindow.Call(gSettingsHwnd)
+			return
+		}
 	}
 	gEngine.SetOptions(o)
 	saveSettings()
@@ -1933,17 +1895,31 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			id := int(di.ctlID)
 			switch {
 			case isCheckbox[id]:
-				drawCheckbox(di)
+				drawSmoothCheckbox(di.hDC, di.rcItem, id, swState[id])
 			case isRadio[id]:
-				drawRadio(di)
+				selected := false
+				switch id {
+				case cRadioTelex:
+					selected = (gIM == ImTelex)
+				case cRadioVni:
+					selected = (gIM == ImVni)
+				case cRadioViqr:
+					selected = (gIM == ImViqr)
+				}
+				drawSmoothRadioCard(di.hDC, di.rcItem, id, selected)
 			case id >= cModCtrl && id <= cModWin:
-				drawModifier(di)
+				pressed := di.itemState&ODS_SELECTED != 0
+				drawSmoothModifierKeycap(di.hDC, di.rcItem, id, swState[id], pressed)
 			case id == cLangBtn:
 				drawLangBtn(di)
 			case swIDs[id]:
-				drawSwitch(di)
+				drawSmoothSwitch(di.hDC, di.rcItem, id, swState[id])
+			case id == cThemeAuto || id == cThemeLight || id == cThemeDark:
+				pressed := di.itemState&ODS_SELECTED != 0
+				drawSmoothThemeButton(di.hDC, di.rcItem, id, pressed)
 			case btnIDs[id]:
-				drawButton(di)
+				pressed := di.itemState&ODS_SELECTED != 0
+				drawSmoothButton(di.hDC, di.rcItem, id, pressed)
 			}
 			return 1
 		}
@@ -2047,13 +2023,13 @@ func paintSettings(dc, hwnd uintptr) {
 	// 1. Fill entire window background
 	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
 
-	// 2. Quiet outer border, shared by both themes.
-	outerPen := penBorder
-	oldB, _, _ := pSelectObject.Call(dc, brBg)
-	oldP, _, _ := pSelectObject.Call(dc, outerPen)
-	pRoundRect.Call(dc, 0, 0, uintptr(winW), uintptr(winH), uintptr(dp(18)), uintptr(dp(18)))
-	pSelectObject.Call(dc, oldP)
-	pSelectObject.Call(dc, oldB)
+	// 2. Minimal liquid glass inner border with top specular highlight
+	gfx := NewGfx(dc)
+	if gfx != nil {
+		gfx.DrawRoundedRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, float32(dp(8)), argbBorder, 1.0)
+		gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x35, 0xFFFFFF), 1.0)
+		gfx.Destroy()
+	}
 
 	// 3. Top bar: brand title, subtitle, and window controls
 	drawTopHeader(dc, hwnd, winW)

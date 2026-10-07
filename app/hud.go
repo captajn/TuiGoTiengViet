@@ -69,58 +69,47 @@ func hudPaint(hwnd uintptr) {
 	var ps paintStruct
 	dc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 
-	// 1. Rounded capsule background with fine gold hairline
-	br, _, _ := pCreateSolidBrush.Call(colBg)
-	hudBdCol := colBorder
-	if isDark() {
-		hudBdCol = colGold
-	}
-	pen, _, _ := pCreatePen.Call(PS_SOLID, 1, hudBdCol)
-	oldB, _, _ := pSelectObject.Call(dc, br)
-	oldP, _, _ := pSelectObject.Call(dc, pen)
-	pRoundRect.Call(dc, 0, 0, hudW, hudH, 16, 16)
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(pen)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(br)
+	gfx := NewGfx(dc)
+	defer func() {
+		if gfx != nil {
+			gfx.Destroy()
+		}
+		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+	}()
 
-	// 2. Row 1: Logo + "Tui Gõ"
-	drawLogo(dc, 14, 14)
+	// 1. Liquid Glass capsule background
+	if gfx != nil {
+		gfx.DrawGlassCard(0, 0, float32(hudW), float32(hudH), 10, isDark(), false)
+	}
+
+	// 2. Row 1: Minimal Brand Mark + "Tui Gõ"
+	if gfx != nil {
+		drawMinimalBrandMark(gfx, 10, 7, 16)
+	}
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
-	trc := rect{26, 4, hudW - 24, 22}
+	trc := rect{32, 4, hudW - 24, 22}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
-
-	// Pin diamond
-	diamond(dc, hudW-12, 12, 2, colGoldDim)
 
 	// 3. Row 2: [ V ] badge + [ Telex ▾ ] pill + mini switch + ···
 	vnOn := effectiveViet()
 
 	// [ V ] / [ E ] badge
-	p := palDark
-	if !isDark() {
-		p = palLight
-	}
-	badgeCol, badgeTextCol, badgeBorder := trayBadgeColors(vnOn, p)
 	badgeLetter := "E"
+	badgeColor := argbMuted
 	if vnOn {
 		badgeLetter = "V"
+		badgeColor = argbAccent
 	}
-	bbr, _, _ := pCreateSolidBrush.Call(badgeCol)
-	oldB, _, _ = pSelectObject.Call(dc, bbr)
-	badgePen, _, _ := pCreatePen.Call(PS_SOLID, 1, badgeBorder)
-	oldP, _, _ = pSelectObject.Call(dc, badgePen)
-	pRoundRect.Call(dc, 8, 25, 30, 47, 6, 6)
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(badgePen)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(bbr)
+	if gfx != nil {
+		gfx.FillRoundedRect(8, 25, 22, 22, 5, HexAlphaARGB(0x35, badgeColor&0x00FFFFFF))
+		gfx.DrawRoundedRect(8, 25, 22, 22, 5, badgeColor, 1.0)
+	}
 
-	pSetTextColor.Call(dc, badgeTextCol)
+	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontBold)
 	blrc := rect{8, 25, 30, 47}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(badgeLetter))),
@@ -128,16 +117,9 @@ func hudPaint(hwnd uintptr) {
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// [ Telex ▾ ] pill
-	imbr, _, _ := pCreateSolidBrush.Call(colNavActiveBg)
-	oldB, _, _ = pSelectObject.Call(dc, imbr)
-	impen, _, _ := pCreatePen.Call(PS_SOLID, 1, colBorder)
-	oldP, _, _ = pSelectObject.Call(dc, impen)
-	pRoundRect.Call(dc, 35, 25, 96, 47, 6, 6)
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(impen)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(imbr)
-
+	if gfx != nil {
+		gfx.DrawGlassCard(35, 25, 61, 22, 5, isDark(), false)
+	}
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontHint)
 	imrc := rect{40, 25, 84, 47}
@@ -150,25 +132,16 @@ func hudPaint(hwnd uintptr) {
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// Mini switch
-	swTrack := colPill
-	swKnob := colMuted
-	swKx := int32(102 + 2)
-	if vnOn {
-		swTrack = colJade
-		swKnob = 0xFFFFFF
-		swKx = int32(102 + 30 - 14)
+	if gfx != nil {
+		swCol := argbSwitchOff
+		knobX := float32(104)
+		if vnOn {
+			swCol = argbSwitchOn
+			knobX = float32(120)
+		}
+		gfx.FillRoundedRect(102, 28, 30, 16, 8, swCol)
+		gfx.FillCircle(knobX+4, 36, 5, 0xFFFFFFFF)
 	}
-	sbr, _, _ := pCreateSolidBrush.Call(swTrack)
-	oldB, _, _ = pSelectObject.Call(dc, sbr)
-	pRoundRect.Call(dc, 102, 28, 132, 44, 16, 16)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(sbr)
-
-	knbr, _, _ := pCreateSolidBrush.Call(swKnob)
-	oldB, _, _ = pSelectObject.Call(dc, knbr)
-	pEllipse.Call(dc, uintptr(swKx), 30, uintptr(swKx+12), 42)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(knbr)
 
 	// Menu dots ···
 	pSetTextColor.Call(dc, colMuted)
@@ -177,28 +150,26 @@ func hudPaint(hwnd uintptr) {
 		^uintptr(0), uintptr(unsafe.Pointer(&dotsRc)),
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-	// 4. Row 3: ● Tiếng Việt đang hoạt động
-	dotCol := colMuted
+	// 4. Row 3: Status dot + text
 	statusTxt := "Đang tắt tiếng Việt"
+	dotColor := argbMuted
 	if vnOn {
-		dotCol = colJade
 		statusTxt = "Tiếng Việt đang hoạt động"
+		dotColor = argbSwitchOn
 	}
-	dtbr, _, _ := pCreateSolidBrush.Call(dotCol)
-	oldB, _, _ = pSelectObject.Call(dc, dtbr)
-	pEllipse.Call(dc, 10, 56, 16, 62)
-	pSelectObject.Call(dc, oldB)
-	pDeleteObject.Call(dtbr)
+	if gfx != nil {
+		gfx.FillCircle(14, 59, 5, HexAlphaARGB(0x35, dotColor&0x00FFFFFF))
+		gfx.FillCircle(14, 59, 3, dotColor)
+	}
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	stRc := rect{22, 50, hudW - 8, 68}
+	stRc := rect{24, 50, hudW - 8, 68}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(statusTxt))),
 		^uintptr(0), uintptr(unsafe.Pointer(&stRc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSelectObject.Call(dc, oldF)
-	pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 }
 
 func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
@@ -336,8 +307,7 @@ func hudInit() {
 		uintptr(x), uintptr(y), hudW, hudH,
 		0, 0, 0, 0)
 
-	rgn, _, _ := pCreateRoundRectRgn.Call(0, 0, hudW+1, hudH+1, 16, 16)
-	pSetWindowRgn.Call(gHudHwnd, rgn, 1)
+	applyWindowChrome(gHudHwnd)
 
 	if cfg.ShowHud {
 		pShowWindow.Call(gHudHwnd, 4)

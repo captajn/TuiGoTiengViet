@@ -43,6 +43,7 @@ var (
 	pGetCursorPos      = user32.NewProc("GetCursorPos")
 	pWindowFromPoint   = user32.NewProc("WindowFromPoint")
 	pGetAncestor       = user32.NewProc("GetAncestor")
+	pGetClassName      = user32.NewProc("GetClassNameW")
 	pClipboardSeq      = user32.NewProc("GetClipboardSequenceNumber")
 
 	pOleInitialize      = ole32dll.NewProc("OleInitialize")
@@ -128,6 +129,29 @@ func darkTitlebar(hwnd uintptr) {
 	const DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 	pDwmSetWndAttr.Call(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
 		uintptr(unsafe.Pointer(&on)), 4)
+}
+
+// applyWindowChrome enables hardware-accelerated DWM anti-aliased rounded corners,
+// dark mode preference, and modern Windows 11 Acrylic blur backdrop (liquid glass).
+func applyWindowChrome(hwnd uintptr) {
+	dark := int32(0)
+	if isDark() {
+		dark = 1
+	}
+	const (
+		DWMWA_USE_IMMERSIVE_DARK_MODE  = 20
+		DWMWA_WINDOW_CORNER_PREFERENCE = 33
+		DWMWA_SYSTEMBACKDROP_TYPE      = 38
+		DWMWCP_ROUND                   = 2
+		DWMSBT_TRANSIENTWINDOW         = 3 // Acrylic blur (liquid glass backdrop)
+	)
+	pDwmSetWndAttr.Call(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, uintptr(unsafe.Pointer(&dark)), 4)
+
+	corner := int32(DWMWCP_ROUND)
+	pDwmSetWndAttr.Call(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, uintptr(unsafe.Pointer(&corner)), 4)
+
+	backdrop := int32(DWMSBT_TRANSIENTWINDOW)
+	pDwmSetWndAttr.Call(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, uintptr(unsafe.Pointer(&backdrop)), 4)
 }
 
 // darkCtl applies the dark theme to a standard control (Win10 1809+).

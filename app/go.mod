@@ -1,4 +1,4 @@
-module bogovn
+module tuigo
 
 go 1.23
 

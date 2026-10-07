@@ -40,32 +40,29 @@ func injectOutput(res Result) {
 	// selected the just-typed char itself (Edge). Cut-probing resolves it.
 	// Skipped while Shift is held so the injected chord stays a plain
 	// Ctrl+X — Ctrl+Shift+X opens side panels in a few apps.
-	delPairs := gSafeDel && gCaretAtEnd
+	delPairs := false
 	var savedClip uintptr
-	guarded := false
-	if gSafeDel && res.Backs > 0 && !res.KeyOut && !gShiftHeld {
-		cut, saved, ok := probeSelectionCut()
-		if ok {
-			delPairs = false // selection resolved: plain Backspaces suffice
-			savedClip = saved
-			if cut == res.Backs {
-				res.Backs = 0 // the selection WAS the text to replace
+	if gSafeDel && res.Backs > 0 && !res.KeyOut {
+		if !gNoGuard {
+			// VKey approach: suggestion-tail bait (U+202F) swallows any live
+			// autocomplete tail cleanly without touching clipboard or adding
+			// latency. delPairs is false because bait clears the selection.
+			logLine(fmt.Sprintf("inject: backs=%d bait=0x202F caretEnd=%v",
+				res.Backs, gCaretAtEnd))
+		} else if !gShiftHeld {
+			// Legacy cut-probe kept only for A/B testing (TUIGO_NO_GUARD set).
+			delPairs = gCaretAtEnd
+			cut, saved, ok := probeSelectionCut()
+			if ok {
+				delPairs = false // selection resolved: plain Backspaces suffice
+				savedClip = saved
+				if cut == res.Backs {
+					res.Backs = 0 // the selection WAS the text to replace
+				}
 			}
+			logLine(fmt.Sprintf("inject: backs=%d cut=%d ok=%v caretEnd=%v noGuard=true",
+				res.Backs, cut, ok, gCaretAtEnd))
 		}
-		// An omnibox attaches its suggestion tail asynchronously — during
-		// the probe's clipboard wait, and between any two events of our
-		// own batch (Firefox refills fast). A bare Backspace then deletes
-		// the tail instead of the char ("hôm" → "hoôm"). Guard EVERY
-		// backspace with Ctrl+X riding in the same batch: no-op when
-		// nothing is selected, cuts whatever tail exists when that
-		// backspace executes. A successful probe's snapshot lets
-		// restoreClipboardLater undo a guard cut; a failed probe still
-		// guards — a real user selection here is far rarer than a tail.
-		// delPairs already carries a per-step selection-clearing Delete,
-		// so pairs need no X.
-		guarded = !delPairs && !gNoGuard
-		logLine(fmt.Sprintf("inject: backs=%d cut=%d ok=%v caretEnd=%v guard=%v",
-			res.Backs, cut, ok, gCaretAtEnd, guarded))
 	}
 	if (cfg.UseClipboard || gForceClip) && !res.KeyOut && len(res.Out) > 0 {
 		injectViaClipboard(res, delPairs)
@@ -74,15 +71,22 @@ func injectOutput(res Result) {
 		}
 		return
 	}
-	inputs := make([]input, 0, res.Backs*6+len(res.Out)*2+4)
-	for i := 0; i < res.Backs; i++ {
-		if guarded {
-			inputs = append(inputs,
-				keyEvent(VK_CONTROL, 0, 0), keyEvent('X', 0, 0),
-				keyEvent('X', 0, KEYEVENTF_KEYUP), keyEvent(VK_CONTROL, 0, KEYEVENTF_KEYUP))
-		}
-		inputs = appendBackspaces(inputs, 1, delPairs)
+	inputs := make([]input, 0, res.Backs*4+len(res.Out)*2+6)
+	// Suggestion-tail bait (VKey's approach): an omnibox holds its
+	// autocomplete tail as a live selection that eats correction
+	// backspaces ("hôm" → "hoôm") and can re-attach at ANY point —
+	// between the probe and this batch, or between two batch events. A
+	// typed char REPLACES the selection, so U+202F (narrow no-break
+	// space — invisible, and matches no suggestion prefix) both eats
+	// whatever tail exists and stops the field from suggesting again
+	// while the backspaces run. One extra backspace deletes the bait.
+	if gSafeDel && res.Backs > 0 && !res.KeyOut && !gNoGuard {
+		inputs = append(inputs,
+			keyEvent(0, 0x202F, KEYEVENTF_UNICODE),
+			keyEvent(0, 0x202F, KEYEVENTF_UNICODE|KEYEVENTF_KEYUP))
+		res.Backs++
 	}
+	inputs = appendBackspaces(inputs, res.Backs, delPairs)
 	for _, ch := range res.Out {
 		inputs = append(inputs,
 			keyEvent(0, ch, KEYEVENTF_UNICODE),

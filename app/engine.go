@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bogovn/engine"
+	"tuigo/engine"
 )
 
 // Engine abstracts the Vietnamese input engine.

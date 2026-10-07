@@ -90,6 +90,35 @@ var gSafeDelExes = map[string]bool{
 	"arc.exe": true, "whale.exe": true, "browser.exe": true, // browser.exe = Cốc Cốc
 	"explorer.exe": true,
 }
+
+// rootClassName returns the window class of hwnd's top-level ancestor —
+// identifies the app family even when the process name can't be queried
+// (forked/renamed browsers, or the browser runs elevated and OpenProcess
+// fails).
+func rootClassName(hwnd uintptr) string {
+	root, _, _ := pGetAncestor.Call(hwnd, GA_ROOT)
+	if root == 0 {
+		root = hwnd
+	}
+	var buf [64]uint16
+	n, _, _ := pGetClassName.Call(root,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if n == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:n])
+}
+
+// safeDelClass reports whether a top-level window class belongs to a
+// browser family whose address/search bar inline-autocompletes with a
+// live selection. MozillaWindowClass covers every Gecko fork (Zen,
+// Floorp, Tor, LibreWolf, Waterfox, Pale Moon); Chrome_WidgetWin covers
+// every Chromium build (and unknown forks default to safe, including
+// Electron shells where the bait is a harmless no-op).
+func safeDelClass(cls string) bool {
+	return cls == "MozillaWindowClass" || strings.HasPrefix(cls, "Chrome_WidgetWin")
+}
+
 var gAutoCapNext = false
 
 // Test hook: when TUIGO_TEST_MAGIC is set to a nonzero value, keystrokes
@@ -158,6 +187,11 @@ func foregroundApp() (appSpec, string, uintptr) {
 				}
 			}
 		}
+	}
+	// Browser detection by window class — exe names miss renamed/forked
+	// browsers and any process OpenProcess can't reach (elevated browser).
+	if safeDelClass(rootClassName(hwnd)) {
+		spec.safeDel = true
 	}
 	lastFgHwnd, lastFgSpec, lastFgExe = hwnd, spec, name
 	return spec, name, hwnd
@@ -429,7 +463,14 @@ func injectViaClipboard(res Result, delPairs bool) {
 	pCloseClipboard.Call()
 
 	// send backspaces + Ctrl+V
-	inputs := make([]input, 0, res.Backs*4+4)
+	inputs := make([]input, 0, res.Backs*4+6)
+	// same U+202F suggestion-tail bait as injectOutput — see its comment
+	if gSafeDel && res.Backs > 0 && !gNoGuard {
+		inputs = append(inputs,
+			keyEvent(0, 0x202F, KEYEVENTF_UNICODE),
+			keyEvent(0, 0x202F, KEYEVENTF_UNICODE|KEYEVENTF_KEYUP))
+		res.Backs++
+	}
 	inputs = appendBackspaces(inputs, res.Backs, delPairs)
 	inputs = append(inputs,
 		keyEvent(VK_CONTROL, 0, 0), keyEvent('V', 0, 0),
