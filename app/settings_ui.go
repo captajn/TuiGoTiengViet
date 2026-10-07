@@ -1310,7 +1310,8 @@ func layoutAll() {
 	btnW := (cw - dp(32) - dp(16)) / 3
 	place(cThemeAuto, cx+dp(16), ct+dp(38), btnW, dp(48))
 	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(38), btnW, dp(48))
-	place(cThemeDark, cx+dp(16)+2*(btnW+dp(8)), ct+dp(38), cw-dp(16)-(cx+dp(16)+2*(btnW+dp(8))), dp(48))
+	themeX3 := cx + dp(16) + 2*(btnW+dp(8))
+	place(cThemeDark, themeX3, ct+dp(38), cx+cw-dp(16)-themeX3, dp(48))
 
 	sysSw := []int{cShowHud, cSound, cSkipLayout, cClipboard, cAdmin, cShowDlg}
 	for row, id := range sysSw {
