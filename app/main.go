@@ -20,7 +20,7 @@ var stderrFile *os.File       // keeps the stderr handle alive for fatal dumps
 
 // appVersion is injected at release time via -ldflags "-X main.appVersion=…";
 // local builds keep this default.
-var appVersion = "0.0.5"
+var appVersion = "0.0.6"
 
 // recoverCrash must be deferred as `defer func() { recoverCrash(tag, recover()) }()`
 // in every windows.NewCallback path — recover() only works when called directly
