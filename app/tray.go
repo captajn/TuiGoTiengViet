@@ -224,6 +224,7 @@ func setInputMethod(im int) {
 	gEngine.SetInputMethod(im)
 	gLastIM = im
 	hudUpdate()
+	repaintRadioGroup() // covers tray-menu switches while settings is open
 	saveSettings()
 }
 
