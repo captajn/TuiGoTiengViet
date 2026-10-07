@@ -229,6 +229,10 @@ func effectiveViet() bool {
 }
 
 func loadExclusions(dir string) {
+	// Repopulate from scratch: lines deleted from the file must stop
+	// excluding, and the cached foreground spec may predate this reload.
+	gExcluded = map[string]appSpec{}
+	lastFgHwnd = 0
 	f, err := os.Open(filepath.Join(dir, "exclude.txt"))
 	if err != nil {
 		return

@@ -191,6 +191,14 @@ func TestFlipVietKeyRapid(t *testing.T) {
 	if !flipVietKey() || !gPerAppViet["flip-test.exe"] || !gVietKey {
 		t.Fatal("manual mode must flip only the per-app flag")
 	}
+
+	// A later global toggle is the master switch: it drops every per-app
+	// override so excluded apps return to their excluded default instead
+	// of staying un-excluded for the rest of the session.
+	lastFgSpec = appSpec{im: -1}
+	if !flipVietKey() || len(gPerAppViet) != 0 {
+		t.Fatal("global toggle must clear per-app overrides")
+	}
 }
 
 // appendBackspaces must never emit a forward-Delete unless delPairs is set
