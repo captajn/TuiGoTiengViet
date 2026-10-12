@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Darkroom design tokens (see ~/.config/devin/DESIGN.md) -->
+    <color name="bg">#0A0A0E</color>
+    <color name="surface">#14141C</color>
+    <color name="surface_raised">#1D1D28</color>
+    <color name="border">#272732</color>
+    <color name="text">#F4F4F6</color>
+    <color name="text_muted">#9C9CAB</color>
+    <color name="accent">#8B5CF6</color>
+    <color name="accent_hover">#A78BFA</color>
+    <color name="on_accent">#0B0B10</color>
+    <color name="danger">#F87171</color>
+</resources>

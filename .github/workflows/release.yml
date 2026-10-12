@@ -4,10 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+      - 'mobile-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag release (vd: v0.1.0)'
+        description: 'Tag release (vd: v0.1.0 hoặc mobile-v0.0.1)'
         required: true
 
 permissions:
@@ -15,6 +16,8 @@ permissions:
 
 jobs:
   build:
+    # Windows-only: tag `v*` — mobile tags skip this job
+    if: ${{ !startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
     runs-on: windows-latest
     defaults:
       run:
@@ -75,3 +78,97 @@ jobs:
             app/tuigo-arm64.exe
             app/tuigo-updater.exe
             app/tuigo-updater-arm64.exe
+
+  apk:
+    # Mobile-only: tag `mobile-v*`
+    if: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Engine unit tests
+        working-directory: android
+        run: ./gradlew :engine:test --console=plain
+
+      - name: Restore release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: android
+        env:
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore/tuigo-release.jks
+          {
+            echo "storeFile=keystore/tuigo-release.jks"
+            echo "storePassword=$KEYSTORE_STORE_PASSWORD"
+            echo "keyAlias=$KEYSTORE_KEY_ALIAS"
+            echo "keyPassword=$KEYSTORE_KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Build release APK (signed)
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - name: Build debug APK (no release key configured)
+        if: env.ANDROID_KEYSTORE_BASE64 == ''
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: Rename artifact
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          src=$(find android/app/build/outputs/apk -name '*.apk' | head -1)
+          cp "$src" "TuiGo-${tag}.apk"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: TuiGo-*.apk
+
+  ipa:
+    # Mobile-only: tag `mobile-v*`
+    if: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen
+
+      - name: Build app + keyboard extension (unsigned, device)
+        working-directory: ios
+        run: >-
+          xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
+          -destination 'generic/platform=iOS'
+          -configuration Release
+          -derivedDataPath build
+          build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p Payload
+          cp -R "build/Build/Products/Release-iphoneos/"*.app Payload/
+          zip -qr "TuiGo-${tag}-unsigned.ipa" Payload
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: ios/TuiGo-*-unsigned.ipa

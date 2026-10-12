@@ -34,9 +34,11 @@ class MainActivity : Activity() {
 
     private lateinit var prefsEditor: android.content.SharedPreferences.Editor
     private lateinit var prefs: android.content.SharedPreferences
+    private lateinit var pal: Palette
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pal = UiTheme.palette(this)
         prefs = Prefs.get(this)
         prefsEditor = prefs.edit()
         setContentView(buildContent())
@@ -46,13 +48,13 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24.dp(), 40.dp(), 24.dp(), 32.dp())
-            setBackgroundColor(BG)
+            setBackgroundColor(pal.bg)
         }
 
         root += title("Tui Gõ", 28f, Typeface.BOLD)
         root += TextView(this).apply {
             text = "Bộ gõ tiếng Việt — Telex / VNI"
-            setTextColor(MUTED); textSize = 14f
+            setTextColor(pal.muted); textSize = 14f
             setPadding(0, 6.dp(), 0, 28.dp())
         }
 
@@ -85,7 +87,7 @@ class MainActivity : Activity() {
             val current = prefs.getInt(Prefs.KEY_IM, ImTelex)
             for ((im, name) in methods) {
                 group += RadioButton(this@MainActivity).apply {
-                    text = name; setTextColor(TEXT); textSize = 15f
+                    text = name; setTextColor(pal.text); textSize = 15f
                     isChecked = im == current
                     setOnCheckedChangeListener { _, checked ->
                         if (checked) prefsEditor.putInt(Prefs.KEY_IM, im).apply()
@@ -108,7 +110,7 @@ class MainActivity : Activity() {
 
         root += TextView(this).apply {
             text = "Nút VN trên bàn phím bật/tắt chế độ tiếng Việt nhanh."
-            setTextColor(MUTED); textSize = 13f
+            setTextColor(pal.muted); textSize = 13f
             setPadding(0, 20.dp(), 0, 0)
         }
 
@@ -121,8 +123,8 @@ class MainActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         setPadding(20.dp(), 18.dp(), 20.dp(), 20.dp())
         background = GradientDrawable().apply {
-            setColor(SURFACE); cornerRadius = 16f.dp().toFloat()
-            setStroke(1, BORDER)
+            setColor(pal.surface); cornerRadius = 16f.dp().toFloat()
+            setStroke(1, pal.border)
         }
         val lp = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -132,19 +134,19 @@ class MainActivity : Activity() {
     }
 
     private fun title(s: String, sp: Float, style: Int) = TextView(this).apply {
-        text = s; setTextColor(TEXT); textSize = sp
+        text = s; setTextColor(pal.text); textSize = sp
         typeface = Typeface.create("sans-serif", style)
     }
 
     private fun label(s: String) = TextView(this).apply {
-        text = s; setTextColor(ACCENT); textSize = 12f
+        text = s; setTextColor(pal.accent); textSize = 12f
         typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         letterSpacing = 0.08f
         setPadding(0, 0, 0, 12.dp())
     }
 
     private fun body(s: String) = TextView(this).apply {
-        text = s; setTextColor(TEXT); textSize = 14f
+        text = s; setTextColor(pal.text); textSize = 14f
         setPadding(0, 0, 0, 10.dp())
     }
 
@@ -153,15 +155,15 @@ class MainActivity : Activity() {
             text = s; textSize = 14f; isAllCaps = false
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             if (primary) {
-                setTextColor(ON_ACCENT)
+                setTextColor(pal.onAccent)
                 background = GradientDrawable().apply {
-                    setColor(ACCENT); cornerRadius = 10f.dp().toFloat()
+                    setColor(pal.accent); cornerRadius = 10f.dp().toFloat()
                 }
             } else {
-                setTextColor(TEXT)
+                setTextColor(pal.text)
                 background = GradientDrawable().apply {
-                    setColor(RAISED); cornerRadius = 10f.dp().toFloat()
-                    setStroke(1, BORDER)
+                    setColor(pal.raised); cornerRadius = 10f.dp().toFloat()
+                    setStroke(1, pal.border)
                 }
             }
             val lp = LinearLayout.LayoutParams(
@@ -173,22 +175,11 @@ class MainActivity : Activity() {
         }
 
     private fun check(s: String, key: String, def: Boolean) = CheckBox(this).apply {
-        text = s; setTextColor(TEXT); textSize = 15f
+        text = s; setTextColor(pal.text); textSize = 15f
         isChecked = prefs.getBoolean(key, def)
         setOnCheckedChangeListener { _, c -> prefsEditor.putBoolean(key, c).apply() }
     }
 
     private operator fun LinearLayout.plusAssign(v: View) { addView(v) }
     private operator fun RadioGroup.plusAssign(v: View) { addView(v) }
-
-    companion object {
-        private const val BG = 0xFF0A0A0E.toInt()
-        private const val SURFACE = 0xFF14141C.toInt()
-        private const val RAISED = 0xFF1D1D28.toInt()
-        private const val BORDER = 0xFF272732.toInt()
-        private const val TEXT = 0xFFF4F4F6.toInt()
-        private const val MUTED = 0xFF9C9CAB.toInt()
-        private const val ACCENT = 0xFF8B5CF6.toInt()
-        private const val ON_ACCENT = 0xFF0B0B10.toInt()
-    }
 }

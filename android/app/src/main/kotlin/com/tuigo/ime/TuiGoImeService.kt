@@ -178,6 +178,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
     }
 
+    override fun onHideKeyboard() {
+        requestHideSelf(0)
+    }
+
     // ---- output --------------------------------------------------------------
 
     private fun applyResult(res: Result) {

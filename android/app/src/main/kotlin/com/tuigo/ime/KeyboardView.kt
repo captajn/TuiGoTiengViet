@@ -2,10 +2,12 @@ package com.tuigo.ime
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -14,6 +16,8 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SoundEffectConstants
 import android.view.View
+import android.view.WindowInsets
+import com.tuigo.UiTheme
 import kotlin.math.roundToInt
 
 /**
@@ -34,6 +38,7 @@ class KeyboardView @JvmOverloads constructor(
         fun onShiftChanged(shifted: Boolean, capsLock: Boolean)
         fun onVietToggle() {}
         fun onSwitchIme() {}
+        fun onHideKeyboard() {}
     }
 
     var listener: Listener? = null
@@ -53,6 +58,8 @@ class KeyboardView @JvmOverloads constructor(
     // ---- layout model ------------------------------------------------------
 
     private object K {
+        const val IME = -9
+        const val HIDE = -8
         const val SPACER = -7
         const val VIET = -6
         const val SPACE = -5
@@ -130,18 +137,24 @@ class KeyboardView @JvmOverloads constructor(
 
     // ---- paint --------------------------------------------------------------
 
-    private val bgPaint = Paint().apply { color = BG }
+    private var pal = UiTheme.palette(context)
+
+    /** Navigation-bar / gesture bottom inset. The keys sit above it; the strip
+     *  below carries the hide + IME-switch buttons (Gboard-style). */
+    private var navInset = 0
+
+    private val bgPaint = Paint().apply { color = pal.bg }
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 1f; color = BORDER
+        style = Paint.Style.STROKE; strokeWidth = 1f; color = pal.border
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = TEXT
+        color = pal.text
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val popupTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = TEXT
+        color = pal.text
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
@@ -160,13 +173,56 @@ class KeyboardView @JvmOverloads constructor(
 
     init {
         isHapticFeedbackEnabled = true
+        setOnApplyWindowInsetsListener { _, insets ->
+            val b = when {
+                Build.VERSION.SDK_INT >= 30 ->
+                    insets.getInsets(
+                        WindowInsets.Type.navigationBars() or
+                            WindowInsets.Type.mandatorySystemGestures() or
+                            WindowInsets.Type.systemGestures()
+                    ).bottom
+                Build.VERSION.SDK_INT == 29 ->
+                    @Suppress("DEPRECATION")
+                    maxOf(insets.mandatorySystemGestureInsets.bottom,
+                        insets.systemGestureInsets.bottom)
+                else -> @Suppress("DEPRECATION") insets.systemWindowInsetBottom
+            }
+            if (b != navInset) {
+                navInset = b
+                requestLayout()
+            }
+            insets
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        requestApplyInsets()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration?) {
+        super.onConfigurationChanged(newConfig)
+        val p = UiTheme.palette(context)
+        if (p !== pal) {
+            pal = p
+            applyPalette()
+        }
+    }
+
+    private fun applyPalette() {
+        bgPaint.color = pal.bg
+        borderPaint.color = pal.border
+        textPaint.color = pal.text
+        popupTextPaint.color = pal.text
+        invalidate()
     }
 
     // ---- sizing -------------------------------------------------------------
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val h = (padTop + padBottom + 4 * keyHeight + 3 * rowGap).roundToInt()
+        val h = (padTop + padBottom + navInset +
+            4 * keyHeight + 3 * rowGap).roundToInt()
         setMeasuredDimension(w, h)
     }
 
@@ -189,6 +245,14 @@ class KeyboardView @JvmOverloads constructor(
             }
             y += keyHeight + rowGap
         }
+        if (navInset > 0) {
+            val sy = (height - navInset).toFloat()
+            val bw = navInset * 1.6f
+            keys += Key(KeySpec(K.HIDE, "⌄"),
+                RectF(0f, sy, bw, height.toFloat()))
+            keys += Key(KeySpec(K.IME, "🌐"),
+                RectF(width - bw, sy, width.toFloat(), height.toFloat()))
+        }
         invalidate()
     }
 
@@ -209,43 +273,46 @@ class KeyboardView @JvmOverloads constructor(
         when (spec.code) {
             K.SHIFT -> {
                 keyPaint.color = when {
-                    isPressed -> ACCENT_HOVER
-                    capsLock || shifted -> ACCENT
-                    else -> SURFACE
+                    isPressed -> pal.accentHover
+                    capsLock || shifted -> pal.accent
+                    else -> pal.surface
                 }
                 canvas.drawRoundRect(r, corner, corner, keyPaint)
                 canvas.drawRoundRect(r, corner, corner, borderPaint)
-                textPaint.color = if (capsLock || shifted || isPressed) ON_ACCENT else MUTED
+                textPaint.color = if (capsLock || shifted || isPressed) pal.onAccent else pal.muted
                 textPaint.textSize = 20 * dp
                 drawCentered(canvas, if (capsLock) "⇪" else "⇧", r)
             }
-            K.DEL, K.MODE, K.VIET, K.ENTER, K.SPACE -> {
+            K.DEL, K.MODE, K.VIET, K.ENTER, K.SPACE, K.HIDE, K.IME -> {
                 keyPaint.color = when {
-                    isPressed -> ACCENT_HOVER
-                    spec.code == K.ENTER -> ACCENT
-                    else -> SURFACE
+                    isPressed -> pal.accentHover
+                    spec.code == K.ENTER -> pal.accent
+                    spec.code == K.HIDE || spec.code == K.IME -> pal.bg
+                    else -> pal.surface
                 }
                 canvas.drawRoundRect(r, corner, corner, keyPaint)
-                canvas.drawRoundRect(r, corner, corner, borderPaint)
+                if (spec.code != K.HIDE && spec.code != K.IME)
+                    canvas.drawRoundRect(r, corner, corner, borderPaint)
                 textPaint.color = when {
-                    isPressed -> ON_ACCENT
-                    spec.code == K.ENTER -> ON_ACCENT
-                    spec.code == K.VIET -> if (vietnameseOn) ACCENT else MUTED
-                    spec.code == K.SPACE -> MUTED
-                    else -> TEXT
+                    isPressed -> pal.onAccent
+                    spec.code == K.ENTER -> pal.onAccent
+                    spec.code == K.VIET -> if (vietnameseOn) pal.accent else pal.muted
+                    spec.code == K.SPACE || spec.code == K.HIDE || spec.code == K.IME -> pal.muted
+                    else -> pal.text
                 }
                 textPaint.textSize = when (spec.code) {
                     K.SPACE -> 13 * dp
                     K.MODE, K.VIET -> 14 * dp
+                    K.HIDE, K.IME -> 17 * dp
                     else -> 19 * dp
                 }
                 val label = if (spec.code == K.VIET && !vietnameseOn) "EN" else spec.label
                 drawCentered(canvas, label, r)
             }
             else -> {
-                keyPaint.color = if (isPressed) ACCENT else RAISED
+                keyPaint.color = if (isPressed) pal.accent else pal.raised
                 canvas.drawRoundRect(r, corner, corner, keyPaint)
-                textPaint.color = if (isPressed) ON_ACCENT else TEXT
+                textPaint.color = if (isPressed) pal.onAccent else pal.text
                 textPaint.textSize = 21 * dp
                 drawCentered(canvas, currentLabel(spec), r)
             }
@@ -267,7 +334,7 @@ class KeyboardView @JvmOverloads constructor(
         val px = (r.centerX() - pw / 2).coerceIn(padH, width - padH - pw)
         val py = (r.top - ph - rowGap).coerceAtLeast(2 * dp)
         val popup = RectF(px, py, px + pw, py + ph)
-        keyPaint.color = RAISED
+        keyPaint.color = pal.raised
         canvas.drawRoundRect(popup, corner, corner, keyPaint)
         canvas.drawRoundRect(popup, corner, corner, borderPaint)
         popupTextPaint.textSize = 26 * dp
@@ -362,6 +429,8 @@ class KeyboardView @JvmOverloads constructor(
             K.ENTER -> listener?.onEnter()
             K.SPACE -> listener?.onChar(' ')
             K.VIET -> listener?.onVietToggle()
+            K.HIDE -> listener?.onHideKeyboard()
+            K.IME -> listener?.onSwitchIme()
             else -> {
                 listener?.onChar(currentLabel(key.spec).first())
                 if (shifted && !capsLock) {
@@ -377,16 +446,4 @@ class KeyboardView @JvmOverloads constructor(
         if (shifted && spec.label.length == 1 && spec.label[0].isLetter())
             spec.label.uppercase()
         else spec.label
-
-    companion object {
-        private const val BG = 0xFF0A0A0E.toInt()
-        private const val SURFACE = 0xFF14141C.toInt()
-        private const val RAISED = 0xFF1D1D28.toInt()
-        private const val BORDER = 0xFF272732.toInt()
-        private const val TEXT = 0xFFF4F4F6.toInt()
-        private const val MUTED = 0xFF9C9CAB.toInt()
-        private const val ACCENT = 0xFF8B5CF6.toInt()
-        private const val ACCENT_HOVER = 0xFFA78BFA.toInt()
-        private const val ON_ACCENT = 0xFF0B0B10.toInt()
-    }
 }
