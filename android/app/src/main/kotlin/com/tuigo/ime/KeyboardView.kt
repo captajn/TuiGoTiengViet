@@ -92,9 +92,8 @@ class KeyboardView @JvmOverloads constructor(
             ),
             arrayOf(
                 KeySpec(K.MODE, "?123", 1.5f),
-                KeySpec(K.VIET, "VN", 1f),
                 KeySpec(','.code, ",", 1f),
-                KeySpec(K.SPACE, "Tui Gõ", 5f),
+                KeySpec(K.SPACE, "Tui Gõ", 6f),
                 KeySpec('.'.code, ".", 1f),
                 KeySpec(K.ENTER, "⏎", 1.5f),
             ),
@@ -112,9 +111,8 @@ class KeyboardView @JvmOverloads constructor(
             ),
             arrayOf(
                 KeySpec(K.MODE, "ABC", 1.5f),
-                KeySpec(K.VIET, "VN", 1f),
                 KeySpec(','.code, ",", 1f),
-                KeySpec(K.SPACE, "Tui Gõ", 5f),
+                KeySpec(K.SPACE, "Tui Gõ", 6f),
                 KeySpec('.'.code, ".", 1f),
                 KeySpec(K.ENTER, "⏎", 1.5f),
             ),
@@ -162,6 +160,7 @@ class KeyboardView @JvmOverloads constructor(
     private var pressed: Key? = null
     private var shiftTapTime = 0L
     private var downPointerId = -1
+    private var spaceLongFired = false
 
     private val handler = Handler(Looper.getMainLooper())
     private val repeatDelete = object : Runnable {
@@ -169,6 +168,15 @@ class KeyboardView @JvmOverloads constructor(
             listener?.onDelete()
             handler.postDelayed(this, 50)
         }
+    }
+
+    /** Long-press Space = IME switcher (Gboard-style). */
+    private val spaceLongPress = Runnable {
+        spaceLongFired = true
+        pressed = null
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        listener?.onSwitchIme()
+        invalidate()
     }
 
     init {
@@ -376,6 +384,10 @@ class KeyboardView @JvmOverloads constructor(
             listener?.onDelete()
             handler.postDelayed(repeatDelete, 400)
         }
+        if (key.spec.code == K.SPACE) {
+            spaceLongFired = false
+            handler.postDelayed(spaceLongPress, 500)
+        }
         invalidate()
     }
 
@@ -384,6 +396,7 @@ class KeyboardView @JvmOverloads constructor(
         if (key !== pressed) {
             pressed = key
             handler.removeCallbacks(repeatDelete)
+            handler.removeCallbacks(spaceLongPress)
             if (key?.spec?.code == K.DEL) handler.postDelayed(repeatDelete, 400)
             invalidate()
         }
@@ -400,6 +413,7 @@ class KeyboardView @JvmOverloads constructor(
     private fun cancelPress() {
         pressed = null
         handler.removeCallbacks(repeatDelete)
+        handler.removeCallbacks(spaceLongPress)
         invalidate()
     }
 
