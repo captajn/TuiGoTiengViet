@@ -19,6 +19,27 @@ enum Prefs {
     static let keyAutoNonVn = "auto_nonvn_restore"
     static let keyDoubleSpace = "double_space_period"
     static let keyVietOn = "viet_on"
+    static let keyNumberRow = "number_row"
+    static let keyKeyHeight = "key_height"
+    static let keyKeyGap = "key_gap"
+
+    static func keyHeight() -> Double {
+        min(68, max(44, defaults.object(forKey: keyKeyHeight) as? Double ?? 52))
+    }
+    static func keyGap() -> Double {
+        min(8, max(0, defaults.object(forKey: keyKeyGap) as? Double ?? 4))
+    }
+    static func numberRow() -> Bool {
+        defaults.bool(forKey: keyNumberRow) || inputMethod() == ImVni
+    }
+    static func inputMethod() -> Int {
+        let saved = defaults.object(forKey: keyIM) as? Int ?? ImTelex
+        return [ImTelex, ImVni, ImViqr].contains(saved) ? saved : ImTelex
+    }
+    static func migrateInputMethod() {
+        // Called only by the containing app; keyboard access can be read-only.
+        defaults.set(inputMethod(), forKey: keyIM)
+    }
 
     static var macroURL: URL? {
         FileManager.default
@@ -37,13 +58,7 @@ enum Prefs {
     /// Apply persisted options onto a live engine.
     static func apply(to engine: Engine) {
         let d = defaults
-        let im = d.object(forKey: keyIM) as? Int ?? ImTelex
-        switch im {
-        case ImVni, ImTelexSimple, ImTelexVni:
-            engine.setInputMethod(im)
-        default:
-            engine.setInputMethod(ImTelex)
-        }
+        engine.setInputMethod(inputMethod())
         func on(_ key: String) -> Int {
             (d.object(forKey: key) as? Bool ?? true) ? 1 : 0
         }

@@ -2,6 +2,25 @@ package com.tuigo.engine
 
 import java.io.File
 
+/** Validate before saving; the reader remains compatible with existing files. */
+fun macroValidationError(text: String): String? {
+    val keys = mutableSetOf<String>()
+    for ((index, raw) in text.lineSequence().withIndex()) {
+        val line = raw.removePrefix("\uFEFF").trim()
+        if (line.isEmpty() || line.startsWith(';')) continue
+        val separator = line.indexOf(':')
+        fun error(message: String) = "Dòng ${index + 1}: $message"
+        if (separator <= 0) return error("dùng định dạng từ tắt:nội dung.")
+        val key = line.substring(0, separator)
+        if (key.any { it.isWhitespace() || it.isISOControl() }) return error("từ tắt không chứa khoảng trắng.")
+        if (key.codePointCount(0, key.length) >= MaxMacroKeyLen) return error("từ tắt tối đa 15 ký tự.")
+        if (line.substring(separator + 1).isBlank()) return error("nội dung thay thế không được trống.")
+        if (!keys.add(key)) return error("từ tắt '$key' bị trùng.")
+        if (keys.size > MaxMacroItems) return error("tối đa 1024 mục gõ tắt.")
+    }
+    return null
+}
+
 // Convert one codepoint to StdVnChar (Unicode -> VNSTANDARD conversion path).
 private fun codePointToStdVn(r: Int): StdVnChar {
     if (r < 0x10000) {
@@ -15,7 +34,10 @@ internal fun textToStdVn(s: String): List<StdVnChar> {
     var i = 0
     while (i < s.length) {
         val cp = s.codePointAt(i)
-        out.add(codePointToStdVn(cp))
+        // StdVnChar reserves values above BMP for Vietnamese symbols.
+        // Keep astral Unicode as UTF-16 surrogate units, not colliding codepoints.
+        if (cp > 0xFFFF) Character.toChars(cp).forEach { out.add(it.code) }
+        else out.add(codePointToStdVn(cp))
         i += Character.charCount(cp)
     }
     return out

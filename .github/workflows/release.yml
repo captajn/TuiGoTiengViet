@@ -80,25 +80,25 @@ jobs:
             app/tuigo-updater-arm64.exe
 
   apk:
-    # Mobile-only: tag `mobile-v*`
     if: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
     runs-on: ubuntu-latest
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - name: Mobile metadata and palette
+        id: meta
+        run: |
+          python3 -P scripts/mobile-release.py metadata --tag "$RELEASE_TAG"
+          python3 -P scripts/check-palette.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
-
+          java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-
-      - name: Engine unit tests
-        working-directory: android
-        run: ./gradlew :engine:test --console=plain
-
       - name: Restore release keystore
         if: env.ANDROID_KEYSTORE_BASE64 != ''
         working-directory: android
@@ -115,78 +115,98 @@ jobs:
             echo "keyAlias=$KEYSTORE_KEY_ALIAS"
             echo "keyPassword=$KEYSTORE_KEY_PASSWORD"
           } > keystore.properties
-
-      - name: Build release APK (signed)
-        if: env.ANDROID_KEYSTORE_BASE64 != ''
+      - name: Test, lint and build APK
         working-directory: android
-        run: ./gradlew :app:assembleRelease --console=plain
-
-      - name: Build debug APK (no release key configured)
-        if: env.ANDROID_KEYSTORE_BASE64 == ''
-        working-directory: android
-        run: ./gradlew :app:assembleDebug --console=plain
-
-      - name: Rename artifact
         run: |
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
-          src=$(find android/app/build/outputs/apk -name '*.apk' | head -1)
-          cp "$src" "TuiGo-${tag}.apk"
-
+          chmod +x gradlew
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            ./gradlew :engine:test :app:assembleRelease :app:lintRelease --console=plain
+          else
+            ./gradlew :engine:test :app:assembleDebug :app:lintDebug --console=plain
+          fi
+      - name: Package exact APK variant
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            src=android/app/build/outputs/apk/release/app-release.apk
+            echo 'APK signing: release key'
+          else
+            src=android/app/build/outputs/apk/debug/app-debug.apk
+            echo 'APK signing: debug key (no release secret configured)'
+          fi
+          python3 -P scripts/mobile-release.py apk --tag "$RELEASE_TAG" --source "$src" --output dist
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          signer=$(find "$sdk/build-tools" -name apksigner | sort -V | tail -n 1)
+          "$signer" verify --verbose "dist/${{ steps.meta.outputs.apk_name }}"
       - uses: actions/upload-artifact@v4
         with:
           name: mobile-apk
-          path: TuiGo-*.apk
+          path: dist/${{ steps.meta.outputs.apk_name }}
+          if-no-files-found: error
 
   ipa:
-    # Mobile-only: tag `mobile-v*`
     if: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
     runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen
-
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - name: Mobile metadata
+        id: meta
+        run: python3 -P scripts/mobile-release.py metadata --tag "$RELEASE_TAG"
+      - name: Verify palette, engine and simulator build
+        run: |
+          brew install xcodegen
+          sh scripts/check-ios.sh
       - name: Build app + keyboard extension (unsigned, device)
         working-directory: ios
         run: >-
           xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
-          -destination 'generic/platform=iOS'
-          -configuration Release
-          -derivedDataPath build
-          build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-
-      - name: Package unsigned IPA
-        working-directory: ios
-        run: |
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
-          mkdir -p Payload
-          cp -R "build/Build/Products/Release-iphoneos/"*.app Payload/
-          zip -qr "TuiGo-${tag}-unsigned.ipa" Payload
-
+          -destination 'generic/platform=iOS' -configuration Release
+          -derivedDataPath build build
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Package and inspect unsigned IPA
+        run: >-
+          python3 -P scripts/mobile-release.py ipa --tag "$RELEASE_TAG"
+          --source ios/build/Build/Products/Release-iphoneos --output dist
       - uses: actions/upload-artifact@v4
         with:
           name: mobile-ipa
-          path: ios/TuiGo-*-unsigned.ipa
+          path: dist/${{ steps.meta.outputs.ipa_name }}
+          if-no-files-found: error
 
   mobile-release:
-    # APK + IPA in one release, created once after both builds finish
     needs: [apk, ipa]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - name: Mobile metadata
+        id: meta
+        run: python3 -P scripts/mobile-release.py metadata --tag "$RELEASE_TAG"
       - uses: actions/download-artifact@v4
         with:
+          pattern: mobile-*
+          merge-multiple: true
           path: dist
-
+      - name: Verify release assets
+        run: |
+          test -s "dist/${{ steps.meta.outputs.apk_name }}"
+          python3 -P scripts/mobile-release.py check-ipa --tag "$RELEASE_TAG" --source "dist/${{ steps.meta.outputs.ipa_name }}"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Tui Gõ Mobile ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ steps.meta.outputs.release_name }}
+          make_latest: false
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            Android: APK signed with the configured release key; debug-signed fallback if no Android release secret is configured.
+            iOS: unsigned IPA containing the app and keyboard extension. Apple signing/provisioning is required before installation on an iPhone or iPad.
           files: |
-            dist/**/*.apk
-            dist/**/*.ipa
+            dist/${{ steps.meta.outputs.apk_name }}
+            dist/${{ steps.meta.outputs.ipa_name }}

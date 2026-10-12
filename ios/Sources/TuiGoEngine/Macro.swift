@@ -1,5 +1,22 @@
 import Foundation
 
+public func macroValidationError(_ text: String) -> String? {
+    var keys = Set<String>()
+    for (index, raw) in text.components(separatedBy: .newlines).enumerated() {
+        let line = raw.replacingOccurrences(of: "\u{FEFF}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.isEmpty || line.hasPrefix(";") { continue }
+        func error(_ message: String) -> String { "Dòng \(index + 1): \(message)" }
+        guard let colon = line.firstIndex(of: ":"), colon != line.startIndex else { return error("dùng định dạng từ tắt:nội dung.") }
+        let key = String(line[..<colon])
+        if key.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) { return error("từ tắt không chứa khoảng trắng.") }
+        if key.unicodeScalars.count >= MaxMacroKeyLen { return error("từ tắt tối đa 15 ký tự.") }
+        if line[line.index(after: colon)...].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return error("nội dung thay thế không được trống.") }
+        if !keys.insert(key).inserted { return error("từ tắt '\(key)' bị trùng.") }
+        if keys.count > MaxMacroItems { return error("tối đa 1024 mục gõ tắt.") }
+    }
+    return nil
+}
+
 // Convert one codepoint to StdVnChar (Unicode -> VNSTANDARD conversion path).
 private func codePointToStdVn(_ r: UInt32) -> StdVnChar {
     if r < 0x10000, let sc = uniToStdVn[UInt16(r)] {
@@ -9,7 +26,10 @@ private func codePointToStdVn(_ r: UInt32) -> StdVnChar {
 }
 
 func textToStdVn(_ s: String) -> [StdVnChar] {
-    s.unicodeScalars.map { codePointToStdVn($0.value) }
+    s.unicodeScalars.flatMap { scalar -> [StdVnChar] in
+        if scalar.value > 0xFFFF { return String(scalar).utf16.map { StdVnChar($0) } }
+        return [codePointToStdVn(scalar.value)]
+    }
 }
 
 extension MacroStore {

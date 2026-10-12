@@ -2,211 +2,134 @@ package com.tuigo
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.provider.Settings
-import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.SeekBar
-import android.widget.TextView
-import com.tuigo.engine.ImTelex
-import com.tuigo.engine.ImTelexSimple
-import com.tuigo.engine.ImTelexVni
-import com.tuigo.engine.ImVni
+import android.widget.*
+import com.tuigo.engine.*
 
-/**
- * Host app = settings screen. Darkroom tokens, programmatic layout
- * (no AppCompat dependency for a single screen).
- */
 class MainActivity : Activity() {
-
-    private val dp get() = resources.displayMetrics.density
-    private fun Int.dp() = (this * dp).toInt()
-    private fun Float.dp() = (this * dp).toInt()
-
-    private lateinit var prefsEditor: android.content.SharedPreferences.Editor
-    private lateinit var prefs: android.content.SharedPreferences
-    private lateinit var pal: Palette
-
+    private lateinit var ui: MobileUi
+    private lateinit var status: TextView
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pal = UiTheme.palette(this)
-        prefs = Prefs.get(this)
-        prefsEditor = prefs.edit()
-        setContentView(buildContent())
-    }
-
-    private fun buildContent(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24.dp(), 40.dp(), 24.dp(), 32.dp())
-            setBackgroundColor(pal.bg)
-        }
-
-        root += title("Tui Gõ", 28f, Typeface.BOLD)
-        root += TextView(this).apply {
-            text = "Bộ gõ tiếng Việt — Telex / VNI"
-            setTextColor(pal.muted); textSize = 14f
-            setPadding(0, 6.dp(), 0, 28.dp())
-        }
-
-        // Step card: enable + switch
-        root += card().apply {
-            this += label("BẬT BÀN PHÍM")
-            this += body("1. Bật Tui Gõ trong cài đặt hệ thống.")
-            this += button("Mở cài đặt bàn phím", primary = true) {
+        ui = MobileUi(this)
+        val p = Prefs.get(this)
+        val root = ui.column()
+        root.addView(ui.text("GÕ THEO CÁCH CỦA BẠN", 11f, ui.pal.accent, true))
+        root.addView(ui.brandHeader("Tui Gõ", "Tiếng Việt, thật tự nhiên."))
+        root.addView(ui.card("Bắt đầu", "Hai bước để dùng bàn phím của bạn").apply {
+            status = ui.text("", 13f, ui.pal.accent, true)
+            addView(status)
+            addView(ui.button("1. Bật Tui Gõ trong cài đặt", true) {
                 startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            }
-            this += body("2. Chọn Tui Gõ làm bàn phím đang dùng.")
-            this += button("Chọn bàn phím", primary = false) {
-                getSystemService(InputMethodManager::class.java)
-                    ?.showInputMethodPicker()
-            }
-        }
-
-        // Input method card
-        root += card().apply {
-            this += label("KIỂU GÕ")
+            })
+            addView(ui.button("2. Chọn bàn phím Tui Gõ") {
+                getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
+            })
+        })
+        root.addView(ui.card("Kiểu gõ", "Chọn một kiểu phù hợp với thói quen của bạn").apply {
             val methods = listOf(
-                ImTelex to "Telex",
-                ImVni to "VNI",
-                ImTelexSimple to "Telex đơn giản",
-                ImTelexVni to "Telex + VNI",
-            )
-            val group = RadioGroup(this@MainActivity).apply {
-                orientation = RadioGroup.VERTICAL
+                Triple(ImTelex, "Telex", "s f r x j · aa, ee, oo, w, dd"),
+                Triple(ImVni, "VNI", "Dùng số 1–9 để thêm dấu"),
+                Triple(ImViqr, "VIQR", "Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu"))
+            val group = RadioGroup(this@MainActivity).apply { tag = "input-methods" }
+            val ids = mutableMapOf<Int, Int>()
+            val current = Prefs.inputMethod(this@MainActivity)
+            methods.forEach { (im, name, hint) ->
+                val radio = RadioButton(this@MainActivity).apply {
+                    id = View.generateViewId(); tag = "method-$im"
+                    text = ui.twoLines(name, hint); textSize = 15f; setTextColor(ui.pal.text)
+                    buttonTintList = ColorStateList.valueOf(ui.pal.accent)
+                    setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10)); minHeight = ui.dp(64)
+                    layoutParams = RadioGroup.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(6) }
+                }
+                ids[radio.id] = im
+                group.addView(radio)
             }
-            val current = prefs.getInt(Prefs.KEY_IM, ImTelex)
-            for ((im, name) in methods) {
-                group += RadioButton(this@MainActivity).apply {
-                    text = name; setTextColor(pal.text); textSize = 15f
-                    isChecked = im == current
-                    setOnCheckedChangeListener { _, checked ->
-                        if (checked) prefsEditor.putInt(Prefs.KEY_IM, im).apply()
-                    }
+            group.check(ids.entries.first { it.value == current }.key)
+            fun renderSelection() {
+                for (i in 0 until group.childCount) {
+                    val radio = group.getChildAt(i) as RadioButton
+                    radio.background = if (radio.isChecked) ui.surface(ui.pal.glow, 14).apply { setStroke(ui.dp(1), ui.pal.accent) } else null
                 }
             }
-            this += group
-        }
-
-        // Options card
-        root += card().apply {
-            this += label("TUỲ CHỌN")
-            this += check("Bỏ dấu tự do (free marking)", Prefs.KEY_FREE_MARKING, true)
-            this += check("Kiểu dấu mới (oà → oà, uỳ)", Prefs.KEY_MODERN_STYLE, true)
-            this += check("Kiểm tra chính tả", Prefs.KEY_SPELL_CHECK, true)
-            this += check("Gõ tắt (macro)", Prefs.KEY_MACRO, true)
-            this += check("Khôi phục từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN, true)
-            this += check("Gõ đúp Space → dấu chấm", Prefs.KEY_DOUBLE_SPACE, true)
-            this += check("Hiện hàng số trên cùng", Prefs.KEY_NUMBER_ROW, false)
-            this += seek("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56)
-            this += seek("Khoảng cách phím (ngang)", Prefs.KEY_KEY_GAP, 0, 8, 4)
-        }
-
-        root += TextView(this).apply {
-            text = "Nút VN trên bàn phím bật/tắt chế độ tiếng Việt nhanh."
-            setTextColor(pal.muted); textSize = 13f
-            setPadding(0, 20.dp(), 0, 0)
-        }
-
-        return ScrollView(this).apply { addView(root) }
-    }
-
-    // ---- builders ------------------------------------------------------------
-
-    private fun card(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(20.dp(), 18.dp(), 20.dp(), 20.dp())
-        background = GradientDrawable().apply {
-            setColor(pal.surface); cornerRadius = 16f.dp().toFloat()
-            setStroke(1, pal.border)
-        }
-        val lp = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT)
-        lp.bottomMargin = 16.dp()
-        layoutParams = lp
-    }
-
-    private fun title(s: String, sp: Float, style: Int) = TextView(this).apply {
-        text = s; setTextColor(pal.text); textSize = sp
-        typeface = Typeface.create("sans-serif", style)
-    }
-
-    private fun label(s: String) = TextView(this).apply {
-        text = s; setTextColor(pal.accent); textSize = 12f
-        typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-        letterSpacing = 0.08f
-        setPadding(0, 0, 0, 12.dp())
-    }
-
-    private fun body(s: String) = TextView(this).apply {
-        text = s; setTextColor(pal.text); textSize = 14f
-        setPadding(0, 0, 0, 10.dp())
-    }
-
-    private fun button(s: String, primary: Boolean, onClick: () -> Unit) =
-        Button(this).apply {
-            text = s; textSize = 14f; isAllCaps = false
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            if (primary) {
-                setTextColor(pal.onAccent)
-                background = GradientDrawable().apply {
-                    setColor(pal.accent); cornerRadius = 10f.dp().toFloat()
-                }
-            } else {
-                setTextColor(pal.text)
-                background = GradientDrawable().apply {
-                    setColor(pal.raised); cornerRadius = 10f.dp().toFloat()
-                    setStroke(1, pal.border)
-                }
+            renderSelection()
+            group.setOnCheckedChangeListener { _, id ->
+                ids[id]?.let { p.edit().putInt(Prefs.KEY_IM, it).apply() }
+                renderSelection()
             }
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.bottomMargin = 14.dp()
-            layoutParams = lp
-            setOnClickListener { onClick() }
-        }
-
-    private fun check(s: String, key: String, def: Boolean) = CheckBox(this).apply {
-        text = s; setTextColor(pal.text); textSize = 15f
-        isChecked = prefs.getBoolean(key, def)
-        setOnCheckedChangeListener { _, c -> prefsEditor.putBoolean(key, c).apply() }
+            addView(group)
+        })
+        root.addView(ui.card("Cách gõ", "Tinh chỉnh cách Tui Gõ xử lý từ và dấu").apply {
+            addView(toggle("Bỏ dấu tự do", "Thêm dấu ngay khi đang gõ từ", Prefs.KEY_FREE_MARKING))
+            addView(toggle("Đặt dấu kiểu mới", "Ví dụ: hoà, thuỷ", Prefs.KEY_MODERN_STYLE))
+            addView(toggle("Kiểm tra chính tả", "Giữ cách gõ tiếng Việt hợp lệ", Prefs.KEY_SPELL_CHECK))
+            addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
+            addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
+        })
+        root.addView(ui.card("Gõ tắt", "Ít thao tác hơn, nhiều điều muốn nói hơn").apply {
+            addView(toggle("Bật gõ tắt", "Gõ ko rồi Space → không", Prefs.KEY_MACRO))
+            addView(ui.button("Quản lý từ gõ tắt") { startActivity(Intent(this@MainActivity, MacroActivity::class.java)) })
+        })
+        root.addView(ui.card("Bàn phím", "Không gian gõ vừa tay bạn").apply {
+            addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
+            addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
+            addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
+            addView(ui.text("Sáng / tối theo thiết bị. Chạm VN/EN để đổi ngôn ngữ; giữ Space để chọn bàn phím.", 13f, ui.pal.muted))
+        })
+        root.addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {
+            addView(ui.editor("Ví dụ: tieengs Vieetj", false).apply { tag = "typing-preview" })
+        })
+        root.addView(ui.text("Chỉ trên thiết bị của bạn. Không thu thập nội dung gõ.", 12f, ui.pal.muted))
+        ui.install(this, root)
     }
-
-    private fun seek(labelText: String, key: String, min: Int, max: Int, def: Int) =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val tv = TextView(this@MainActivity).apply {
-                setTextColor(pal.text); textSize = 15f
+    override fun onResume() {
+        super.onResume()
+        updateStatus()
+    }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) updateStatus()
+    }
+    private fun updateStatus() {
+        if (!::status.isInitialized) return
+        val manager = getSystemService(InputMethodManager::class.java)
+        val enabled = manager?.enabledInputMethodList?.any { it.packageName == packageName } == true
+        val selected = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.startsWith("$packageName/") == true
+        status.text = when { selected -> "Sẵn sàng · Tui Gõ đang được chọn"; enabled -> "Đã bật · Chọn Tui Gõ để bắt đầu"; else -> "Chưa bật bàn phím" }
+    }
+    private fun toggle(title: String, hint: String, key: String, default: Boolean = true): View {
+        val p = Prefs.get(this)
+        return Switch(this).apply {
+            text = ui.twoLines(title, hint); textSize = 14f; setTextColor(ui.pal.text)
+            setPadding(0, ui.dp(12), 0, ui.dp(12)); minHeight = ui.dp(60)
+            thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(ui.pal.accent, ui.pal.muted))
+            trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf((ui.pal.accent and 0x00FFFFFF) or 0x33000000, ui.pal.border))
+            isChecked = p.getBoolean(key, default)
+            setOnCheckedChangeListener { _, checked -> p.edit().putBoolean(key, checked).apply() }
+        }
+    }
+    private fun slider(title: String, key: String, min: Int, max: Int, default: Int): View {
+        val p = Prefs.get(this)
+        return ui.column().apply {
+            val label = ui.text("", 14f)
+            val seek = SeekBar(this@MainActivity).apply {
+                this.max = max - min; progress = p.getInt(key, default).coerceIn(min, max) - min
+                progressTintList = ColorStateList.valueOf(ui.pal.accent); thumbTintList = ColorStateList.valueOf(ui.pal.accent)
             }
-            val sb = SeekBar(this@MainActivity).apply {
-                this.max = max - min
-                progress = prefs.getInt(key, def) - min
-            }
-            fun render() { tv.text = "$labelText: ${min + sb.progress}dp" }
-            render()
-            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, p: Int, u: Boolean) {
-                    render()
-                    prefsEditor.putInt(key, min + p).apply()
+            label.text = "$title · ${seek.progress + min} dp"; seek.contentDescription = label.text
+            seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, value: Int, user: Boolean) {
+                    label.text = "$title · ${value + min} dp"; seek.contentDescription = label.text
+                    if (user) p.edit().putInt(key, value + min).apply()
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
                 override fun onStopTrackingTouch(s: SeekBar?) {}
             })
-            addView(tv); addView(sb)
+            addView(label); addView(seek)
         }
-
-    private operator fun LinearLayout.plusAssign(v: View) { addView(v) }
-    private operator fun RadioGroup.plusAssign(v: View) { addView(v) }
+    }
 }

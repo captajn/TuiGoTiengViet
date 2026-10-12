@@ -148,6 +148,14 @@ gradlew.bat :engine:test :app:assembleDebug
 
 APK ra ở `android/app/build/outputs/apk/debug/`. Cài lên máy: `adb install app-debug.apk` → Cài đặt → bật Tui Gõ làm bàn phím. JDK toolchain 17 tự tải qua Foojay resolver, không cần cài JDK riêng.
 
+App mobile và bàn phím dùng giao diện sáng/tối theo thiết bị, card kính nhẹ và nút Space hiển thị **Tiếng Việt** hoặc **English**. Chạm **VN/EN** để đổi chế độ; trên Android, giữ Space để mở danh sách bàn phím. Vùng điều hướng dưới cùng do hệ thống quản lý.
+
+Màu mobile đồng bộ bản Windows: xanh ngọc #197F64 ở light mode và mint #3ED3B8 ở dark mode. Bộ chọn kiểu gõ có đúng **Telex, VNI, VIQR**; các tùy chọn simple/hybrid từ bản mobile cũ chuyển về Telex. Với VIQR, trang **?123 → #+=** có các phím `^`, dấu huyền và `~`.
+
+**Gõ tắt trên mobile:** bật Gõ tắt → Quản lý từ gõ tắt → nhập mỗi mục trên một dòng theo định dạng `key:text`, ví dụ `ko:không` và `vn:Việt Nam` → Lưu. Khi dùng chế độ Tiếng Việt, gõ `ko` rồi chạm Space để nhận `không`. Sửa dòng để đổi nội dung, xóa dòng để xóa mục; mở lại bàn phím để nạp danh sách mới. Từ tắt phân biệt chữ hoa/thường và tối đa 15 ký tự. Dữ liệu lưu UTF-8 trên thiết bị; trình sửa báo lỗi định dạng/lưu thay vì ghi đè dữ liệu cũ khi thất bại.
+
+Kiểm tra Android từ thư mục gốc: `powershell -File scripts/check-mobile.ps1`. Với emulator dành cho kiểm thử đã khởi động: thêm `-Device -Serial emulator-5554` để cài APK debug và chạy kiểm tra lựa chọn kiểu gõ, prefs và lưu/xóa macro. Script không tự xóa ứng dụng có chữ ký khác trên thiết bị.
+
 ### iOS
 
 Cần macOS + Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`):
@@ -160,6 +168,8 @@ open TuiGo.xcodeproj
 
 Chọn scheme **TuiGo** → chạy trên simulator hoặc máy thật (máy thật cần chọn Development Team trong Signing — App Group `group.com.tuigo` dùng được với free provisioning). Test engine không cần Xcode: `swift test`.
 
+Kiểm tra engine, app và keyboard extension trên macOS: `sh scripts/check-ios.sh`. App cài đặt iOS cũng có quản lý macro, hàng số và điều chỉnh kích thước phím; Space và palette bàn phím đồng bộ với chế độ gõ/theme. Build hoặc kiểm tra code trên Windows không xác nhận giao diện iOS đã chạy đúng; cần Xcode/simulator hoặc thiết bị thật để QA.
+
 ## Nguyên tắc thiết kế
 
 - **Một file exe** — copy là chạy, không installer
@@ -167,3 +177,7 @@ Chọn scheme **TuiGo** → chạy trên simulator hoặc máy thật (máy th�
 - **Riêng tư tuyệt đối** — `tuigo.exe` hoàn toàn offline: không network, không telemetry, không log, keystroke chỉ nằm trong RAM (auto-update nằm ở file `tuigo-updater.exe` riêng, xoá là hết)
 - **Đồng bộ** — inject phím ngay trong hook callback, không race thứ tự chữ
 - **Per-app trước** — mỗi ứng dụng một profile riêng nếu cần
+
+### Mobile release artifacts
+
+GitHub Actions builds `tuigo-v0.0.1.apk` and `tuigo-v0.0.1.ipa`. The mobile Git tag is `mobile-v0.0.1`; the release title is **Tui Gõ Mobile v0.0.1**. Metadata and artifact checks live in `scripts/mobile-release.py`. Android uses the configured release signing key (debug fallback without secrets). The IPA is unsigned and needs Apple signing/provisioning before installation. Both engine tests and native simulator/device builds run before IPA publication.

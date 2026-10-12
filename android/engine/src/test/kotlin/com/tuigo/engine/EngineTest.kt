@@ -240,6 +240,50 @@ class EngineTest {
     }
 
     @Test
+    fun macroReloadAndUnicode() {
+        val e = newEngine(Options().apply { macroEnabled = 1 })
+        e.loadMacroText("\uFEFF; danh sách\nko:không 😀\nmail:a:b@example.com")
+        val first = DocSim()
+        first.typeKeys(e, "ko ")
+        assertEquals("không 😀 ", first.toString())
+        e.resetBuf()
+        e.loadMacroText("ko:khác")
+        val edited = DocSim()
+        edited.typeKeys(e, "ko ")
+        assertEquals("khác ", edited.toString())
+        e.resetBuf()
+        e.loadMacroText("")
+        val deleted = DocSim()
+        deleted.typeKeys(e, "ko ")
+        assertEquals("ko ", deleted.toString())
+        e.resetBuf()
+        e.loadMacroText("ko:không")
+        e.setOptions(Options().apply { macroEnabled = 0 })
+        val disabled = DocSim()
+        disabled.typeKeys(e, "ko ")
+        assertEquals("ko ", disabled.toString())
+    }
+
+    @Test
+    fun viqr() {
+        val e = newEngine(defaultOpts)
+        e.setInputMethod(ImViqr)
+        val d = DocSim()
+        d.typeKeys(e, "o^n? ")
+        assertEquals("ổn ", d.toString())
+    }
+
+    @Test
+    fun macroValidation() {
+        assertEquals(null, macroValidationError("; comment\nko:không 😀\nmail:a:b@example.com"))
+        assertEquals(null, macroValidationError(""))
+        for (bad in listOf("ko=không", ":không", "ko:", "a b:c", "ko:a\nko:b", "abcdefghijklmnop:x")) {
+            assertTrue(macroValidationError(bad) != null, "must reject $bad")
+        }
+        assertEquals(null, macroValidationError("abcdefghijklmno:x"))
+    }
+
+    @Test
     fun tcvnConvert() {
         val out = charArrayOf('t', 'i', 'ế', 'n', 'g') // "tiếng" UTF-16
         convertTCVN(out)

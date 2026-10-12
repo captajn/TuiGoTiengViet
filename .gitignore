@@ -8,8 +8,10 @@
 *.exp
 *.pdb
 *.apk
+*.ipa
 build/
 .gradle/
+.kotlin/
 local.properties
 
 # Logs & temp files
@@ -39,6 +41,7 @@ tools/
 
 # README exception
 !README.md
+!/AGENTS.md
 
 # Local UI reference images
 assets/ui-concept-*.jpg
@@ -59,3 +62,7 @@ keystore.properties
 xcuserdata/
 DerivedData/
 ios/.swiftpm/
+!ios/App/Assets.xcassets/**/*.png
+
+# Swift package build products
+ios/.build/

@@ -226,6 +226,40 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(d.string, "Viet Nam ")
     }
 
+    func testMacroReloadAndUnicode() {
+        let opts = Options(); opts.macroEnabled = 1
+        let e = newEngine(opts)
+        e.loadMacroText("\u{FEFF}; danh sách\nko:không 😀\nmail:a:b@example.com")
+        let first = DocSim(); first.typeKeys(e, "ko ")
+        XCTAssertEqual(first.string, "không 😀 ")
+        e.resetBuf(); e.loadMacroText("ko:khác")
+        let edited = DocSim(); edited.typeKeys(e, "ko ")
+        XCTAssertEqual(edited.string, "khác ")
+        e.resetBuf(); e.loadMacroText("")
+        let deleted = DocSim(); deleted.typeKeys(e, "ko ")
+        XCTAssertEqual(deleted.string, "ko ")
+        e.resetBuf(); e.loadMacroText("ko:không")
+        let disabledOpts = Options(); disabledOpts.macroEnabled = 0; e.setOptions(disabledOpts)
+        let disabled = DocSim(); disabled.typeKeys(e, "ko ")
+        XCTAssertEqual(disabled.string, "ko ")
+    }
+
+    func testMacroValidation() {
+        XCTAssertNil(macroValidationError("; comment\nko:không 😀\nmail:a:b@example.com"))
+        XCTAssertNil(macroValidationError(""))
+        for bad in ["ko=không", ":không", "ko:", "a b:c", "ko:a\nko:b", "abcdefghijklmnop:x"] {
+            XCTAssertNotNil(macroValidationError(bad), "must reject \(bad)")
+        }
+        XCTAssertNil(macroValidationError("abcdefghijklmno:x"))
+    }
+
+    func testViqr() {
+        let e = newEngine(defaultOpts())
+        e.setInputMethod(ImViqr)
+        let d = DocSim(); d.typeKeys(e, "o^n? ")
+        XCTAssertEqual(d.string, "ổn ")
+    }
+
     func testTCVNConvert() {
         var out: [UInt16] = [0x74, 0x69, 0x1ebf, 0x6e, 0x67] // "tiếng" UTF-16
         convertTCVN(&out)

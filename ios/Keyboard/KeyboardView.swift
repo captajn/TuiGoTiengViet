@@ -12,6 +12,7 @@ final class KeyboardView: UIView {
         func onShiftChanged(_ shifted: Bool, _ capsLock: Bool)
         func onVietToggle()
         func onSwitchIme()
+        func onInputModeMenu(_ sender: UIButton, event: UIEvent)
     }
 
     weak var listener: Listener?
@@ -19,14 +20,17 @@ final class KeyboardView: UIView {
     var vietnameseOn = true { didSet { updateToggleLabels() } }
     var showsGlobe = false { didSet { rebuildKeys() } }
     var returnLabel = "⏎" { didSet { updateToggleLabels() } }
+    var showNumberRow = false { didSet { if oldValue != showNumberRow { rebuildKeys() } } }
 
     private(set) var symbolsPage = false
+    private var extraSymbols = false
     private(set) var shifted = false
     private(set) var capsLock = false
 
     // ---- layout model -------------------------------------------------------
 
     private enum K {
+        static let more = -9
         static let spacer = -7
         static let viet = -6
         static let space = -5
@@ -52,7 +56,7 @@ final class KeyboardView: UIView {
         init(_ spec: KeySpec) {
             self.spec = spec
             button = UIButton(type: .custom)
-            button.layer.cornerRadius = 8
+            button.layer.cornerRadius = 10
             button.titleLabel?.textAlignment = .center
         }
     }
@@ -76,42 +80,60 @@ final class KeyboardView: UIView {
         [
             row("1234567890"),
             row("@#₫_&-+()", inset: 1),
-            [KeySpec(K.mode, "ABC", 1.5)] + row("!?'\":;") + [KeySpec(K.del, "⌫", 1.5)],
+            [KeySpec(K.more, "#+=", 1.5)] + row("!?'\":;") + [KeySpec(K.del, "⌫", 1.5)],
             bottomRow(mode: "ABC"),
         ]
     }
 
+    private func extraSymbolRows() -> [[KeySpec]] {
+        [row("^~`|\\€£¥%$"), row("°={}[]<>_₫"),
+         [KeySpec(K.more, "?123", 1.5)] + row("!?'\":;") + [KeySpec(K.del, "⌫", 1.5)],
+         bottomRow(mode: "ABC")]
+    }
+
     private func bottomRow(mode: String) -> [KeySpec] {
         var specs = [KeySpec(K.mode, mode, 1.4), KeySpec(K.viet, "VN", 0.9)]
-        if showsGlobe { specs.insert(KeySpec(K.globe, "🌐", 0.8), at: 0) }
+        if showsGlobe { specs.insert(KeySpec(K.globe, "", 0.8), at: 0) }
         specs.append(contentsOf: [
             KeySpec(Int(",".unicodeScalars.first!.value), ",", 0.9),
-            KeySpec(K.space, "Tui Gõ", 4.5),
+            KeySpec(K.space, "Tiếng Việt", 4.5),
             KeySpec(Int(".".unicodeScalars.first!.value), ".", 0.9),
             KeySpec(K.enter, "⏎", 1.4),
         ])
         return specs
     }
 
-    private var rows: [[KeySpec]] { symbolsPage ? symbolsRows() : lettersRows() }
+    private var rows: [[KeySpec]] {
+        if symbolsPage { return extraSymbols ? extraSymbolRows() : symbolsRows() }
+        return (showNumberRow ? [row("1234567890")] : []) + lettersRows()
+    }
     private var keys = [Key]()
 
     // ---- metrics ------------------------------------------------------------
 
-    private let keyHeight: CGFloat = 52
+    private var keyHeight: CGFloat = 52
     private let rowGap: CGFloat = 6
-    private let keyGap: CGFloat = 4
+    private var keyGap: CGFloat = 4
     private let padH: CGFloat = 3
     private let padV: CGFloat = 8
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric,
-               height: padV * 2 + 4 * keyHeight + 3 * rowGap)
+               height: padV * 2 + CGFloat(rows.count) * keyHeight + CGFloat(rows.count - 1) * rowGap)
     }
+
+    func setMetrics(height: CGFloat, gap: CGFloat) {
+        guard keyHeight != height || keyGap != gap else { return }
+        keyHeight = height; keyGap = gap
+        invalidateIntrinsicContentSize(); setNeedsLayout()
+    }
+
+    private let gradient = CAGradientLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(rgb: Colors.bg)
+        backgroundColor = UIColor.tuiBackground
+        layer.insertSublayer(gradient, at: 0)
         rebuildKeys()
     }
 
@@ -125,6 +147,9 @@ final class KeyboardView: UIView {
         keys = rows.flatMap { $0 }.filter { $0.code != K.spacer }.map { spec in
             let key = Key(spec)
             let b = key.button
+            if spec.code == K.globe {
+                b.addTarget(self, action: #selector(onGlobe(_:event:)), for: .allTouchEvents)
+            }
             b.addTarget(self, action: #selector(onDown(_:)), for: .touchDown)
             b.addTarget(self, action: #selector(onUp(_:)), for: .touchUpInside)
             b.addTarget(self, action: #selector(onCancel(_:)), for: [.touchUpOutside, .touchCancel, .touchDragExit])
@@ -134,6 +159,7 @@ final class KeyboardView: UIView {
             return key
         }
         updateToggleLabels()
+        invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
 
@@ -141,13 +167,14 @@ final class KeyboardView: UIView {
         let b = key.button
         let code = key.spec.code
         switch code {
-        case K.shift, K.del, K.mode, K.viet, K.enter, K.space, K.globe:
-            b.backgroundColor = UIColor(rgb: Colors.surface)
+        case K.shift, K.del, K.mode, K.more, K.viet, K.enter, K.space, K.globe:
+            b.backgroundColor = UIColor.tuiSurface
             b.layer.borderWidth = 1
-            b.layer.borderColor = UIColor(rgb: Colors.border).cgColor
+            b.layer.borderColor = UIColor.tuiBorder.resolvedColor(with: traitCollection).cgColor
         default:
-            b.backgroundColor = UIColor(rgb: Colors.raised)
-            b.layer.borderWidth = 0
+            b.backgroundColor = UIColor.tuiRaised
+            b.layer.borderWidth = 1
+            b.layer.borderColor = UIColor.tuiBorder.resolvedColor(with: traitCollection).cgColor
         }
         paintKey(key)
     }
@@ -158,24 +185,24 @@ final class KeyboardView: UIView {
         switch code {
         case K.shift:
             if pressed || capsLock || shifted {
-                b.backgroundColor = UIColor(rgb: pressed ? Colors.accentHover : Colors.accent)
-                b.setTitleColor(UIColor(rgb: Colors.onAccent), for: .normal)
+                b.backgroundColor = (pressed ? UIColor.tuiPressed : UIColor.tuiAccent)
+                b.setTitleColor(UIColor.tuiOnAccent, for: .normal)
             } else {
-                b.backgroundColor = UIColor(rgb: Colors.surface)
-                b.setTitleColor(UIColor(rgb: Colors.muted), for: .normal)
+                b.backgroundColor = UIColor.tuiSurface
+                b.setTitleColor(UIColor.tuiMuted, for: .normal)
             }
         case K.enter:
-            b.backgroundColor = UIColor(rgb: pressed ? Colors.accentHover : Colors.accent)
-            b.setTitleColor(UIColor(rgb: Colors.onAccent), for: .normal)
-        case K.del, K.mode, K.viet, K.space, K.globe:
-            b.backgroundColor = UIColor(rgb: pressed ? Colors.accentHover : Colors.surface)
-            let color: UInt32 = code == K.viet
-                ? (vietnameseOn ? Colors.accent : Colors.muted)
-                : (code == K.space ? Colors.muted : Colors.text)
-            b.setTitleColor(UIColor(rgb: pressed ? Colors.onAccent : color), for: .normal)
+            b.backgroundColor = (pressed ? UIColor.tuiPressed : UIColor.tuiAccent)
+            b.setTitleColor(UIColor.tuiOnAccent, for: .normal)
+        case K.del, K.mode, K.more, K.viet, K.space, K.globe:
+            b.backgroundColor = (pressed ? UIColor.tuiPressed : UIColor.tuiSurface)
+            let color: UIColor = code == K.viet
+                ? (vietnameseOn ? UIColor.tuiAccent : UIColor.tuiMuted)
+                : (code == K.space ? UIColor.tuiMuted : UIColor.tuiText)
+            b.setTitleColor((pressed ? UIColor.tuiOnAccent : color), for: .normal)
         default:
-            b.backgroundColor = UIColor(rgb: pressed ? Colors.accent : Colors.raised)
-            b.setTitleColor(UIColor(rgb: pressed ? Colors.onAccent : Colors.text), for: .normal)
+            b.backgroundColor = (pressed ? UIColor.tuiAccent : UIColor.tuiRaised)
+            b.setTitleColor(pressed ? UIColor.tuiOnAccent : UIColor.tuiText, for: .normal)
         }
     }
 
@@ -192,17 +219,20 @@ final class KeyboardView: UIView {
             case K.enter:
                 b.setTitle(returnLabel, for: .normal)
                 b.titleLabel?.font = .systemFont(ofSize: returnLabel.count > 2 ? 14 : 19, weight: .medium)
-            case K.mode:
+            case K.mode, K.more:
                 b.setTitle(key.spec.label, for: .normal)
                 b.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
             case K.del:
                 b.setTitle("⌫", for: .normal)
                 b.titleLabel?.font = .systemFont(ofSize: 19, weight: .regular)
             case K.globe:
-                b.setTitle("🌐", for: .normal)
+                b.setTitle(nil, for: .normal)
+                b.setImage(UIImage(systemName: "globe"), for: .normal)
+                b.tintColor = UIColor.tuiText
+                b.accessibilityLabel = "Chọn bàn phím"
                 b.titleLabel?.font = .systemFont(ofSize: 17, weight: .regular)
             case K.space:
-                b.setTitle(key.spec.label, for: .normal)
+                b.setTitle(vietnameseOn ? "Tiếng Việt" : "English", for: .normal)
                 b.titleLabel?.font = .systemFont(ofSize: 13, weight: .regular)
             default:
                 b.setTitle(currentLabel(key.spec), for: .normal)
@@ -223,6 +253,8 @@ final class KeyboardView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        gradient.frame = bounds
+        gradient.colors = [UIColor.tuiBackground.resolvedColor(with: traitCollection).cgColor, UIColor.tuiGlow.resolvedColor(with: traitCollection).cgColor]
         var iter = keys.makeIterator()
         var y = padV
         for rowSpec in rows {
@@ -240,6 +272,19 @@ final class KeyboardView: UIView {
         }
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            keys.forEach { styleKey($0) }
+            hidePopup(); setNeedsLayout()
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { clearPress() }
+    }
+
     // ---- popup preview --------------------------------------------------------
 
     private var popup: UIView?
@@ -253,14 +298,14 @@ final class KeyboardView: UIView {
         let px = min(max(r.midX - pw / 2, padH), bounds.width - padH - pw)
         let py = max(r.minY - ph - rowGap, 2)
         let v = UIView(frame: CGRect(x: px, y: py, width: pw, height: ph))
-        v.backgroundColor = UIColor(rgb: Colors.raised)
+        v.backgroundColor = UIColor.tuiRaised
         v.layer.cornerRadius = 8
         v.layer.borderWidth = 1
-        v.layer.borderColor = UIColor(rgb: Colors.border).cgColor
+        v.layer.borderColor = UIColor.tuiBorder.cgColor
         let l = UILabel(frame: v.bounds)
         l.text = currentLabel(key.spec)
         l.textAlignment = .center
-        l.textColor = UIColor(rgb: Colors.text)
+        l.textColor = UIColor.tuiText
         l.font = .systemFont(ofSize: 26, weight: .medium)
         v.addSubview(l)
         addSubview(v)
@@ -297,6 +342,7 @@ final class KeyboardView: UIView {
 
     @objc private func onDown(_ b: UIButton) {
         guard let key = keys.first(where: { $0.button === b }) else { return }
+        if key.spec.code == K.globe { return }
         pressed = key
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         paintKey(key, pressed: true)
@@ -305,6 +351,10 @@ final class KeyboardView: UIView {
         } else {
             showPopup(for: key)
         }
+    }
+
+    @objc private func onGlobe(_ sender: UIButton, event: UIEvent) {
+        listener?.onInputModeMenu(sender, event: event)
     }
 
     @objc private func onUp(_ b: UIButton) {
@@ -351,6 +401,10 @@ final class KeyboardView: UIView {
             break // handled on touch-down / repeat
         case K.mode:
             symbolsPage.toggle()
+            extraSymbols = false
+            rebuildKeys()
+        case K.more:
+            extraSymbols.toggle()
             rebuildKeys()
         case K.enter:
             listener?.onEnter()
@@ -378,26 +432,4 @@ final class KeyboardView: UIView {
         listener?.onShiftChanged(shifted, capsLock)
     }
 
-    // ---- colors (same tokens as android/KeyboardView.kt) ---------------------------
-
-    private enum Colors {
-        static let bg: UInt32 = 0xFF0A0A0E
-        static let surface: UInt32 = 0xFF14141C
-        static let raised: UInt32 = 0xFF1D1D28
-        static let border: UInt32 = 0xFF272732
-        static let text: UInt32 = 0xFFF4F4F6
-        static let muted: UInt32 = 0xFF9C9CAB
-        static let accent: UInt32 = 0xFF8B5CF6
-        static let accentHover: UInt32 = 0xFFA78BFA
-        static let onAccent: UInt32 = 0xFF0B0B10
-    }
-}
-
-private extension UIColor {
-    convenience init(rgb: UInt32) {
-        self.init(red: CGFloat((rgb >> 16) & 0xFF) / 255,
-                  green: CGFloat((rgb >> 8) & 0xFF) / 255,
-                  blue: CGFloat(rgb & 0xFF) / 255,
-                  alpha: CGFloat((rgb >> 24) & 0xFF) / 255)
-    }
 }

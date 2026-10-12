@@ -2,6 +2,11 @@ package com.tuigo.ime
 
 import android.inputmethodservice.InputMethodService
 import android.os.SystemClock
+import android.os.Build
+import android.content.res.Configuration
+import android.content.SharedPreferences
+import android.view.WindowInsetsController
+import com.tuigo.UiTheme
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
@@ -9,11 +14,10 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import com.tuigo.Prefs
 import com.tuigo.engine.Engine
-import com.tuigo.engine.ImTelex
-import com.tuigo.engine.ImTelexVni
 import com.tuigo.engine.ImVni
 import com.tuigo.engine.Result
-import java.io.File
+import com.tuigo.MacroFiles
+import com.tuigo.engine.loadMacroText
 
 /**
  * InputMethodService shell around the pure-Kotlin engine port.
@@ -25,6 +29,16 @@ import java.io.File
  *   backs/out  : UTF-16 units — matches InputConnection.deleteSurroundingText
  */
 class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != Prefs.KEY_VIET_ON) {
+            loadEngineConfig()
+            engine.resetBuf(); spacePending = false
+            if (::keyboard.isInitialized) {
+                keyboard.showNumberRow = usesNumberRow()
+                keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+            }
+        }
+    }
 
     private lateinit var engine: Engine
     private lateinit var keyboard: KeyboardView
@@ -44,24 +58,28 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         super.onCreate()
         engine = Engine()
         loadEngineConfig()
-        // macro.txt next to app files (same convention as desktop macro.txt)
-        File(filesDir, "macro.txt").takeIf { it.exists() }
-            ?.let { engine.loadMacroFile(it.absolutePath) }
+        Prefs.get(this).registerOnSharedPreferenceChangeListener(preferenceListener)
+    }
+
+    override fun onDestroy() {
+        Prefs.get(this).unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        super.onDestroy()
     }
 
     private fun loadEngineConfig() {
         Prefs.applyTo(engine, this)
         vietOn = Prefs.vietOn(this)
         doubleSpace = Prefs.doubleSpacePeriod(this)
+        // Reload on every activation, including an empty/deleted macro file.
+        // Preserve the last readable list only on a genuine I/O failure.
+        try {
+            engine.loadMacroText(MacroFiles.read(this))
+        } catch (_: java.io.IOException) { }
     }
 
-    /** VNI-style methods type tone marks with digits — they always get the
-     *  number row; other methods follow the settings toggle. */
+    /** VNI always gets the number row; other modes follow the user's toggle. */
     private fun usesNumberRow(): Boolean =
-        Prefs.numberRow(this) || when (Prefs.get(this).getInt(Prefs.KEY_IM, ImTelex)) {
-            ImVni, ImTelexVni -> true
-            else -> false
-        }
+        Prefs.numberRow(this) || Prefs.inputMethod(this) == ImVni
 
     override fun onCreateInputView(): View {
         keyboard = KeyboardView(this)
@@ -75,7 +93,17 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     // Always show the soft keyboard even when a hardware keyboard is attached
     // (emulator, Chromebook) — same behavior as Gboard; the default impl hides
     // us whenever config.keyboard != NOKEYS.
-    override fun onEvaluateInputViewShown(): Boolean = true
+    override fun onEvaluateInputViewShown(): Boolean {
+        super.onEvaluateInputViewShown()
+        return true
+    }
+
+    // Keep the host app visible in landscape. The framework's fullscreen
+    // extract editor otherwise introduces an unrelated light panel in dark mode.
+    override fun onEvaluateFullscreenMode(): Boolean {
+        super.onEvaluateFullscreenMode()
+        return false
+    }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
@@ -86,6 +114,27 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         engine.resetBuf()
         expectedSel = info?.initialSelEnd ?: -1
         spacePending = false
+        applySystemBarTheme()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applySystemBarTheme() {
+        val imeWindow = window?.window ?: return
+        val light = !UiTheme.isDark(this)
+        imeWindow.navigationBarColor = UiTheme.palette(this).bg
+        if (Build.VERSION.SDK_INT >= 30) {
+            imeWindow.insetsController?.setSystemBarsAppearance(
+                if (light) WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS else 0,
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        } else {
+            val flags = imeWindow.decorView.systemUiVisibility
+            imeWindow.decorView.systemUiVisibility = if (light) flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applySystemBarTheme()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -187,6 +236,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.vietnameseOn = vietOn
         engine.setVietKey(vietOn)
         engine.resetBuf()
+        spacePending = false
     }
 
     override fun onSwitchIme() {

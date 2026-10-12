@@ -11,6 +11,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     private let engine = Engine()
     private var keyboard: KeyboardView!
+    private var heightConstraint: NSLayoutConstraint!
 
     private var vietOn = true
     private var doubleSpace = true
@@ -36,12 +37,19 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
             keyboard.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             keyboard.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             keyboard.topAnchor.constraint(equalTo: view.topAnchor),
-            keyboard.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            keyboard.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
-        let h = view.heightAnchor.constraint(equalToConstant: 252)
-        h.priority = .defaultHigh
-        h.isActive = true
+        heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboard.intrinsicContentSize.height)
+        heightConstraint.priority = .defaultHigh
+        heightConstraint.isActive = true
         applyPrefs()
+    }
+
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape == true
+        keyboard.setMetrics(height: CGFloat(landscape ? min(40, Prefs.keyHeight()) : Prefs.keyHeight()), gap: CGFloat(Prefs.keyGap()))
+        heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -62,12 +70,17 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     private func applyPrefs() {
         Prefs.apply(to: engine)
-        vietOn = Prefs.vietOn()
+        vietOn = hasFullAccess ? Prefs.vietOn() : (UserDefaults.standard.object(forKey: Prefs.keyVietOn) as? Bool ?? Prefs.vietOn())
         doubleSpace = Prefs.doubleSpacePeriod()
         keyboard.vietnameseOn = vietOn
-        if let url = Prefs.macroURL, FileManager.default.fileExists(atPath: url.path) {
-            engine.loadMacroFile(url.path)
+        engine.setVietKey(vietOn)
+        keyboard.showNumberRow = Prefs.numberRow()
+        // Read-only access to the containing app's shared container is sufficient.
+        if let url = Prefs.macroURL {
+            if !FileManager.default.fileExists(atPath: url.path) { engine.loadMacroText("") }
+            else if let text = try? String(contentsOf: url, encoding: .utf8) { engine.loadMacroText(text) }
         }
+        view.setNeedsLayout()
     }
 
     // ---- KeyboardView.Listener ------------------------------------------------
@@ -144,14 +157,22 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     func onVietToggle() {
         vietOn.toggle()
-        Prefs.defaults.set(vietOn, forKey: Prefs.keyVietOn)
+        // Without Full Access an extension cannot write to the shared container.
+        // Always change the current session; persist only when writing is allowed.
+        if hasFullAccess { Prefs.defaults.set(vietOn, forKey: Prefs.keyVietOn) }
+        UserDefaults.standard.set(vietOn, forKey: Prefs.keyVietOn)
         keyboard.vietnameseOn = vietOn
         engine.setVietKey(vietOn)
         engine.resetBuf()
+        spacePending = false
     }
 
     func onSwitchIme() {
         advanceToNextInputMode()
+    }
+
+    func onInputModeMenu(_ sender: UIButton, event: UIEvent) {
+        handleInputModeList(from: sender, with: event)
     }
 
     // ---- output -------------------------------------------------------------------

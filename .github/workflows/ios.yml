@@ -2,50 +2,36 @@ name: iOS
 
 on:
   push:
-    paths: ["ios/**", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "scripts/**", "android/app/build.gradle.kts", "app/theme.go", ".github/workflows/ios.yml"]
   pull_request:
-    paths: ["ios/**"]
+    paths: ["ios/**", "scripts/**", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 jobs:
-  engine-test:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Engine unit tests (SwiftPM — builds for macOS host)
-        working-directory: ios
-        run: swift test
-
   app-build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen
-
+      - name: Mobile metadata
+        id: meta
+        run: python3 -P scripts/mobile-release.py metadata
+      - name: Verify palette, engine and simulator build
+        run: |
+          brew install xcodegen
+          sh scripts/check-ios.sh
       - name: Build app + keyboard extension (unsigned, device)
         working-directory: ios
         run: >-
           xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
-          -destination 'generic/platform=iOS'
-          -configuration Release
-          -derivedDataPath build
-          build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-
-      - name: Package unsigned IPA
-        working-directory: ios
-        run: |
-          mkdir -p Payload
-          cp -R "build/Build/Products/Release-iphoneos/"*.app Payload/
-          zip -qr TuiGo-unsigned.ipa Payload
-
+          -destination 'generic/platform=iOS' -configuration Release
+          -derivedDataPath build build
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Package and inspect unsigned IPA
+        run: >-
+          python3 -P scripts/mobile-release.py ipa
+          --source ios/build/Build/Products/Release-iphoneos --output dist
       - uses: actions/upload-artifact@v4
         with:
           name: tuigo-unsigned-ipa
-          path: ios/TuiGo-unsigned.ipa
+          path: dist/${{ steps.meta.outputs.ipa_name }}
+          if-no-files-found: error

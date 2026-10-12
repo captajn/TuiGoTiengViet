@@ -4,9 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.tuigo.engine.Engine
 import com.tuigo.engine.ImTelex
-import com.tuigo.engine.ImTelexSimple
-import com.tuigo.engine.ImTelexVni
 import com.tuigo.engine.ImVni
+import com.tuigo.engine.ImViqr
 import com.tuigo.engine.Options
 
 object Prefs {
@@ -26,15 +25,19 @@ object Prefs {
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
+    /** Visible desktop/mobile modes are Telex, VNI and VIQR. */
+    fun inputMethod(ctx: Context): Int {
+        val p = get(ctx)
+        val saved = p.getInt(KEY_IM, ImTelex)
+        val selected = if (saved in listOf(ImTelex, ImVni, ImViqr)) saved else ImTelex
+        if (saved != selected) p.edit().putInt(KEY_IM, selected).apply()
+        return selected
+    }
+
     /** Apply persisted options onto a live engine. */
     fun applyTo(engine: Engine, ctx: Context) {
         val p = get(ctx)
-        engine.setInputMethod(
-            when (p.getInt(KEY_IM, ImTelex)) {
-                ImVni, ImTelexSimple, ImTelexVni -> p.getInt(KEY_IM, ImTelex)
-                else -> ImTelex
-            }
-        )
+        engine.setInputMethod(inputMethod(ctx))
         engine.setOptions(Options(
             freeMarking = if (p.getBoolean(KEY_FREE_MARKING, true)) 1 else 0,
             modernStyle = if (p.getBoolean(KEY_MODERN_STYLE, true)) 1 else 0,

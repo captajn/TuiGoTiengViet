@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +20,7 @@ import android.view.SoundEffectConstants
 import android.view.View
 import android.view.WindowInsets
 import com.tuigo.UiTheme
+import com.tuigo.Prefs
 import kotlin.math.roundToInt
 
 /**
@@ -49,6 +52,7 @@ class KeyboardView @JvmOverloads constructor(
 
     var symbolsPage = false
         private set
+    private var extraSymbols = false
 
     /** Number row above letters — needed by VNI-style input methods
      *  (digits double as tone marks). */
@@ -69,6 +73,7 @@ class KeyboardView @JvmOverloads constructor(
     // ---- layout model ------------------------------------------------------
 
     private object K {
+        const val MORE = -10
         const val IME = -9
         const val HIDE = -8
         const val SPACER = -7
@@ -103,8 +108,9 @@ class KeyboardView @JvmOverloads constructor(
             ),
             arrayOf(
                 KeySpec(K.MODE, "?123", 1.5f),
-                KeySpec(','.code, ",", 1f),
-                KeySpec(K.SPACE, "Tui Gõ", 6f),
+                KeySpec(K.VIET, "VN", 0.9f),
+                KeySpec(','.code, ",", 0.8f),
+                KeySpec(K.SPACE, "Tiếng Việt", 5.3f),
                 KeySpec('.'.code, ".", 1f),
                 KeySpec(K.ENTER, "⏎", 1.5f),
             ),
@@ -116,24 +122,34 @@ class KeyboardView @JvmOverloads constructor(
             row("1234567890"),
             row("@#₫_&-+()", insetWeight = 1f),
             arrayOf(
-                KeySpec(K.MODE, "ABC", 1.5f),
+                KeySpec(K.MORE, "#+=", 1.5f),
                 *row("!?'\":;"),
                 KeySpec(K.DEL, "⌫", 1.5f),
             ),
             arrayOf(
                 KeySpec(K.MODE, "ABC", 1.5f),
-                KeySpec(','.code, ",", 1f),
-                KeySpec(K.SPACE, "Tui Gõ", 6f),
+                KeySpec(K.VIET, "VN", 0.9f),
+                KeySpec(','.code, ",", 0.8f),
+                KeySpec(K.SPACE, "Tiếng Việt", 5.3f),
                 KeySpec('.'.code, ".", 1f),
                 KeySpec(K.ENTER, "⏎", 1.5f),
             ),
         )
     }
 
+    private val extraSymbolRows: Array<Array<KeySpec>> by lazy {
+        arrayOf(
+            row("^~`|\\€£¥%$"),
+            row("°={}[]<>_₫"),
+            arrayOf(KeySpec(K.MORE, "?123", 1.5f), *row("!?'\":;"), KeySpec(K.DEL, "⌫", 1.5f)),
+            symbolsRows.last(),
+        )
+    }
+
     private val numberRow = row("1234567890")
 
     private fun currentRows(): Array<Array<KeySpec>> =
-        if (symbolsPage) symbolsRows
+        if (symbolsPage) { if (extraSymbols) extraSymbolRows else symbolsRows }
         else if (showNumberRow) arrayOf(numberRow, *lettersRows)
         else lettersRows
 
@@ -149,14 +165,14 @@ class KeyboardView @JvmOverloads constructor(
     private val padH = 3 * dp
     private val padTop = 8 * dp
     private val padBottom = 8 * dp
-    private val corner = 8 * dp
+    private val corner = 10 * dp
 
     // ---- paint --------------------------------------------------------------
 
     private var pal = UiTheme.palette(context)
 
-    /** Navigation-bar / gesture bottom inset. The keys sit above it; the strip
-     *  below carries the hide + IME-switch buttons (Gboard-style). */
+    /** Reserve any inset dispatched by the framework; never put controls in it.
+     * Android owns the navigation bar and its IME hide/switch buttons. */
     private var navInset = 0
 
     private val bgPaint = Paint().apply { color = pal.bg }
@@ -228,8 +244,8 @@ class KeyboardView @JvmOverloads constructor(
 
     /** Key metrics in dp — from the settings screen. */
     fun setMetrics(heightDp: Int, gapDp: Int) {
-        val h = heightDp * dp
-        val g = gapDp * dp
+        val h = (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) heightDp.coerceAtMost(40) else heightDp.coerceIn(44, 68)) * dp
+        val g = gapDp.coerceIn(0, 8) * dp
         if (h == keyHeight && g == keyGap) return
         keyHeight = h
         keyGap = g
@@ -244,6 +260,7 @@ class KeyboardView @JvmOverloads constructor(
             pal = p
             applyPalette()
         }
+        setMetrics(Prefs.keyHeightDp(context), Prefs.keyGapDp(context))
     }
 
     private fun applyPalette() {
@@ -251,6 +268,7 @@ class KeyboardView @JvmOverloads constructor(
         borderPaint.color = pal.border
         textPaint.color = pal.text
         popupTextPaint.color = pal.text
+        bgPaint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), pal.bg, pal.glow, Shader.TileMode.CLAMP)
         invalidate()
     }
 
@@ -283,14 +301,7 @@ class KeyboardView @JvmOverloads constructor(
             }
             y += keyHeight + rowGap
         }
-        if (navInset > 0) {
-            val sy = (height - navInset).toFloat()
-            val bw = navInset * 1.6f
-            keys += Key(KeySpec(K.HIDE, "⌄"),
-                RectF(0f, sy, bw, height.toFloat()))
-            keys += Key(KeySpec(K.IME, "🌐"),
-                RectF(width - bw, sy, width.toFloat(), height.toFloat()))
-        }
+        bgPaint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), pal.bg, pal.glow, Shader.TileMode.CLAMP)
         invalidate()
     }
 
@@ -321,7 +332,7 @@ class KeyboardView @JvmOverloads constructor(
                 textPaint.textSize = 20 * dp
                 drawCentered(canvas, if (capsLock) "⇪" else "⇧", r)
             }
-            K.DEL, K.MODE, K.VIET, K.ENTER, K.SPACE, K.HIDE, K.IME -> {
+            K.DEL, K.MODE, K.MORE, K.VIET, K.ENTER, K.SPACE, K.HIDE, K.IME -> {
                 keyPaint.color = when {
                     isPressed -> pal.accentHover
                     spec.code == K.ENTER -> pal.accent
@@ -340,16 +351,21 @@ class KeyboardView @JvmOverloads constructor(
                 }
                 textPaint.textSize = when (spec.code) {
                     K.SPACE -> 13 * dp
-                    K.MODE, K.VIET -> 14 * dp
+                    K.MODE, K.MORE, K.VIET -> 14 * dp
                     K.HIDE, K.IME -> 17 * dp
                     else -> 19 * dp
                 }
-                val label = if (spec.code == K.VIET && !vietnameseOn) "EN" else spec.label
+                val label = when (spec.code) {
+                    K.SPACE -> if (vietnameseOn) "Tiếng Việt" else "English"
+                    K.VIET -> if (vietnameseOn) "VN" else "EN"
+                    else -> spec.label
+                }
                 drawCentered(canvas, label, r)
             }
             else -> {
                 keyPaint.color = if (isPressed) pal.accent else pal.raised
                 canvas.drawRoundRect(r, corner, corner, keyPaint)
+                canvas.drawRoundRect(r, corner, corner, borderPaint)
                 textPaint.color = if (isPressed) pal.onAccent else pal.text
                 textPaint.textSize = 21 * dp
                 drawCentered(canvas, currentLabel(spec), r)
@@ -447,6 +463,11 @@ class KeyboardView @JvmOverloads constructor(
         invalidate()
     }
 
+    override fun onDetachedFromWindow() {
+        cancelPress()
+        super.onDetachedFromWindow()
+    }
+
     private fun hit(x: Float, y: Float): Key? =
         keys.firstOrNull { it.rect.contains(x, y) }
 
@@ -466,10 +487,17 @@ class KeyboardView @JvmOverloads constructor(
             }
             K.DEL, K.SPACER -> {} // delete fires on down/repeat
             K.MODE -> {
+                val previousCount = rows.size
                 symbolsPage = !symbolsPage
+                extraSymbols = false
                 rows = currentRows()
                 relayout()
-                requestLayout()
+                if (previousCount != rows.size) requestLayout()
+            }
+            K.MORE -> {
+                extraSymbols = !extraSymbols
+                rows = currentRows()
+                relayout()
             }
             K.ENTER -> listener?.onEnter()
             K.SPACE -> listener?.onChar(' ')
