@@ -52,7 +52,7 @@ class KeyboardView @JvmOverloads constructor(
 
     var symbolsPage = false
         private set
-    private var extraSymbols = false
+    private var symbolLevel = 0
 
     /** Number row above letters — needed by VNI-style input methods
      *  (digits double as tone marks). */
@@ -120,10 +120,10 @@ class KeyboardView @JvmOverloads constructor(
     private val symbolsRows: Array<Array<KeySpec>> by lazy {
         arrayOf(
             row("1234567890"),
-            row("@#₫_&-+()", insetWeight = 1f),
+            row("@#₫_&-+()/"),
             arrayOf(
                 KeySpec(K.MORE, "#+=", 1.5f),
-                *row("!?'\":;"),
+                *row("*\"':;!?"),
                 KeySpec(K.DEL, "⌫", 1.5f),
             ),
             arrayOf(
@@ -137,7 +137,7 @@ class KeyboardView @JvmOverloads constructor(
         )
     }
 
-    private val extraSymbolRows: Array<Array<KeySpec>> by lazy {
+    private val legacySymbolRows: Array<Array<KeySpec>> by lazy {
         arrayOf(
             row("^~`|\\€£¥%$"),
             row("°={}[]<>_₫"),
@@ -146,10 +146,19 @@ class KeyboardView @JvmOverloads constructor(
         )
     }
 
+    private val extraSymbolRows: Array<Array<KeySpec>> by lazy {
+        arrayOf(
+            row("~`|•√π÷×§Δ"),
+            row("£€$¢^°={}\\"),
+            arrayOf(KeySpec(K.MORE, "¥<>", 1.5f), *row("%©®™✓[]"), KeySpec(K.DEL, "⌫", 1.5f)),
+            symbolsRows.last(),
+        )
+    }
+
     private val numberRow = row("1234567890")
 
     private fun currentRows(): Array<Array<KeySpec>> =
-        if (symbolsPage) { if (extraSymbols) extraSymbolRows else symbolsRows }
+        if (symbolsPage) { when (symbolLevel) { 1 -> extraSymbolRows; 2 -> legacySymbolRows; else -> symbolsRows } }
         else if (showNumberRow) arrayOf(numberRow, *lettersRows)
         else lettersRows
 
@@ -489,13 +498,13 @@ class KeyboardView @JvmOverloads constructor(
             K.MODE -> {
                 val previousCount = rows.size
                 symbolsPage = !symbolsPage
-                extraSymbols = false
+                symbolLevel = 0
                 rows = currentRows()
                 relayout()
                 if (previousCount != rows.size) requestLayout()
             }
             K.MORE -> {
-                extraSymbols = !extraSymbols
+                symbolLevel = (symbolLevel + 1) % 3
                 rows = currentRows()
                 relayout()
             }

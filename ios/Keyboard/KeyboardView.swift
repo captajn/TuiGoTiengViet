@@ -23,7 +23,7 @@ final class KeyboardView: UIView {
     var showNumberRow = false { didSet { if oldValue != showNumberRow { rebuildKeys() } } }
 
     private(set) var symbolsPage = false
-    private var extraSymbols = false
+    private var symbolLevel = 0
     private(set) var shifted = false
     private(set) var capsLock = false
 
@@ -79,15 +79,21 @@ final class KeyboardView: UIView {
     private func symbolsRows() -> [[KeySpec]] {
         [
             row("1234567890"),
-            row("@#₫_&-+()", inset: 1),
-            [KeySpec(K.more, "#+=", 1.5)] + row("!?'\":;") + [KeySpec(K.del, "⌫", 1.5)],
+            row("@#₫_&-+()/"),
+            [KeySpec(K.more, "#+=", 1.5)] + row("*\"':;!?") + [KeySpec(K.del, "⌫", 1.5)],
             bottomRow(mode: "ABC"),
         ]
     }
 
-    private func extraSymbolRows() -> [[KeySpec]] {
+    private func legacySymbolRows() -> [[KeySpec]] {
         [row("^~`|\\€£¥%$"), row("°={}[]<>_₫"),
          [KeySpec(K.more, "?123", 1.5)] + row("!?'\":;") + [KeySpec(K.del, "⌫", 1.5)],
+         bottomRow(mode: "ABC")]
+    }
+
+    private func extraSymbolRows() -> [[KeySpec]] {
+        [row("~`|•√π÷×§Δ"), row("£€$¢^°={}\\"),
+         [KeySpec(K.more, "¥<>", 1.5)] + row("%©®™✓[]") + [KeySpec(K.del, "⌫", 1.5)],
          bottomRow(mode: "ABC")]
     }
 
@@ -104,7 +110,7 @@ final class KeyboardView: UIView {
     }
 
     private var rows: [[KeySpec]] {
-        if symbolsPage { return extraSymbols ? extraSymbolRows() : symbolsRows() }
+        if symbolsPage { switch symbolLevel { case 1: return extraSymbolRows(); case 2: return legacySymbolRows(); default: return symbolsRows() } }
         return (showNumberRow ? [row("1234567890")] : []) + lettersRows()
     }
     private var keys = [Key]()
@@ -401,10 +407,10 @@ final class KeyboardView: UIView {
             break // handled on touch-down / repeat
         case K.mode:
             symbolsPage.toggle()
-            extraSymbols = false
+            symbolLevel = 0
             rebuildKeys()
         case K.more:
-            extraSymbols.toggle()
+            symbolLevel = (symbolLevel + 1) % 3
             rebuildKeys()
         case K.enter:
             listener?.onEnter()
