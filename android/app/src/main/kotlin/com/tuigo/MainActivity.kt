@@ -64,6 +64,7 @@ class MainActivity : Activity() {
             addView(group)
         })
         root.addView(ui.card("Cách gõ", "Tinh chỉnh cách Tui Gõ xử lý từ và dấu").apply {
+            addView(toggle("Mặc định gõ tiếng Việt", "App chưa dùng Tui Gõ sẽ mở ở chế độ này", Prefs.KEY_VIET_ON))
             addView(toggle("Bỏ dấu tự do", "Thêm dấu ngay khi đang gõ từ", Prefs.KEY_FREE_MARKING))
             addView(toggle("Đặt dấu kiểu mới", "Ví dụ: hoà, thuỷ", Prefs.KEY_MODERN_STYLE))
             addView(toggle("Kiểm tra chính tả", "Giữ cách gõ tiếng Việt hợp lệ", Prefs.KEY_SPELL_CHECK))
@@ -75,10 +76,12 @@ class MainActivity : Activity() {
             addView(ui.button("Quản lý từ gõ tắt") { startActivity(Intent(this@MainActivity, MacroActivity::class.java)) })
         })
         root.addView(ui.card("Bàn phím", "Không gian gõ vừa tay bạn").apply {
+            addView(ui.text("Giao diện", 14f, ui.pal.text, true))
+            addView(themePicker())
             addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
             addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
             addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
-            addView(ui.text("Sáng / tối theo thiết bị. Chạm VN/EN để đổi ngôn ngữ; giữ Space để chọn bàn phím.", 13f, ui.pal.muted))
+            addView(ui.text("Giữ phím Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
         })
         root.addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {
             addView(ui.editor("Ví dụ: tieengs Vieetj", false).apply { tag = "typing-preview" })
@@ -110,6 +113,72 @@ class MainActivity : Activity() {
             trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf((ui.pal.accent and 0x00FFFFFF) or 0x33000000, ui.pal.border))
             isChecked = p.getBoolean(key, default)
             setOnCheckedChangeListener { _, checked -> p.edit().putBoolean(key, checked).apply() }
+        }
+    }
+    /** Horizontal strip of skin chips with live color previews. */
+    private fun themePicker(): View {
+        val p = Prefs.get(this)
+        val dark = UiTheme.isDark(this)
+        val current = p.getString(Prefs.KEY_THEME, KeyboardThemes.DEFAULT_ID) ?: KeyboardThemes.DEFAULT_ID
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val chips = mutableMapOf<String, View>()
+        fun select(id: String) {
+            p.edit().putString(Prefs.KEY_THEME, id).apply()
+            for ((chipId, chip) in chips) {
+                chip.background = if (chipId == id)
+                    ui.surface(ui.pal.glow, 14).apply { setStroke(ui.dp(1), ui.pal.accent) }
+                else ui.surface(ui.pal.raised, 14)
+            }
+        }
+        KeyboardThemes.ids.forEach { id ->
+            val t = KeyboardThemes.get(id, dark)
+            val chip = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = android.view.Gravity.CENTER_HORIZONTAL
+                setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(6))
+                tag = "theme-$id"
+                background = ui.surface(ui.pal.raised, 14)
+                addView(ImageView(this@MainActivity).apply {
+                    setImageDrawable(swatch(t))
+                    layoutParams = LinearLayout.LayoutParams(ui.dp(48), ui.dp(18))
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = KeyboardThemes.label(id); textSize = 11f; setTextColor(ui.pal.text)
+                    setPadding(0, ui.dp(5), 0, 0)
+                })
+                setOnClickListener { select(id) }
+                layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = ui.dp(8) }
+            }
+            chips[id] = chip
+            row.addView(chip)
+        }
+        select(current)
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            tag = "keyboard-themes"
+            addView(row)
+        }
+    }
+    /** Horizontal strip [bg | key | accent] ~48x18dp used as theme preview. */
+    private fun swatch(t: KeyTheme): android.graphics.drawable.Drawable {
+        val d = ui.dp(4); val w = ui.dp(48); val h = ui.dp(18)
+        return android.graphics.drawable.LayerDrawable(arrayOf(
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = d * 2f; setColor(t.bg)
+            },
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = d * 2f; setColor(t.key); setStroke(1, t.border)
+            },
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = d * 2f; setColor(t.accent)
+            },
+        )).apply {
+            setLayerInset(0, 0, 0, 0, 0)
+            setLayerInset(1, w / 3, 0, w / 3, 0)
+            setLayerInset(2, w * 2 / 3, 0, 0, 0)
+            setBounds(0, 0, w, h)
         }
     }
     private fun slider(title: String, key: String, min: Int, max: Int, default: Int): View {

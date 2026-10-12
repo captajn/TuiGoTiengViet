@@ -19,7 +19,8 @@ import android.view.MotionEvent
 import android.view.SoundEffectConstants
 import android.view.View
 import android.view.WindowInsets
-import com.tuigo.UiTheme
+import com.tuigo.KeyTheme
+import com.tuigo.KeyboardThemes
 import com.tuigo.Prefs
 import kotlin.math.roundToInt
 
@@ -41,12 +42,21 @@ class KeyboardView @JvmOverloads constructor(
         fun onShiftChanged(shifted: Boolean, capsLock: Boolean)
         fun onVietToggle() {}
         fun onSwitchIme() {}
+        fun onSpaceMenu() {}
         fun onHideKeyboard() {}
     }
 
     var listener: Listener? = null
 
-    /** VN mode state shown on the VN key. */
+    /** Keyboard skin; themes follow the Laban Key catalog (KeyboardThemes.kt). */
+    var theme: KeyTheme = KeyboardThemes.current(context)
+        set(v) {
+            field = v
+            applyTheme()
+            invalidate()
+        }
+
+    /** VN mode state shown on the space bar. */
     var vietnameseOn: Boolean = true
         set(v) { field = v; invalidate() }
 
@@ -77,7 +87,6 @@ class KeyboardView @JvmOverloads constructor(
         const val IME = -9
         const val HIDE = -8
         const val SPACER = -7
-        const val VIET = -6
         const val SPACE = -5
         const val ENTER = -4
         const val MODE = -3
@@ -108,9 +117,8 @@ class KeyboardView @JvmOverloads constructor(
             ),
             arrayOf(
                 KeySpec(K.MODE, "?123", 1.5f),
-                KeySpec(K.VIET, "VN", 0.9f),
                 KeySpec(','.code, ",", 0.8f),
-                KeySpec(K.SPACE, "Tiếng Việt", 5.3f),
+                KeySpec(K.SPACE, "Tiếng Việt", 6.2f),
                 KeySpec('.'.code, ".", 1f),
                 KeySpec(K.ENTER, "⏎", 1.5f),
             ),
@@ -128,9 +136,8 @@ class KeyboardView @JvmOverloads constructor(
             ),
             arrayOf(
                 KeySpec(K.MODE, "ABC", 1.5f),
-                KeySpec(K.VIET, "VN", 0.9f),
                 KeySpec(','.code, ",", 0.8f),
-                KeySpec(K.SPACE, "Tiếng Việt", 5.3f),
+                KeySpec(K.SPACE, "Tiếng Việt", 6.2f),
                 KeySpec('.'.code, ".", 1f),
                 KeySpec(K.ENTER, "⏎", 1.5f),
             ),
@@ -174,28 +181,26 @@ class KeyboardView @JvmOverloads constructor(
     private val padH = 3 * dp
     private val padTop = 8 * dp
     private val padBottom = 8 * dp
-    private val corner = 10 * dp
+    private var corner = 10 * dp
 
     // ---- paint --------------------------------------------------------------
-
-    private var pal = UiTheme.palette(context)
 
     /** Reserve any inset dispatched by the framework; never put controls in it.
      * Android owns the navigation bar and its IME hide/switch buttons. */
     private var navInset = 0
 
-    private val bgPaint = Paint().apply { color = pal.bg }
+    private val bgPaint = Paint().apply { color = theme.bg }
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 1f; color = pal.border
+        style = Paint.Style.STROKE; strokeWidth = 1f; color = theme.border
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = pal.text
+        color = theme.text
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val popupTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = pal.text
+        color = theme.popupText
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
@@ -213,12 +218,12 @@ class KeyboardView @JvmOverloads constructor(
         }
     }
 
-    /** Long-press Space = IME switcher (Gboard-style). */
+    /** Long-press Space = language/input-method menu (Gboard-style). */
     private val spaceLongPress = Runnable {
         spaceLongFired = true
         pressed = null
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        listener?.onSwitchIme()
+        listener?.onSpaceMenu()
         invalidate()
     }
 
@@ -264,20 +269,22 @@ class KeyboardView @JvmOverloads constructor(
 
     override fun onConfigurationChanged(newConfig: Configuration?) {
         super.onConfigurationChanged(newConfig)
-        val p = UiTheme.palette(context)
-        if (p !== pal) {
-            pal = p
-            applyPalette()
+        val t = KeyboardThemes.current(context)
+        if (t != theme) {
+            theme = t
+        } else {
+            applyTheme()
         }
         setMetrics(Prefs.keyHeightDp(context), Prefs.keyGapDp(context))
     }
 
-    private fun applyPalette() {
-        bgPaint.color = pal.bg
-        borderPaint.color = pal.border
-        textPaint.color = pal.text
-        popupTextPaint.color = pal.text
-        bgPaint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), pal.bg, pal.glow, Shader.TileMode.CLAMP)
+    private fun applyTheme() {
+        corner = theme.cornerDp * dp
+        bgPaint.color = theme.bg
+        bgPaint.shader = LinearGradient(0f, 0f, 0f, height.toFloat().coerceAtLeast(1f), theme.bg, theme.bgEnd, Shader.TileMode.CLAMP)
+        borderPaint.color = theme.border
+        textPaint.color = theme.text
+        popupTextPaint.color = theme.popupText
         invalidate()
     }
 
@@ -310,7 +317,7 @@ class KeyboardView @JvmOverloads constructor(
             }
             y += keyHeight + rowGap
         }
-        bgPaint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), pal.bg, pal.glow, Shader.TileMode.CLAMP)
+        bgPaint.shader = LinearGradient(0f, 0f, 0f, height.toFloat().coerceAtLeast(1f), theme.bg, theme.bgEnd, Shader.TileMode.CLAMP)
         invalidate()
     }
 
@@ -327,55 +334,64 @@ class KeyboardView @JvmOverloads constructor(
         if (spec.code == K.SPACER) return
         val r = key.rect
         val isPressed = pressed === key
+        val t = theme
+
+        fun cap(fill: Int, stroke: Int = t.border) {
+            keyPaint.color = fill
+            canvas.drawRoundRect(r, corner, corner, keyPaint)
+            if (stroke ushr 24 != 0) {
+                borderPaint.color = stroke
+                canvas.drawRoundRect(r, corner, corner, borderPaint)
+            }
+        }
+        fun pressedGlyph(normal: Int) = if (t.pressAccent) t.onAccent else normal
 
         when (spec.code) {
             K.SHIFT -> {
-                keyPaint.color = when {
-                    isPressed -> pal.accentHover
-                    capsLock || shifted -> pal.accent
-                    else -> pal.surface
+                val active = capsLock || shifted
+                cap(when {
+                    isPressed -> if (t.pressAccent) t.accent else t.funcPressed
+                    active -> if (t.blueGlyphs) t.space else t.accent
+                    else -> t.func
+                })
+                textPaint.color = when {
+                    isPressed -> pressedGlyph(t.funcText)
+                    active -> if (t.blueGlyphs) t.accent else t.onAccent
+                    else -> t.funcText
                 }
-                canvas.drawRoundRect(r, corner, corner, keyPaint)
-                canvas.drawRoundRect(r, corner, corner, borderPaint)
-                textPaint.color = if (capsLock || shifted || isPressed) pal.onAccent else pal.muted
                 textPaint.textSize = 20 * dp
                 drawCentered(canvas, if (capsLock) "⇪" else "⇧", r)
             }
-            K.DEL, K.MODE, K.MORE, K.VIET, K.ENTER, K.SPACE, K.HIDE, K.IME -> {
-                keyPaint.color = when {
-                    isPressed -> pal.accentHover
-                    spec.code == K.ENTER -> pal.accent
-                    spec.code == K.HIDE || spec.code == K.IME -> pal.bg
-                    else -> pal.surface
-                }
-                canvas.drawRoundRect(r, corner, corner, keyPaint)
-                if (spec.code != K.HIDE && spec.code != K.IME)
-                    canvas.drawRoundRect(r, corner, corner, borderPaint)
+            K.ENTER -> {
+                cap(when {
+                    isPressed -> if (t.pressAccent) t.accent else t.funcPressed
+                    t.enterAccentFill -> t.accent
+                    else -> t.func
+                })
                 textPaint.color = when {
-                    isPressed -> pal.onAccent
-                    spec.code == K.ENTER -> pal.onAccent
-                    spec.code == K.VIET -> if (vietnameseOn) pal.accent else pal.muted
-                    spec.code == K.SPACE || spec.code == K.HIDE || spec.code == K.IME -> pal.muted
-                    else -> pal.text
+                    isPressed -> pressedGlyph(t.funcText)
+                    t.enterAccentFill -> t.onAccent
+                    t.blueGlyphs -> t.accent
+                    else -> t.funcText
                 }
-                textPaint.textSize = when (spec.code) {
-                    K.SPACE -> 13 * dp
-                    K.MODE, K.MORE, K.VIET -> 14 * dp
-                    K.HIDE, K.IME -> 17 * dp
-                    else -> 19 * dp
-                }
-                val label = when (spec.code) {
-                    K.SPACE -> if (vietnameseOn) "Tiếng Việt" else "English"
-                    K.VIET -> if (vietnameseOn) "VN" else "EN"
-                    else -> spec.label
-                }
-                drawCentered(canvas, label, r)
+                textPaint.textSize = 19 * dp
+                drawCentered(canvas, spec.label, r)
+            }
+            K.SPACE -> {
+                cap(if (isPressed && !t.pressAccent) t.funcPressed else t.space, t.spaceBorder)
+                textPaint.color = if (isPressed) pressedGlyph(t.spaceText) else t.spaceText
+                textPaint.textSize = 13 * dp
+                drawCentered(canvas, if (vietnameseOn) "Tiếng Việt" else "English", r)
+            }
+            K.DEL, K.MODE, K.MORE -> {
+                cap(if (isPressed) (if (t.pressAccent) t.accent else t.funcPressed) else t.func)
+                textPaint.color = if (isPressed) pressedGlyph(t.funcText) else t.funcText
+                textPaint.textSize = if (spec.code == K.DEL) 19 * dp else 14 * dp
+                drawCentered(canvas, spec.label, r)
             }
             else -> {
-                keyPaint.color = if (isPressed) pal.accent else pal.raised
-                canvas.drawRoundRect(r, corner, corner, keyPaint)
-                canvas.drawRoundRect(r, corner, corner, borderPaint)
-                textPaint.color = if (isPressed) pal.onAccent else pal.text
+                cap(if (isPressed) (if (t.pressAccent) t.accent else t.keyPressed) else t.key)
+                textPaint.color = if (isPressed) pressedGlyph(t.text) else t.text
                 textPaint.textSize = 21 * dp
                 drawCentered(canvas, currentLabel(spec), r)
             }
@@ -397,9 +413,12 @@ class KeyboardView @JvmOverloads constructor(
         val px = (r.centerX() - pw / 2).coerceIn(padH, width - padH - pw)
         val py = (r.top - ph - rowGap).coerceAtLeast(2 * dp)
         val popup = RectF(px, py, px + pw, py + ph)
-        keyPaint.color = pal.raised
+        keyPaint.color = theme.popup
         canvas.drawRoundRect(popup, corner, corner, keyPaint)
-        canvas.drawRoundRect(popup, corner, corner, borderPaint)
+        if (theme.popupBorder ushr 24 != 0) {
+            borderPaint.color = theme.popupBorder
+            canvas.drawRoundRect(popup, corner, corner, borderPaint)
+        }
         popupTextPaint.textSize = 26 * dp
         val y = popup.centerY() - (popupTextPaint.descent() + popupTextPaint.ascent()) / 2
         canvas.drawText(currentLabel(key.spec), popup.centerX(), y, popupTextPaint)
@@ -510,7 +529,6 @@ class KeyboardView @JvmOverloads constructor(
             }
             K.ENTER -> listener?.onEnter()
             K.SPACE -> listener?.onChar(' ')
-            K.VIET -> listener?.onVietToggle()
             K.HIDE -> listener?.onHideKeyboard()
             K.IME -> listener?.onSwitchIme()
             else -> {

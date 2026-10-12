@@ -70,7 +70,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     private func applyPrefs() {
         Prefs.apply(to: engine)
-        vietOn = hasFullAccess ? Prefs.vietOn() : (UserDefaults.standard.object(forKey: Prefs.keyVietOn) as? Bool ?? Prefs.vietOn())
+        let globalViet = hasFullAccess ? Prefs.vietOn() : (UserDefaults.standard.object(forKey: Prefs.keyVietOn) as? Bool ?? Prefs.vietOn())
+        vietOn = Prefs.vietForApp(textDocumentProxy.documentIdentifier?.uuidString) ?? globalViet
+        keyboard.theme = KeyboardThemes.current(dark: traitCollection.userInterfaceStyle == .dark)
         doubleSpace = Prefs.doubleSpacePeriod()
         keyboard.vietnameseOn = vietOn
         engine.setVietKey(vietOn)
@@ -156,15 +158,39 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     }
 
     func onVietToggle() {
-        vietOn.toggle()
+        setViet(!vietOn)
+    }
+
+    private func setViet(_ on: Bool) {
+        vietOn = on
         // Without Full Access an extension cannot write to the shared container.
         // Always change the current session; persist only when writing is allowed.
-        if hasFullAccess { Prefs.defaults.set(vietOn, forKey: Prefs.keyVietOn) }
-        UserDefaults.standard.set(vietOn, forKey: Prefs.keyVietOn)
-        keyboard.vietnameseOn = vietOn
-        engine.setVietKey(vietOn)
+        if hasFullAccess { Prefs.setViet(textDocumentProxy.documentIdentifier?.uuidString, on: on) }
+        UserDefaults.standard.set(on, forKey: Prefs.keyVietOn)
+        keyboard.vietnameseOn = on
+        engine.setVietKey(on)
         engine.resetBuf()
         spacePending = false
+    }
+
+    /// Long-press Space: quick settings for language and input method.
+    func onSpaceMenu() {
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        let im = Prefs.inputMethod()
+        func check(_ on: Bool) -> String { on ? "✓ " : "" }
+        alert.addAction(UIAlertAction(title: check(vietOn) + "Tiếng Việt", style: .default) { [weak self] _ in self?.setViet(true) })
+        alert.addAction(UIAlertAction(title: check(!vietOn) + "English", style: .default) { [weak self] _ in self?.setViet(false) })
+        alert.addAction(UIAlertAction(title: check(im == ImTelex) + "Telex", style: .default) { _ in Prefs.defaults.set(ImTelex, forKey: Prefs.keyIM) })
+        alert.addAction(UIAlertAction(title: check(im == ImVni) + "VNI", style: .default) { _ in Prefs.defaults.set(ImVni, forKey: Prefs.keyIM) })
+        alert.addAction(UIAlertAction(title: check(im == ImViqr) + "VIQR", style: .default) { _ in Prefs.defaults.set(ImViqr, forKey: Prefs.keyIM) })
+        alert.addAction(UIAlertAction(title: "Bàn phím khác…", style: .default) { [weak self] _ in self?.advanceToNextInputMode() })
+        alert.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
+        if let pop = alert.popoverPresentationController {
+            pop.sourceView = keyboard
+            pop.sourceRect = CGRect(x: keyboard.bounds.midX, y: keyboard.bounds.midY, width: 0, height: 0)
+            pop.permittedArrowDirections = []
+        }
+        present(alert, animated: true)
     }
 
     func onSwitchIme() {
