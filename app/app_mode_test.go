@@ -12,6 +12,7 @@ func setupAppModeTest(t *testing.T) {
 	oldConfig, oldGlobal := cfg, gVietKey
 	oldRemembered, oldPerApp := gRememberedAppViet, gPerAppViet
 	oldEngine, oldAutoCap := gEngine, gAutoCapNext
+	oldIM := gIM
 	oldKeyHwnd, oldLastIM := gLastKeyHwnd, gLastIM
 	oldClip, oldTCVN, oldSafeDel, oldCaret := gForceClip, gForceTCVN, gSafeDel, gCaretAtEnd
 	oldCtrl, oldAlt, oldShift, oldWin, oldHotkey := gCtrlHeld, gAltHeld, gShiftHeld, gWinHeld, gHotkeyDown
@@ -21,6 +22,7 @@ func setupAppModeTest(t *testing.T) {
 		cfg, gVietKey = oldConfig, oldGlobal
 		gRememberedAppViet, gPerAppViet = oldRemembered, oldPerApp
 		gEngine, gAutoCapNext = oldEngine, oldAutoCap
+		gIM = oldIM
 		gLastKeyHwnd, gLastIM = oldKeyHwnd, oldLastIM
 		gForceClip, gForceTCVN, gSafeDel, gCaretAtEnd = oldClip, oldTCVN, oldSafeDel, oldCaret
 		gCtrlHeld, gAltHeld, gShiftHeld, gWinHeld, gHotkeyDown = oldCtrl, oldAlt, oldShift, oldWin, oldHotkey
@@ -299,5 +301,57 @@ func TestNormalTypingWithRememberedModes(t *testing.T) {
 	flipVietKeyForApp(app)
 	if got := typeWord("aas"); got != "ấ" {
 		t.Fatalf("Vietnamese after re-enabling: %q", got)
+	}
+}
+
+// Drive the production keyboard handler, while preventing SendInput from
+// writing into the user's foreground window. The real engine still runs.
+type typingModeProbe struct {
+	Engine
+	on bool
+}
+
+func (p *typingModeProbe) SetVietKey(on bool) {
+	p.on = on
+	p.Engine.SetVietKey(on)
+}
+
+func (p *typingModeProbe) Filter(ch uint32) Result {
+	p.Engine.Filter(ch)
+	return Result{}
+}
+
+func (p *typingModeProbe) Backspace() Result {
+	p.Engine.Backspace()
+	return Result{}
+}
+
+func TestOrdinaryTypingNeverSwitchesToEnglish(t *testing.T) {
+	setupAppModeTest(t)
+	focusAppForTest("normal-typing.exe", appSpec{im: -1})
+	cfg.RememberAppMode = false
+	setRememberAppMode(true)
+	cfg.HotkeyMods, cfg.HotkeyVk = 4, 'Z'
+	probe := &typingModeProbe{Engine: gEngine, on: true}
+	gEngine = probe
+	// Includes every letter, Vietnamese tone keys, digits, punctuation,
+	// whitespace and ordinary editing keys. None is a V/E command.
+	for _, im := range []int{ImTelex, ImVni} {
+		oldIM := gIM
+		gIM = im
+		for pass := 0; pass < 50; pass++ {
+			for _, vk := range []uint32{
+				'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+				'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+				'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+				VK_SPACE, VK_BACK, VK_LEFT, VK_RIGHT, VK_RETURN, VK_TAB,
+			} {
+				handleKeyDown(&kbdLLHookStruct{vkCode: vk})
+				if !probe.on || !effectiveViet() || !gRememberedAppViet["normal-typing.exe"] {
+					t.Fatalf("method %d, pass %d, vk %d: normal typing switched V to E", im, pass, vk)
+				}
+			}
+		}
+		gIM = oldIM
 	}
 }
