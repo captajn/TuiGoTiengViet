@@ -1,0 +1,65 @@
+name: TuiGo
+
+options:
+  bundleIdPrefix: com.tuigo
+  createIntermediateGroups: true
+  developmentLanguage: vi
+
+packages:
+  TuiGoEngine:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    GENERATE_INFOPLIST_FILE: "NO"
+
+targets:
+  TuiGo:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: App
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tuigo
+        PRODUCT_NAME: "Tui Gõ"
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/TuiGo.entitlements
+    dependencies:
+      - target: TuiGoKeyboard
+        embed: true
+      - package: TuiGoEngine
+        product: TuiGoEngine
+
+  TuiGoKeyboard:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: Keyboard
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tuigo.keyboard
+        INFOPLIST_FILE: Keyboard/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Keyboard/Keyboard.entitlements
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+    dependencies:
+      - package: TuiGoEngine
+        product: TuiGoEngine
+
+schemes:
+  TuiGo:
+    build:
+      targets:
+        TuiGo: all
+    run:
+      config: Debug

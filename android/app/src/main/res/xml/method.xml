@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.tuigo.MainActivity"
+    android:isDefault="false">
+    <subtype
+        android:label="@string/subtype_vi"
+        android:imeSubtypeLocale="vi_VN"
+        android:languageTag="vi"
+        android:imeSubtypeMode="keyboard"
+        android:isAsciiCapable="true"
+        android:overridesImplicitlyEnabledSubtype="false" />
+    <subtype
+        android:label="@string/subtype_en"
+        android:imeSubtypeLocale="en_US"
+        android:languageTag="en"
+        android:imeSubtypeMode="keyboard"
+        android:isAsciiCapable="true" />
+</input-method>

@@ -1,0 +1,37 @@
+name: iOS
+
+on:
+  push:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**"]
+  workflow_dispatch:
+
+jobs:
+  engine-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Engine unit tests (SwiftPM — builds for macOS host)
+        working-directory: ios
+        run: swift test
+
+  app-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen
+
+      - name: Build app + keyboard extension (unsigned, simulator)
+        working-directory: ios
+        run: >-
+          xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
+          -destination 'generic/platform=iOS Simulator'
+          build CODE_SIGNING_ALLOWED=NO

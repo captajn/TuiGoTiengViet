@@ -7,7 +7,10 @@
 *.lib
 *.exp
 *.pdb
+*.apk
 build/
+.gradle/
+local.properties
 
 # Logs & temp files
 *.log
@@ -44,3 +47,10 @@ assets/logo-crop.png
 # local captures
 *.mp4
 *.png
+
+# iOS / Xcode (project generated via XcodeGen)
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+ios/.swiftpm/

@@ -125,8 +125,40 @@ app/
   *.go           shell Windows: keyboard hook, tray, HUD, settings UI
   app.ico        icon app · rsrc.syso — resource embed
   build.bat      script build (gui/console/arm64/res)
+android/
+  engine/        port Kotlin thuần của engine (test JVM, không cần emulator)
+  app/           InputMethodService + keyboard view + app cài đặt
+ios/
+  Sources/TuiGoEngine/  port Swift thuần của engine (SwiftPM, swift test)
+  Keyboard/      Custom Keyboard Extension (UIInputViewController + UIKit)
+  App/           app cài đặt SwiftUI (kiểu gõ, tuỳ chọn, sửa macro)
+  Shared/        Prefs qua App Group (group.com.tuigo)
+  project.yml    XcodeGen — sinh TuiGo.xcodeproj
 assets/          logo + UI concept tham khảo
 ```
+
+## Mobile
+
+### Android
+
+```bat
+cd android
+gradlew.bat :engine:test :app:assembleDebug
+```
+
+APK ra ở `android/app/build/outputs/apk/debug/`. Cài lên máy: `adb install app-debug.apk` → Cài đặt → bật Tui Gõ làm bàn phím. JDK toolchain 17 tự tải qua Foojay resolver, không cần cài JDK riêng.
+
+### iOS
+
+Cần macOS + Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`):
+
+```sh
+cd ios
+xcodegen          # sinh TuiGo.xcodeproj (đã gitignore)
+open TuiGo.xcodeproj
+```
+
+Chọn scheme **TuiGo** → chạy trên simulator hoặc máy thật (máy thật cần chọn Development Team trong Signing — App Group `group.com.tuigo` dùng được với free provisioning). Test engine không cần Xcode: `swift test`.
 
 ## Nguyên tắc thiết kế
 
