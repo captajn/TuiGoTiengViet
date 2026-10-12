@@ -29,9 +29,23 @@ jobs:
         working-directory: ios
         run: xcodegen
 
-      - name: Build app + keyboard extension (unsigned, simulator)
+      - name: Build app + keyboard extension (unsigned, device)
         working-directory: ios
         run: >-
           xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
-          -destination 'generic/platform=iOS Simulator'
-          build CODE_SIGNING_ALLOWED=NO
+          -destination 'generic/platform=iOS'
+          -configuration Release
+          -derivedDataPath build
+          build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R "build/Build/Products/Release-iphoneos/"*.app Payload/
+          zip -qr TuiGo-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tuigo-unsigned-ipa
+          path: ios/TuiGo-unsigned.ipa
