@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +34,34 @@ jobs:
         with:
           name: tuigo-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+
+      - name: Restore release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: android
+        env:
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore/tuigo-release.jks
+          {
+            echo "storeFile=keystore/tuigo-release.jks"
+            echo "storePassword=$KEYSTORE_STORE_PASSWORD"
+            echo "keyAlias=$KEYSTORE_KEY_ALIAS"
+            echo "keyPassword=$KEYSTORE_KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Build release APK
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - uses: actions/upload-artifact@v4
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        with:
+          name: tuigo-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
 
       - name: Upload test report on failure
         if: failure()
