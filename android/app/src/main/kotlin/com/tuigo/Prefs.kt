@@ -19,6 +19,7 @@ object Prefs {
     const val KEY_AUTO_NONVN = "auto_nonvn_restore"
     const val KEY_DOUBLE_SPACE = "double_space_period"
     const val KEY_VIET_ON = "viet_on"
+    const val KEY_NUMBER_ROW = "number_row"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -45,4 +46,6 @@ object Prefs {
     fun vietOn(ctx: Context): Boolean = get(ctx).getBoolean(KEY_VIET_ON, true)
     fun doubleSpacePeriod(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_DOUBLE_SPACE, true)
+    fun numberRow(ctx: Context): Boolean =
+        get(ctx).getBoolean(KEY_NUMBER_ROW, false)
 }

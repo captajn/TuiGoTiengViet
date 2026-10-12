@@ -55,9 +55,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         doubleSpace = Prefs.doubleSpacePeriod(this)
     }
 
-    /** VNI-style methods type tone marks with digits — show the number row. */
+    /** VNI-style methods type tone marks with digits — they always get the
+     *  number row; other methods follow the settings toggle. */
     private fun usesNumberRow(): Boolean =
-        when (Prefs.get(this).getInt(Prefs.KEY_IM, ImTelex)) {
+        Prefs.numberRow(this) || when (Prefs.get(this).getInt(Prefs.KEY_IM, ImTelex)) {
             ImVni, ImTelexVni -> true
             else -> false
         }

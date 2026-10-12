@@ -106,6 +106,7 @@ class MainActivity : Activity() {
             this += check("Gõ tắt (macro)", Prefs.KEY_MACRO, true)
             this += check("Khôi phục từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN, true)
             this += check("Gõ đúp Space → dấu chấm", Prefs.KEY_DOUBLE_SPACE, true)
+            this += check("Hiện hàng số trên cùng", Prefs.KEY_NUMBER_ROW, false)
         }
 
         root += TextView(this).apply {
