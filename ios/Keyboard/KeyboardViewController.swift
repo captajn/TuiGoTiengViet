@@ -68,10 +68,18 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         updateAutoShift()
     }
 
+    /// documentIdentifier is the per-host memory key. Without Full Access it
+    /// is the zero UUID — treat that as unknown so a toggle stays session-only
+    /// instead of leaking to a key shared by every restricted host.
+    private var hostKey: String? {
+        let id = textDocumentProxy.documentIdentifier
+        return id == UUID(uuidString: "00000000-0000-0000-0000-000000000000") ? nil : id.uuidString
+    }
+
     private func applyPrefs() {
         Prefs.apply(to: engine)
         let globalViet = hasFullAccess ? Prefs.vietOn() : (UserDefaults.standard.object(forKey: Prefs.keyVietOn) as? Bool ?? Prefs.vietOn())
-        vietOn = Prefs.vietForApp(textDocumentProxy.documentIdentifier?.uuidString) ?? globalViet
+        vietOn = Prefs.vietForApp(hostKey) ?? globalViet
         keyboard.theme = KeyboardThemes.current(dark: traitCollection.userInterfaceStyle == .dark)
         doubleSpace = Prefs.doubleSpacePeriod()
         keyboard.vietnameseOn = vietOn
@@ -165,7 +173,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         vietOn = on
         // Without Full Access an extension cannot write to the shared container.
         // Always change the current session; persist only when writing is allowed.
-        if hasFullAccess { Prefs.setViet(textDocumentProxy.documentIdentifier?.uuidString, on: on) }
+        if hasFullAccess { Prefs.setViet(hostKey, on: on) }
         UserDefaults.standard.set(on, forKey: Prefs.keyVietOn)
         keyboard.vietnameseOn = on
         engine.setVietKey(on)
