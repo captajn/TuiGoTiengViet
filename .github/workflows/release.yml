@@ -132,10 +132,10 @@ jobs:
           src=$(find android/app/build/outputs/apk -name '*.apk' | head -1)
           cp "$src" "TuiGo-${tag}.apk"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: TuiGo-*.apk
+          name: mobile-apk
+          path: TuiGo-*.apk
 
   ipa:
     # Mobile-only: tag `mobile-v*`
@@ -168,7 +168,25 @@ jobs:
           cp -R "build/Build/Products/Release-iphoneos/"*.app Payload/
           zip -qr "TuiGo-${tag}-unsigned.ipa" Payload
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ipa
+          path: ios/TuiGo-*-unsigned.ipa
+
+  mobile-release:
+    # APK + IPA in one release, created once after both builds finish
+    needs: [apk, ipa]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: ios/TuiGo-*-unsigned.ipa
+          name: Tui Gõ Mobile ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/**/*.apk
+            dist/**/*.ipa
