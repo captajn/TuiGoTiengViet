@@ -2,6 +2,7 @@ package com.tuigo
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONObject
 import com.tuigo.engine.Engine
 import com.tuigo.engine.ImTelex
 import com.tuigo.engine.ImVni
@@ -21,6 +22,8 @@ object Prefs {
     const val KEY_NUMBER_ROW = "number_row"
     const val KEY_KEY_HEIGHT = "key_height"
     const val KEY_KEY_GAP = "key_gap"
+    const val KEY_THEME = "key_theme"
+    const val KEY_VIET_PER_APP = "viet_per_app"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -55,4 +58,34 @@ object Prefs {
         get(ctx).getBoolean(KEY_NUMBER_ROW, false)
     fun keyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_HEIGHT, 56)
     fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)
+
+    // ---- per-app language memory -------------------------------------------
+
+    /** packageName -> vietnameseOn. Unknown packages fall back to KEY_VIET_ON. */
+    fun vietForApp(ctx: Context, pkg: String?): Boolean? {
+        if (pkg == null) return null
+        val json = get(ctx).getString(KEY_VIET_PER_APP, null) ?: return null
+        return try {
+            val obj = JSONObject(json)
+            if (obj.has(pkg)) obj.getBoolean(pkg) else null
+        } catch (_: Exception) { null }
+    }
+
+    /** Remember the toggle per host app (Windows-style per-app input state).
+     *  The global KEY_VIET_ON is only the default for apps without a recorded
+     *  choice — toggling inside one app must not change other apps. */
+    fun setViet(ctx: Context, pkg: String?, on: Boolean) {
+        if (pkg == null) return
+        val p = get(ctx)
+        val obj = try { JSONObject(p.getString(KEY_VIET_PER_APP, "{}") ?: "{}") }
+            catch (_: Exception) { JSONObject() }
+        obj.put(pkg, on)
+        // Bound the map: drop everything once it grows silly-large.
+        if (obj.length() > 300) {
+            p.edit().putString(KEY_VIET_PER_APP,
+                JSONObject().put(pkg, on).toString()).apply()
+            return
+        }
+        p.edit().putString(KEY_VIET_PER_APP, obj.toString()).apply()
+    }
 }

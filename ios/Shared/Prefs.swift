@@ -22,6 +22,8 @@ enum Prefs {
     static let keyNumberRow = "number_row"
     static let keyKeyHeight = "key_height"
     static let keyKeyGap = "key_gap"
+    static let keyTheme = "key_theme"
+    static let keyVietPerApp = "viet_per_app"
 
     static func keyHeight() -> Double {
         min(68, max(44, defaults.object(forKey: keyKeyHeight) as? Double ?? 52))
@@ -53,6 +55,27 @@ enum Prefs {
 
     static func doubleSpacePeriod() -> Bool {
         defaults.object(forKey: keyDoubleSpace) as? Bool ?? true
+    }
+
+    // ---- per-app language memory ----------------------------------------------
+    // iOS does not expose the host app's identity to keyboard extensions;
+    // documentIdentifier is the closest stable key (one UUID per field/host).
+
+    static func vietForApp(_ id: String?) -> Bool? {
+        guard let id else { return nil }
+        let map = defaults.dictionary(forKey: keyVietPerApp) as? [String: Bool] ?? [:]
+        return map[id]
+    }
+
+    /// Remember the toggle per document (same contract as Android Prefs.setViet).
+    /// keyVietOn is only the default for hosts without a recorded choice —
+    /// toggling inside one app must not change other apps.
+    static func setViet(_ id: String?, on: Bool) {
+        guard let id else { return }
+        var map = defaults.dictionary(forKey: keyVietPerApp) as? [String: Bool] ?? [:]
+        map[id] = on
+        if map.count > 300 { map = [id: on] }
+        defaults.set(map, forKey: keyVietPerApp)
     }
 
     /// Apply persisted options onto a live engine.

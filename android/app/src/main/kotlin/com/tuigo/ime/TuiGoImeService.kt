@@ -1,6 +1,8 @@
 package com.tuigo.ime
 
 import android.inputmethodservice.InputMethodService
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.os.Build
 import android.content.res.Configuration
@@ -8,13 +10,21 @@ import android.content.SharedPreferences
 import android.view.WindowInsetsController
 import com.tuigo.UiTheme
 import android.text.InputType
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.TextView
+import com.tuigo.KeyboardThemes
 import com.tuigo.Prefs
 import com.tuigo.engine.Engine
+import com.tuigo.engine.ImTelex
 import com.tuigo.engine.ImVni
+import com.tuigo.engine.ImViqr
 import com.tuigo.engine.Result
 import com.tuigo.MacroFiles
 import com.tuigo.engine.loadMacroText
@@ -34,8 +44,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             loadEngineConfig()
             engine.resetBuf(); spacePending = false
             if (::keyboard.isInitialized) {
+                keyboard.theme = KeyboardThemes.current(this)
                 keyboard.showNumberRow = usesNumberRow()
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+                applySystemBarTheme()
             }
         }
     }
@@ -45,6 +57,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private var vietOn = true
     private var doubleSpace = true
+
+    /** Host app's package — per-app VN/EN memory (Windows-style). */
+    private var hostPkg: String? = null
+    private var spacePopup: PopupWindow? = null
 
     /** Cursor position we expect after our own edits — lets us distinguish
      *  external selection changes (cursor tap) from our own commits. */
@@ -68,7 +84,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun loadEngineConfig() {
         Prefs.applyTo(engine, this)
-        vietOn = Prefs.vietOn(this)
+        vietOn = Prefs.vietForApp(this, hostPkg) ?: Prefs.vietOn(this)
+        engine.setVietKey(vietOn)
         doubleSpace = Prefs.doubleSpacePeriod(this)
         // Reload on every activation, including an empty/deleted macro file.
         // Preserve the last readable list only on a genuine I/O failure.
@@ -84,6 +101,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     override fun onCreateInputView(): View {
         keyboard = KeyboardView(this)
         keyboard.listener = this
+        keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
@@ -107,7 +125,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        hostPkg = info?.packageName
         loadEngineConfig()
+        keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
@@ -121,7 +141,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private fun applySystemBarTheme() {
         val imeWindow = window?.window ?: return
         val light = !UiTheme.isDark(this)
-        imeWindow.navigationBarColor = UiTheme.palette(this).bg
+        imeWindow.navigationBarColor = if (::keyboard.isInitialized) keyboard.theme.bg else UiTheme.palette(this).bg
         if (Build.VERSION.SDK_INT >= 30) {
             imeWindow.insetsController?.setSystemBarsAppearance(
                 if (light) WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS else 0,
@@ -231,12 +251,75 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     override fun onVietToggle() {
-        vietOn = !vietOn
-        Prefs.get(this).edit().putBoolean(Prefs.KEY_VIET_ON, vietOn).apply()
-        keyboard.vietnameseOn = vietOn
-        engine.setVietKey(vietOn)
+        setVietOn(!vietOn)
+    }
+
+    private fun setVietOn(on: Boolean) {
+        vietOn = on
+        Prefs.setViet(this, hostPkg, on)
+        keyboard.vietnameseOn = on
+        engine.setVietKey(on)
         engine.resetBuf()
         spacePending = false
+    }
+
+    /** Long-press Space: quick settings for language and input method. */
+    override fun onSpaceMenu() {
+        val t = keyboard.theme
+        val dm = resources.displayMetrics.density
+        fun dp(v: Int) = (v * dm).toInt()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = GradientDrawable().apply {
+                setColor(t.popup)
+                cornerRadius = dp(12).toFloat()
+                if (t.popupBorder ushr 24 != 0) setStroke(dp(1), t.popupBorder)
+            }
+        }
+        fun section(label: String) {
+            panel.addView(TextView(this).apply {
+                text = label; textSize = 11f; setTextColor(t.popupText); alpha = 0.65f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(12), dp(6), dp(12), dp(2))
+            })
+        }
+        fun divider() {
+            panel.addView(View(this).apply {
+                setBackgroundColor(t.popupBorder); alpha = 0.7f
+                layoutParams = LinearLayout.LayoutParams(-1, maxOf(1, dp(1))).apply {
+                    topMargin = dp(4); bottomMargin = dp(4)
+                }
+            })
+        }
+        fun item(label: String, checked: Boolean, action: () -> Unit) {
+            panel.addView(TextView(this).apply {
+                text = (if (checked) "✓ " else "    ") + label
+                textSize = 15f; setTextColor(t.popupText)
+                if (checked) typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(12), dp(10), dp(28), dp(10))
+                setOnClickListener { action(); spacePopup?.dismiss() }
+            })
+        }
+        section("Ngôn ngữ")
+        item("Tiếng Việt", vietOn) { setVietOn(true) }
+        item("English", !vietOn) { setVietOn(false) }
+        divider()
+        section("Kiểu gõ")
+        val current = Prefs.inputMethod(this)
+        item("Telex", current == ImTelex) { Prefs.get(this).edit().putInt(Prefs.KEY_IM, ImTelex).apply() }
+        item("VNI", current == ImVni) { Prefs.get(this).edit().putInt(Prefs.KEY_IM, ImVni).apply() }
+        item("VIQR", current == ImViqr) { Prefs.get(this).edit().putInt(Prefs.KEY_IM, ImViqr).apply() }
+        divider()
+        item("Chọn bàn phím khác…", false) { onSwitchIme() }
+        spacePopup?.dismiss()
+        spacePopup = PopupWindow(panel, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            elevation = dp(10).toFloat()
+            isOutsideTouchable = true
+            showAtLocation(keyboard, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+                0, keyboard.height + dp(64))
+        }
     }
 
     override fun onSwitchIme() {
