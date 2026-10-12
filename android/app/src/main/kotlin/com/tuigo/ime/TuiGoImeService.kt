@@ -68,6 +68,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.listener = this
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
+        keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         return keyboard
     }
 
@@ -81,6 +82,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         loadEngineConfig()
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
+        keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         engine.resetBuf()
         expectedSel = info?.initialSelEnd ?: -1
         spacePending = false

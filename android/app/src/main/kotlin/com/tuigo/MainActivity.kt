@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import com.tuigo.engine.ImTelex
 import com.tuigo.engine.ImTelexSimple
@@ -107,6 +108,8 @@ class MainActivity : Activity() {
             this += check("Khôi phục từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN, true)
             this += check("Gõ đúp Space → dấu chấm", Prefs.KEY_DOUBLE_SPACE, true)
             this += check("Hiện hàng số trên cùng", Prefs.KEY_NUMBER_ROW, false)
+            this += seek("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56)
+            this += seek("Khoảng cách phím (ngang)", Prefs.KEY_KEY_GAP, 0, 8, 4)
         }
 
         root += TextView(this).apply {
@@ -180,6 +183,29 @@ class MainActivity : Activity() {
         isChecked = prefs.getBoolean(key, def)
         setOnCheckedChangeListener { _, c -> prefsEditor.putBoolean(key, c).apply() }
     }
+
+    private fun seek(labelText: String, key: String, min: Int, max: Int, def: Int) =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val tv = TextView(this@MainActivity).apply {
+                setTextColor(pal.text); textSize = 15f
+            }
+            val sb = SeekBar(this@MainActivity).apply {
+                this.max = max - min
+                progress = prefs.getInt(key, def) - min
+            }
+            fun render() { tv.text = "$labelText: ${min + sb.progress}dp" }
+            render()
+            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, u: Boolean) {
+                    render()
+                    prefsEditor.putInt(key, min + p).apply()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+            addView(tv); addView(sb)
+        }
 
     private operator fun LinearLayout.plusAssign(v: View) { addView(v) }
     private operator fun RadioGroup.plusAssign(v: View) { addView(v) }

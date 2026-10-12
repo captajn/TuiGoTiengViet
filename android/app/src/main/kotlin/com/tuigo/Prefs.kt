@@ -20,6 +20,8 @@ object Prefs {
     const val KEY_DOUBLE_SPACE = "double_space_period"
     const val KEY_VIET_ON = "viet_on"
     const val KEY_NUMBER_ROW = "number_row"
+    const val KEY_KEY_HEIGHT = "key_height"
+    const val KEY_KEY_GAP = "key_gap"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -48,4 +50,6 @@ object Prefs {
         get(ctx).getBoolean(KEY_DOUBLE_SPACE, true)
     fun numberRow(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_NUMBER_ROW, false)
+    fun keyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_HEIGHT, 56)
+    fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)
 }

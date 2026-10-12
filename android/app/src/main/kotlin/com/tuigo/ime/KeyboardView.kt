@@ -143,9 +143,9 @@ class KeyboardView @JvmOverloads constructor(
     // ---- metrics ------------------------------------------------------------
 
     private val dp = resources.displayMetrics.density
-    private val keyHeight = 52 * dp
+    private var keyHeight = 56 * dp
     private val rowGap = 6 * dp
-    private val keyGap = 4 * dp
+    private var keyGap = 4 * dp
     private val padH = 3 * dp
     private val padTop = 8 * dp
     private val padBottom = 8 * dp
@@ -224,6 +224,17 @@ class KeyboardView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         requestApplyInsets()
+    }
+
+    /** Key metrics in dp — from the settings screen. */
+    fun setMetrics(heightDp: Int, gapDp: Int) {
+        val h = heightDp * dp
+        val g = gapDp * dp
+        if (h == keyHeight && g == keyGap) return
+        keyHeight = h
+        keyGap = g
+        relayout()
+        requestLayout()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration?) {
