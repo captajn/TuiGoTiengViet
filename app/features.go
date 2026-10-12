@@ -29,6 +29,7 @@ type config struct {
 	ShowOnLaunch    bool // show settings dialog when launched at Windows startup
 	SoundOnToggle   bool
 	ShowHud         bool
+	RememberAppMode bool // persist Vietnamese on/off separately for each application
 	Charset         int  // 0=Unicode, 1=TCVN3
 	ToggleKey       int  // legacy: migrated into HotkeyMods/HotkeyVk/UseCtrlShift
 	HotkeyMods      int  // bit0 Ctrl, bit1 Shift, bit2 Alt, bit3 Win
@@ -67,10 +68,11 @@ type appSpec struct {
 }
 
 var gExcluded = map[string]appSpec{}
-var gPerAppViet = map[string]bool{} // per-app Vietnamese state (manual mode)
-var gForceClip bool                 // foreground app forces clipboard send
-var gForceTCVN bool                 // foreground app wants TCVN3 output
-var gSafeDel bool                   // foreground app needs selection-safe delete
+var gPerAppViet = map[string]bool{}        // per-app Vietnamese state (manual mode)
+var gRememberedAppViet = map[string]bool{} // saved user choices, independent of exclude.txt
+var gForceClip bool                        // foreground app forces clipboard send
+var gForceTCVN bool                        // foreground app wants TCVN3 output
+var gSafeDel bool                          // foreground app needs selection-safe delete
 
 // gCaretAtEnd tracks whether the edit caret is believed to sit at the end of
 // the text (or a live selection may exist). Only then is a forward-Delete
@@ -219,8 +221,18 @@ func modsMatch(m int) bool {
 // effectiveViet is the Vietnamese state in effect for the foreground window.
 func effectiveViet() bool {
 	spec, exe, _ := foregroundApp()
+	return vietForApp(spec, exe)
+}
+
+// Shared by the keyboard hook, tray and HUD so all three use the same mode.
+func vietForApp(spec appSpec, exe string) bool {
 	if spec.mode == appModeLock {
 		return false
+	}
+	if cfg.RememberAppMode && exe != "" {
+		if on, ok := gRememberedAppViet[exe]; ok {
+			return on
+		}
 	}
 	if spec.mode == appModeManual {
 		return gPerAppViet[exe]

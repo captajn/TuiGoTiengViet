@@ -196,6 +196,7 @@ const (
 	cRadioViqr
 	cLangBtn
 	cUpdateBtn
+	cRememberAppMode
 )
 
 var imList = []int{ImTelex, ImTelexSimple, ImVni, ImViqr, ImTelexVni, ImMsVi, ImUsrKeymap}
@@ -581,8 +582,8 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 			gfx.Destroy()
 		}
 	case 3: // Appearance, system, and app exclusions
-		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(268)})
-		drawSettingsCard(dc, rect{cx, ct + dp(274), cx + cw, ct + dp(388)})
+		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(258)})
+		drawSettingsCard(dc, rect{cx, ct + dp(264), cx + cw, ct + dp(398)})
 	}
 }
 
@@ -1217,10 +1218,11 @@ func buildControls(h uintptr) {
 	addSw(cClipboard, "Dùng Clipboard cho app không nhận phím")
 	addSw(cAdmin, "Chạy với quyền Admin")
 	addSw(cShowDlg, "Hiện bảng này khi khởi động Windows")
+	addSw(cRememberAppMode, "Tự nhớ bật/tắt tiếng Việt theo ứng dụng")
 	addBtn(cExcludeBrowse, "Chọn app…")
 	addBtn(cExcludeEdit, "Danh sách loại trừ…")
 	stExcludeSection = addSection("ỨNG DỤNG LOẠI TRỪ")
-	stExcludeHint = addHint("Chọn app → tắt gõ trong app đó · sửa danh sách để dùng |lock |clip |tcvn |vni")
+	stExcludeHint = addHint("Tự nhớ: chuyển V/E trong app, lần sau giữ nguyên.\nChọn app để loại trừ thủ công · |lock |clip |tcvn |vni")
 
 	// ---- Tab 4: Giới thiệu ----
 	curTab = 4
@@ -1315,12 +1317,13 @@ func layoutAll() {
 
 	sysSw := []int{cShowHud, cSound, cSkipLayout, cClipboard, cAdmin, cShowDlg}
 	for row, id := range sysSw {
-		place(id, cx+dp(16), ct+dp(98)+int32(row)*dp(27), cw-dp(32), dp(26))
+		place(id, cx+dp(16), ct+dp(98)+int32(row)*dp(25), cw-dp(32), dp(25))
 	}
-	place(stExcludeSection, cx+dp(16), ct+dp(278), cw-dp(32), dp(20))
-	place(cExcludeBrowse, cx+dp(16), ct+dp(306), dp(120), dp(30))
-	place(cExcludeEdit, cx+dp(144), ct+dp(306), dp(170), dp(30))
-	place(stExcludeHint, cx+dp(16), ct+dp(344), cw-dp(32), dp(36))
+	place(stExcludeSection, cx+dp(16), ct+dp(268), cw-dp(32), dp(20))
+	place(cRememberAppMode, cx+dp(16), ct+dp(292), cw-dp(32), dp(26))
+	place(cExcludeBrowse, cx+dp(16), ct+dp(322), dp(120), dp(30))
+	place(cExcludeEdit, cx+dp(144), ct+dp(322), dp(170), dp(30))
+	place(stExcludeHint, cx+dp(16), ct+dp(358), cw-dp(32), dp(36))
 
 	// Tab 4 — Giới thiệu (button sits inside the second card)
 	place(cUpdateBtn, cx+cw-dp(20)-dp(170), ct+dp(317), dp(170), dp(32))
@@ -1407,6 +1410,7 @@ func syncControls() {
 	setCheck(cShowDlg, cfg.ShowOnLaunch)
 	setCheck(cSound, cfg.SoundOnToggle)
 	setCheck(cShowHud, cfg.ShowHud)
+	setCheck(cRememberAppMode, cfg.RememberAppMode)
 	setCheck(cModCtrl, cfg.HotkeyMods&1 != 0)
 	setCheck(cModShift, cfg.HotkeyMods&2 != 0)
 	setCheck(cModAlt, cfg.HotkeyMods&4 != 0)
@@ -1649,6 +1653,12 @@ func settingsCommand(id int) {
 	case cShowHud:
 		cfg.ShowHud = getCheck(cShowHud)
 		hudUpdate()
+	case cRememberAppMode:
+		cfg.RememberAppMode = getCheck(cRememberAppMode)
+		gEngine.Reset()
+		gAutoCapNext = false
+		gEngine.SetVietKey(effectiveViet())
+		syncTrayState()
 	case cModCtrl, cModShift, cModAlt, cModWin:
 		m := 0
 		for i, mid := range []int{cModCtrl, cModShift, cModAlt, cModWin} {

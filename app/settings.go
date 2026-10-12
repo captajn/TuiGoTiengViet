@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,12 @@ func readIni(path string) (map[string]string, error) {
 }
 
 func saveSettings() {
+	if err := saveSettingsTo(iniPath()); err != nil {
+		logLine("saveSettings: " + err.Error())
+	}
+}
+
+func saveSettingsTo(path string) error {
 	bv := func(b bool) string {
 		if b {
 			return "1"
@@ -61,6 +68,7 @@ func saveSettings() {
 	fmt.Fprintf(&b, "AutoCap=%s\n", bv(cfg.AutoCap))
 	fmt.Fprintf(&b, "UseClipboard=%s\n", bv(cfg.UseClipboard))
 	fmt.Fprintf(&b, "ShowHud=%s\n", bv(cfg.ShowHud))
+	fmt.Fprintf(&b, "RememberAppMode=%s\n", bv(cfg.RememberAppMode))
 	fmt.Fprintf(&b, "RunAsAdmin=%s\n", bv(cfg.RunAsAdmin))
 	fmt.Fprintf(&b, "ShowOnLaunch=%s\n", bv(cfg.ShowOnLaunch))
 	fmt.Fprintf(&b, "SoundOnToggle=%s\n", bv(cfg.SoundOnToggle))
@@ -73,11 +81,31 @@ func saveSettings() {
 	fmt.Fprintf(&b, "Theme=%d\n", cfg.Theme)
 	fmt.Fprintf(&b, "HudX=%d\n", cfg.HudX)
 	fmt.Fprintf(&b, "HudY=%d\n", cfg.HudY)
+	names := make([]string, 0, len(gRememberedAppViet))
+	for name := range gRememberedAppViet {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Fprintf(&b, "AppMode.%s=%s\n", name, bv(gRememberedAppViet[name]))
+	}
 	// Atomic-ish: write temp then rename so a crash mid-write can't leave a
 	// truncated ini that silently resets every option on next start.
-	tmp := iniPath() + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0644); err == nil {
-		os.Rename(tmp, iniPath())
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func loadRememberedAppModes(vals map[string]string) {
+	gRememberedAppViet = map[string]bool{}
+	for key, value := range vals {
+		name, ok := strings.CutPrefix(key, "AppMode.")
+		name = strings.ToLower(strings.TrimSpace(name))
+		if ok && name != "" && !strings.ContainsAny(name, "/\\=\r\n") && (value == "0" || value == "1") {
+			gRememberedAppViet[name] = value == "1"
+		}
 	}
 }
 
@@ -165,6 +193,8 @@ func loadSettings() bool {
 	cfg.AutoCap = getB("AutoCap", false)
 	cfg.UseClipboard = getB("UseClipboard", false)
 	cfg.ShowHud = getB("ShowHud", false)
+	cfg.RememberAppMode = getB("RememberAppMode", false)
+	loadRememberedAppModes(vals)
 	cfg.RunAsAdmin = getB("RunAsAdmin", false)
 	cfg.ShowOnLaunch = getB("ShowOnLaunch", false)
 	cfg.SoundOnToggle = getB("SoundOnToggle", false)

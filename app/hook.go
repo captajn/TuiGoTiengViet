@@ -306,10 +306,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 	}
 
 	// bypass entirely: manually-excluded app (until toggled on) or non-US layout
-	viet := gVietKey
-	if spec.mode == appModeManual {
-		viet = gPerAppViet[exe]
-	}
+	viet := vietForApp(spec, exe)
 	gEngine.SetVietKey(viet)
 	if cfg.SkipNonUSLayout && !foregroundLayoutIsUS() {
 		gEngine.Reset()

@@ -27,8 +27,8 @@ jobs:
           go-version: 'stable'
           cache-dependency-path: app/go.sum
 
-      - name: Test engine
-        run: go test ./engine/ -v
+      - name: Test app and engine
+        run: go test ./... -v
 
       - name: Vet
         run: go vet ./...

@@ -139,7 +139,7 @@ func showTrayMenu() {
 	imMenu, _, _ := pCreatePopupMenu.Call()
 	o := gEngine.GetOptions()
 
-	appendMenu(menu, MF_STRING|checked(gVietKey), idmToggle, "Gõ tiếng Việt\tAlt+Z")
+	appendMenu(menu, MF_STRING|checked(effectiveViet()), idmToggle, "Gõ tiếng Việt\tAlt+Z")
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImTelex), idmTelex, "Telex")
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImTelexSimple), idmTelexSimple, "Simple Telex")
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImVni), idmVni, "VNI")
@@ -172,6 +172,14 @@ func flipVietKey() bool {
 	if spec.mode == appModeLock {
 		return false
 	}
+	if cfg.RememberAppMode && exe != "" {
+		on := !vietForApp(spec, exe)
+		gRememberedAppViet[exe] = on
+		gEngine.Reset()
+		gAutoCapNext = false
+		gEngine.SetVietKey(on)
+		return true
+	}
 	if spec.mode == appModeManual { // per-app toggle: does not touch global state
 		gPerAppViet[exe] = !gPerAppViet[exe]
 		return true
@@ -198,7 +206,7 @@ func toggleEffects(src string) {
 	hudUpdate()
 	hudFlash()
 	pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator
-	if spec.mode != appModeManual {
+	if cfg.RememberAppMode || spec.mode != appModeManual {
 		saveSettings()
 	}
 }
