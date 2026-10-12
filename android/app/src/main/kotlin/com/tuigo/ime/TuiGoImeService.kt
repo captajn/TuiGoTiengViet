@@ -9,6 +9,9 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import com.tuigo.Prefs
 import com.tuigo.engine.Engine
+import com.tuigo.engine.ImTelex
+import com.tuigo.engine.ImTelexVni
+import com.tuigo.engine.ImVni
 import com.tuigo.engine.Result
 import java.io.File
 
@@ -52,10 +55,18 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         doubleSpace = Prefs.doubleSpacePeriod(this)
     }
 
+    /** VNI-style methods type tone marks with digits — show the number row. */
+    private fun usesNumberRow(): Boolean =
+        when (Prefs.get(this).getInt(Prefs.KEY_IM, ImTelex)) {
+            ImVni, ImTelexVni -> true
+            else -> false
+        }
+
     override fun onCreateInputView(): View {
         keyboard = KeyboardView(this)
         keyboard.listener = this
         keyboard.vietnameseOn = vietOn
+        keyboard.showNumberRow = usesNumberRow()
         return keyboard
     }
 
@@ -68,6 +79,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         super.onStartInputView(info, restarting)
         loadEngineConfig()
         keyboard.vietnameseOn = vietOn
+        keyboard.showNumberRow = usesNumberRow()
         engine.resetBuf()
         expectedSel = info?.initialSelEnd ?: -1
         spacePending = false

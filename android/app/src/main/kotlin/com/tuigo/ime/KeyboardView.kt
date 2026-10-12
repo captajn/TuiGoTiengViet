@@ -50,6 +50,17 @@ class KeyboardView @JvmOverloads constructor(
     var symbolsPage = false
         private set
 
+    /** Number row above letters — needed by VNI-style input methods
+     *  (digits double as tone marks). */
+    var showNumberRow = false
+        set(v) {
+            if (field == v) return
+            field = v
+            rows = currentRows()
+            relayout()
+            requestLayout()
+        }
+
     var shifted = false
         private set
     var capsLock = false
@@ -118,6 +129,13 @@ class KeyboardView @JvmOverloads constructor(
             ),
         )
     }
+
+    private val numberRow = row("1234567890")
+
+    private fun currentRows(): Array<Array<KeySpec>> =
+        if (symbolsPage) symbolsRows
+        else if (showNumberRow) arrayOf(numberRow, *lettersRows)
+        else lettersRows
 
     private val keys = mutableListOf<Key>()
     private var rows: Array<Array<KeySpec>> = lettersRows
@@ -229,8 +247,9 @@ class KeyboardView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
+        val n = rows.size
         val h = (padTop + padBottom + navInset +
-            4 * keyHeight + 3 * rowGap).roundToInt()
+            n * keyHeight + (n - 1) * rowGap).roundToInt()
         setMeasuredDimension(w, h)
     }
 
@@ -437,8 +456,9 @@ class KeyboardView @JvmOverloads constructor(
             K.DEL, K.SPACER -> {} // delete fires on down/repeat
             K.MODE -> {
                 symbolsPage = !symbolsPage
-                rows = if (symbolsPage) symbolsRows else lettersRows
+                rows = currentRows()
                 relayout()
+                requestLayout()
             }
             K.ENTER -> listener?.onEnter()
             K.SPACE -> listener?.onChar(' ')
