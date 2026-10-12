@@ -48,6 +48,11 @@ assets/logo-crop.png
 *.mp4
 *.png
 
+# Signing keys (local only)
+keystore.properties
+*.jks
+*.keystore
+
 # iOS / Xcode (project generated via XcodeGen)
 *.xcodeproj
 *.xcworkspace

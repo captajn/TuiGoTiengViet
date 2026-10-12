@@ -59,6 +59,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         return keyboard
     }
 
+    // Always show the soft keyboard even when a hardware keyboard is attached
+    // (emulator, Chromebook) — same behavior as Gboard; the default impl hides
+    // us whenever config.keyboard != NOKEYS.
+    override fun onEvaluateInputViewShown(): Boolean = true
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         loadEngineConfig()
