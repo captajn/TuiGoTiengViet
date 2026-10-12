@@ -112,11 +112,13 @@ func checkTrayComposite(t *testing.T, icon uintptr, size int, on bool, p palette
 
 func TestTrayEffectiveState(t *testing.T) {
 	oldHwnd, oldSpec, oldExe := lastFgHwnd, lastFgSpec, lastFgExe
+	oldInputApp := gLastInputApp
 	oldGlobal, oldPerApp := gVietKey, gPerAppViet
 	oldVn, oldEn := gIconVn, gIconEn
 	gIconVn, gIconEn = 11, 22 // sentinel handles; notifyIcon does not dereference them
 	defer func() {
 		lastFgHwnd, lastFgSpec, lastFgExe = oldHwnd, oldSpec, oldExe
+		gLastInputApp = oldInputApp
 		gVietKey, gPerAppViet = oldGlobal, oldPerApp
 		gIconVn, gIconEn = oldVn, oldEn
 	}()
@@ -134,8 +136,7 @@ func TestTrayEffectiveState(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Seed the existing foreground cache without changing desktop focus.
-			lastFgHwnd, _, _ = pGetForegroundWindow.Call()
-			lastFgSpec, lastFgExe = appSpec{mode: tc.mode, im: -1}, "tray-test.exe"
+			focusAppForTest("tray-test.exe", appSpec{mode: tc.mode, im: -1})
 			gVietKey = tc.global
 			gPerAppViet = map[string]bool{lastFgExe: tc.per}
 			if got := effectiveViet(); got != tc.want {
@@ -163,13 +164,14 @@ func TestFlipVietKeyRapid(t *testing.T) {
 	}
 	oldEngine, oldGlobal, oldPerApp := gEngine, gVietKey, gPerAppViet
 	oldHwnd, oldSpec, oldExe := lastFgHwnd, lastFgSpec, lastFgExe
+	oldInputApp := gLastInputApp
 	defer func() {
 		gEngine, gVietKey, gPerAppViet = oldEngine, oldGlobal, oldPerApp
 		lastFgHwnd, lastFgSpec, lastFgExe = oldHwnd, oldSpec, oldExe
+		gLastInputApp = oldInputApp
 	}()
 	gEngine = eng
-	lastFgHwnd, _, _ = pGetForegroundWindow.Call()
-	lastFgSpec, lastFgExe = appSpec{im: -1}, "flip-test.exe"
+	focusAppForTest("flip-test.exe", appSpec{im: -1})
 	gVietKey = true
 	for i := 0; i < 20; i++ {
 		if !flipVietKey() {
@@ -181,12 +183,12 @@ func TestFlipVietKeyRapid(t *testing.T) {
 		}
 	}
 
-	lastFgSpec = appSpec{mode: appModeLock, im: -1}
+	focusAppForTest("flip-test.exe", appSpec{mode: appModeLock, im: -1})
 	if flipVietKey() {
 		t.Fatal("lock-mode app must ignore the toggle")
 	}
 
-	lastFgSpec = appSpec{mode: appModeManual, im: -1}
+	focusAppForTest("flip-test.exe", appSpec{mode: appModeManual, im: -1})
 	gPerAppViet = map[string]bool{"flip-test.exe": false}
 	if !flipVietKey() || !gPerAppViet["flip-test.exe"] || !gVietKey {
 		t.Fatal("manual mode must flip only the per-app flag")
@@ -195,7 +197,7 @@ func TestFlipVietKeyRapid(t *testing.T) {
 	// A later global toggle is the master switch: it drops every per-app
 	// override so excluded apps return to their excluded default instead
 	// of staying un-excluded for the rest of the session.
-	lastFgSpec = appSpec{im: -1}
+	focusAppForTest("flip-test.exe", appSpec{im: -1})
 	if !flipVietKey() || len(gPerAppViet) != 0 {
 		t.Fatal("global toggle must clear per-app overrides")
 	}

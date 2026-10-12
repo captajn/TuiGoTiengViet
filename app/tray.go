@@ -29,6 +29,8 @@ var (
 var trayDark bool
 var traySize int
 var trayLastViet bool
+var gTrayToggleApp inputAppContext // target captured before the deferred single click
+var gTrayMenuApp inputAppContext
 
 func refreshTrayIcons() {
 	dark := isDark()
@@ -135,6 +137,7 @@ func checked(b bool) uint32 {
 }
 
 func showTrayMenu() {
+	gTrayMenuApp = currentInputApp()
 	menu, _, _ := pCreatePopupMenu.Call()
 	imMenu, _, _ := pCreatePopupMenu.Call()
 	o := gEngine.GetOptions()
@@ -168,7 +171,12 @@ func showTrayMenu() {
 // keyboard hook and the very next keystroke already sees the new state.
 // Returns false when the foreground app is locked (toggle ignored).
 func flipVietKey() bool {
-	spec, exe, _ := foregroundApp()
+	app := currentInputApp()
+	return flipVietKeyForApp(app)
+}
+
+func flipVietKeyForApp(app inputAppContext) bool {
+	spec, exe := app.spec, app.exe
 	if spec.mode == appModeLock {
 		return false
 	}
@@ -213,6 +221,12 @@ func toggleEffects(src string) {
 
 func toggleVietKey(src string) {
 	if flipVietKey() {
+		toggleEffects(src)
+	}
+}
+
+func toggleVietKeyForApp(src string, app inputAppContext) {
+	if flipVietKeyForApp(app) {
 		toggleEffects(src)
 	}
 }

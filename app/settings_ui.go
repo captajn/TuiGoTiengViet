@@ -1654,10 +1654,7 @@ func settingsCommand(id int) {
 		cfg.ShowHud = getCheck(cShowHud)
 		hudUpdate()
 	case cRememberAppMode:
-		cfg.RememberAppMode = getCheck(cRememberAppMode)
-		gEngine.Reset()
-		gAutoCapNext = false
-		gEngine.SetVietKey(effectiveViet())
+		setRememberAppMode(getCheck(cRememberAppMode))
 		syncTrayState()
 	case cModCtrl, cModShift, cModAlt, cModWin:
 		m := 0

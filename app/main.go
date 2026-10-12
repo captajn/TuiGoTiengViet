@@ -20,7 +20,7 @@ var stderrFile *os.File       // keeps the stderr handle alive for fatal dumps
 
 // appVersion is injected at release time via -ldflags "-X main.appVersion=…";
 // local builds keep this default.
-var appVersion = "0.0.7"
+var appVersion = "0.0.8"
 
 // recoverCrash must be deferred as `defer func() { recoverCrash(tag, recover()) }()`
 // in every windows.NewCallback path — recover() only works when called directly
@@ -72,6 +72,7 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		case WM_LBUTTONUP:
 			// Defer the toggle past the double-click window: a following
 			// DBLCLK opens settings instead — firing now would toggle twice.
+			gTrayToggleApp = currentInputApp()
 			t, _, _ := pGetDoubleClickTime.Call()
 			pSetTimer.Call(gHwnd, 4, t, 0)
 		case WM_LBUTTONDBLCLK:
@@ -82,7 +83,7 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_COMMAND:
 		switch wp & 0xFFFF {
 		case idmToggle:
-			toggleVietKey("tray-menu")
+			toggleVietKeyForApp("tray-menu", gTrayMenuApp)
 		case idmTelex:
 			setInputMethod(ImTelex)
 		case idmTelexSimple:
@@ -102,7 +103,7 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_TIMER:
 		if wp == 4 { // deferred tray single-click — no double-click followed
 			pKillTimer.Call(gHwnd, 4)
-			toggleVietKey("tray-icon")
+			toggleVietKeyForApp("tray-icon", gTrayToggleApp)
 			return 0
 		}
 		if wp == 3 {

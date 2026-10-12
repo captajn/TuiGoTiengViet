@@ -16,6 +16,7 @@ func setupAppModeTest(t *testing.T) {
 	oldClip, oldTCVN, oldSafeDel, oldCaret := gForceClip, gForceTCVN, gSafeDel, gCaretAtEnd
 	oldCtrl, oldAlt, oldShift, oldWin, oldHotkey := gCtrlHeld, gAltHeld, gShiftHeld, gWinHeld, gHotkeyDown
 	oldHwnd, oldSpec, oldExe := lastFgHwnd, lastFgSpec, lastFgExe
+	oldInputApp := gLastInputApp
 	t.Cleanup(func() {
 		cfg, gVietKey = oldConfig, oldGlobal
 		gRememberedAppViet, gPerAppViet = oldRemembered, oldPerApp
@@ -24,12 +25,14 @@ func setupAppModeTest(t *testing.T) {
 		gForceClip, gForceTCVN, gSafeDel, gCaretAtEnd = oldClip, oldTCVN, oldSafeDel, oldCaret
 		gCtrlHeld, gAltHeld, gShiftHeld, gWinHeld, gHotkeyDown = oldCtrl, oldAlt, oldShift, oldWin, oldHotkey
 		lastFgHwnd, lastFgSpec, lastFgExe = oldHwnd, oldSpec, oldExe
+		gLastInputApp = oldInputApp
 	})
 	gEngine, _ = newEngine()
 	cfg = config{RememberAppMode: true}
 	gVietKey = true
 	gRememberedAppViet = map[string]bool{}
 	gPerAppViet = map[string]bool{}
+	gLastInputApp = inputAppContext{}
 	gCtrlHeld, gAltHeld, gShiftHeld, gWinHeld, gHotkeyDown = false, false, false, false, false
 }
 
@@ -37,6 +40,7 @@ func focusAppForTest(exe string, spec appSpec) {
 	// Exercise real callers without moving focus on the user's desktop.
 	lastFgHwnd, _, _ = pGetForegroundWindow.Call()
 	lastFgSpec, lastFgExe = spec, exe
+	gLastInputApp = inputAppContext{spec, exe, lastFgHwnd}
 }
 
 func TestRememberAppModeSwitchAndRestart(t *testing.T) {
@@ -195,5 +199,105 @@ func TestSaveRememberedAppModesFailure(t *testing.T) {
 	}
 	if err := saveSettingsTo(p); err == nil {
 		t.Fatal("a failed rename must report the persistence error")
+	}
+}
+
+func TestRememberModeUnseenAppDoesNotInheritGlobalEnglish(t *testing.T) {
+	setupAppModeTest(t)
+	gVietKey = false
+	if !vietForApp(appSpec{im: -1}, "notepad.exe") {
+		t.Fatal("an unseen app must default to Vietnamese when remembering is on")
+	}
+	if vietForApp(appSpec{mode: appModeManual, im: -1}, "game.exe") {
+		t.Fatal("an explicitly excluded app must still default to English")
+	}
+	gRememberedAppViet["notepad.exe"] = false
+	if vietForApp(appSpec{im: -1}, "notepad.exe") {
+		t.Fatal("a saved English choice must override the new-app default")
+	}
+}
+
+func TestEnableRememberModePreservesTypingApp(t *testing.T) {
+	setupAppModeTest(t)
+	cfg.RememberAppMode = false
+	gVietKey = false
+	focusAppForTest("chrome.exe", appSpec{im: -1})
+	setRememberAppMode(true)
+	if effectiveViet() || gRememberedAppViet["chrome.exe"] {
+		t.Fatal("enabling must preserve the typing app's existing English mode")
+	}
+	focusAppForTest("notepad.exe", appSpec{im: -1})
+	if !effectiveViet() {
+		t.Fatal("other apps must default to Vietnamese instead of inheriting global English")
+	}
+}
+
+func TestTrayAndSettingsKeepTypingApp(t *testing.T) {
+	setupAppModeTest(t)
+	chrome := inputAppContext{appSpec{im: -1}, "chrome.exe", 100}
+	notepad := inputAppContext{appSpec{im: -1}, "notepad.exe", 200}
+	resolveInputApp(chrome, "Chrome_WidgetWin_1", false)
+	for _, cls := range []string{"Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland"} {
+		shell := inputAppContext{appSpec{im: -1}, "explorer.exe", 300}
+		if got := resolveInputApp(shell, cls, false); got != chrome {
+			t.Fatalf("%s replaced the typing app: %+v", cls, got)
+		}
+	}
+	settings := inputAppContext{appSpec{im: -1}, "tuigo.exe", 400}
+	if got := resolveInputApp(settings, "TuiGoSettings", true); got != chrome {
+		t.Fatal("opening settings must not replace the typing app")
+	}
+	// Capture on tray mouse-up; the user changes focus before the delayed timer.
+	captured := gLastInputApp
+	resolveInputApp(notepad, "Notepad", false)
+	if !flipVietKeyForApp(captured) || gRememberedAppViet["chrome.exe"] {
+		t.Fatal("deferred tray toggle must affect the captured Chrome app")
+	}
+	if !vietForApp(notepad.spec, notepad.exe) {
+		t.Fatal("a focus change during the double-click interval must not toggle Notepad")
+	}
+	if _, ok := gRememberedAppViet["explorer.exe"]; ok {
+		t.Fatal("tray click must never remember a preference for Explorer")
+	}
+	if _, ok := gRememberedAppViet["tuigo.exe"]; ok {
+		t.Fatal("settings must never remember a preference for Tui Go")
+	}
+	// A real Explorer file-management window is a valid typing app.
+	explorer := inputAppContext{appSpec{im: -1}, "explorer.exe", 500}
+	if got := resolveInputApp(explorer, "CabinetWClass", false); got != explorer {
+		t.Fatal("ordinary Explorer windows must keep their own mode")
+	}
+}
+
+func TestNormalTypingWithRememberedModes(t *testing.T) {
+	setupAppModeTest(t)
+	app := inputAppContext{appSpec{im: -1}, "notepad.exe", 100}
+	typeWord := func(keys string) string {
+		gEngine.Reset()
+		gEngine.SetVietKey(vietForApp(app.spec, app.exe))
+		var out []rune
+		for _, ch := range keys {
+			res := gEngine.Filter(uint32(ch))
+			if !res.Consumed {
+				out = append(out, ch)
+				continue
+			}
+			out = out[:len(out)-res.Backs]
+			for _, ch := range res.Out {
+				out = append(out, rune(ch))
+			}
+		}
+		return string(out)
+	}
+	if got := typeWord("aas"); got != "ấ" {
+		t.Fatalf("normal Telex with remembering on: %q", got)
+	}
+	flipVietKeyForApp(app)
+	if got := typeWord("aas"); got != "aas" {
+		t.Fatalf("explicit English mode: %q", got)
+	}
+	flipVietKeyForApp(app)
+	if got := typeWord("aas"); got != "ấ" {
+		t.Fatalf("Vietnamese after re-enabling: %q", got)
 	}
 }

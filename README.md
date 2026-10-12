@@ -58,7 +58,7 @@ Engine tách riêng khỏi shell Windows (`app/engine/`) nên có thể tái s�
 
 Trong **Cài đặt → Giao diện → Ứng dụng loại trừ**, bật **Tự nhớ bật/tắt tiếng Việt theo ứng dụng**. Khi chuyển V/E bằng phím tắt hoặc icon khay trong một ứng dụng, Tui Gõ lưu lựa chọn riêng cho tên `.exe` đó. Chuyển sang app khác không làm đổi lựa chọn vừa lưu; quay lại app hoặc khởi động lại Tui Gõ vẫn giữ trạng thái. Các cửa sổ cùng tên `.exe` dùng chung lựa chọn.
 
-Tùy chọn này mặc định tắt. Trạng thái được lưu trong `tuigo.ini` cạnh exe; tắt tùy chọn sẽ dùng lại chế độ chung nhưng vẫn giữ các lựa chọn đã nhớ để dùng khi bật lại. App có `|lock` luôn tắt tiếng Việt.
+Tùy chọn này mặc định tắt. Khi bật, ứng dụng đang gõ giữ chế độ hiện tại; app chưa có lựa chọn riêng mặc định gõ tiếng Việt (trừ app loại trừ thủ công). Bấm icon khay hoặc menu khay sẽ đổi chế độ của app đang gõ trước khi mở khay, kể cả khi Explorer đã nhận focus. Trạng thái được lưu trong `tuigo.ini` cạnh exe; tắt tùy chọn sẽ dùng lại chế độ chung nhưng vẫn giữ các lựa chọn đã nhớ để dùng khi bật lại. App có `|lock` luôn tắt tiếng Việt.
 
 File `exclude.txt` (cạnh exe) — mỗi dòng một app, kết hợp flag bằng dấu phẩy:
 

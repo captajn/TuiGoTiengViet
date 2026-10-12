@@ -480,6 +480,11 @@ func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
 			w, _, _ := pWindowFromPoint.Call(
 				uintptr(uint32(pt.x)) | uintptr(uint32(pt.y))<<32)
 			clicked, _, _ := pGetAncestor.Call(w, GA_ROOT)
+			if shellInputSurface(rootClassName(clicked)) || clicked == gSettingsHwnd {
+				// Mouse-down runs before Explorer/settings takes foreground.
+				// Capture the typing app even if the user never typed a key in it.
+				currentInputApp()
+			}
 			gCaretAtEnd = clicked != gLastKeyHwnd
 			if gChordPending {
 				gChordClean = false

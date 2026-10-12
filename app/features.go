@@ -160,8 +160,43 @@ func foregroundLayoutIsUS() bool {
 }
 
 var lastFgHwnd uintptr
-var lastFgSpec appSpec
+var lastFgSpec = appSpec{im: -1}
 var lastFgExe string
+
+type inputAppContext struct {
+	spec appSpec
+	exe  string
+	hwnd uintptr
+}
+
+var gLastInputApp inputAppContext
+
+// Clicking a notification icon activates Explorer's taskbar. These windows
+// are controls for the previous typing app, not a new per-app preference.
+func shellInputSurface(class string) bool {
+	switch class {
+	case "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+		"TopLevelWindowForOverflowXamlIsland", "Progman", "WorkerW":
+		return true
+	}
+	return false
+}
+
+func resolveInputApp(app inputAppContext, class string, ownWindow bool) inputAppContext {
+	if app.hwnd == 0 || ownWindow || shellInputSurface(class) {
+		return gLastInputApp
+	}
+	if app.exe != "" {
+		gLastInputApp = app
+	}
+	return app
+}
+
+func currentInputApp() inputAppContext {
+	spec, exe, hwnd := foregroundApp()
+	own := hwnd != 0 && (hwnd == gHwnd || hwnd == gSettingsHwnd || hwnd == gHudHwnd)
+	return resolveInputApp(inputAppContext{spec, exe, hwnd}, rootClassName(hwnd), own)
+}
 
 // foregroundApp returns the per-app spec, exe name and HWND of the active
 // window.
@@ -192,9 +227,12 @@ func foregroundApp() (appSpec, string, uintptr) {
 	}
 	// Browser detection by window class — exe names miss renamed/forked
 	// browsers and any process OpenProcess can't reach (elevated browser).
-	if safeDelClass(rootClassName(hwnd)) {
+	class := rootClassName(hwnd)
+	if safeDelClass(class) {
 		spec.safeDel = true
 	}
+	own := hwnd == gHwnd || hwnd == gSettingsHwnd || hwnd == gHudHwnd
+	resolveInputApp(inputAppContext{spec, name, hwnd}, class, own)
 	lastFgHwnd, lastFgSpec, lastFgExe = hwnd, spec, name
 	return spec, name, hwnd
 }
@@ -220,8 +258,8 @@ func modsMatch(m int) bool {
 
 // effectiveViet is the Vietnamese state in effect for the foreground window.
 func effectiveViet() bool {
-	spec, exe, _ := foregroundApp()
-	return vietForApp(spec, exe)
+	app := currentInputApp()
+	return vietForApp(app.spec, app.exe)
 }
 
 // Shared by the keyboard hook, tray and HUD so all three use the same mode.
@@ -237,7 +275,26 @@ func vietForApp(spec appSpec, exe string) bool {
 	if spec.mode == appModeManual {
 		return gPerAppViet[exe]
 	}
+	if cfg.RememberAppMode && exe != "" {
+		// A global E left over from before enabling Smart Switch must not
+		// disable every application the user has never opted out of.
+		return true
+	}
 	return gVietKey
+}
+
+func setRememberAppMode(on bool) {
+	app := currentInputApp()
+	previous := vietForApp(app.spec, app.exe)
+	if on && !cfg.RememberAppMode && app.exe != "" && app.spec.mode != appModeLock {
+		if _, saved := gRememberedAppViet[app.exe]; !saved {
+			gRememberedAppViet[app.exe] = previous
+		}
+	}
+	cfg.RememberAppMode = on
+	gEngine.Reset()
+	gAutoCapNext = false
+	gEngine.SetVietKey(vietForApp(app.spec, app.exe))
 }
 
 func loadExclusions(dir string) {
@@ -245,6 +302,7 @@ func loadExclusions(dir string) {
 	// excluding, and the cached foreground spec may predate this reload.
 	gExcluded = map[string]appSpec{}
 	lastFgHwnd = 0
+	lastFgSpec, lastFgExe = appSpec{im: -1}, ""
 	f, err := os.Open(filepath.Join(dir, "exclude.txt"))
 	if err != nil {
 		return
