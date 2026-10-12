@@ -14,3 +14,5 @@
 - Record pass/fail/unresolved and real evidence in checks.md. Retry a failed step at most three times; do not claim unavailable iOS checks passed.
 
 - Mobile release metadata comes from scripts/mobile-release.py: Android/iOS versions must match the mobile-v* tag, filenames tuigo-vX.Y.Z.apk/.ipa, display title Tui Gõ Mobile vX.Y.Z. Check out the release tag when dispatching; never package an arbitrary APK variant. Inspect the embedded keyboard extension and mark unsigned IPA explicitly.
+- Use scripts/publish-mobile-tag.ps1 to check local AND remote tag targets and stop on every Git failure before pushing. A missing remote tag does not mean the local tag is absent. Preserve a preexisting local tag; never continue a push after tag creation fails.
+- Symbol pages include / and * plus the Gboard reference symbols. Keep VIQR marks and existing currencies/brackets reachable; verify actual touch input and page transitions on the built keyboard.

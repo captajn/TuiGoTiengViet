@@ -181,3 +181,5 @@ Kiểm tra engine, app và keyboard extension trên macOS: `sh scripts/check-ios
 ### Mobile release artifacts
 
 GitHub Actions builds `tuigo-v0.0.1.apk` and `tuigo-v0.0.1.ipa`. The mobile Git tag is `mobile-v0.0.1`; the release title is **Tui Gõ Mobile v0.0.1**. Metadata and artifact checks live in `scripts/mobile-release.py`. Android uses the configured release signing key (debug fallback without secrets). The IPA is unsigned and needs Apple signing/provisioning before installation. Both engine tests and native simulator/device builds run before IPA publication.
+
+The symbol key at the Shift position cycles through common symbols, the expanded math/currency set, and additional existing symbols. `/` and `*` are on the first page. Before publishing a mobile tag, use `powershell -File scripts/publish-mobile-tag.ps1 -Tag mobile-v0.0.1 -Commit <verified-sha> -CheckOnly` to reject stale local/remote refs.
