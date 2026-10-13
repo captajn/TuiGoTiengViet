@@ -48,7 +48,6 @@ struct SettingsView: View {
                 Text(status).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 
     private var macroTab: some View {

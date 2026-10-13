@@ -48,7 +48,7 @@ final class InputController: IMKInputController {
         super.deactivateServer(sender)
     }
 
-    override func commitComposition(_ sender: Any!) -> Bool {
+    override func commitComposition(sender: Any!) -> Bool {
         apply(session.reset())
         return true
     }
