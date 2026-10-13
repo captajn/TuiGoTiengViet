@@ -130,6 +130,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
+        keyboard.numericLayout = numericLayoutFor(info)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         engine.resetBuf()
         expectedSel = info?.initialSelEnd ?: -1
@@ -345,14 +346,21 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (expectedSel >= 0) expectedSel += delta
     }
 
+    private fun numericLayoutFor(info: EditorInfo?): KeyboardView.NumericLayout =
+        when ((info?.inputType ?: 0) and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_NUMBER -> KeyboardView.NumericLayout.NUMBER
+            InputType.TYPE_CLASS_PHONE -> KeyboardView.NumericLayout.PHONE
+            InputType.TYPE_CLASS_DATETIME -> KeyboardView.NumericLayout.DATETIME
+            else -> KeyboardView.NumericLayout.NONE
+        }
+
     private fun isRestrictedField(info: EditorInfo?): Boolean {
         if (info == null) return true
         if (info.inputType == InputType.TYPE_NULL) return true
         val klass = info.inputType and InputType.TYPE_MASK_CLASS
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
-        if (klass == InputType.TYPE_CLASS_PHONE) return true
-        if (klass == InputType.TYPE_CLASS_NUMBER &&
-            variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD) return true
+        if (klass == InputType.TYPE_CLASS_PHONE || klass == InputType.TYPE_CLASS_NUMBER ||
+            klass == InputType.TYPE_CLASS_DATETIME) return true
         return klass == InputType.TYPE_CLASS_TEXT &&
             (variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
              variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
