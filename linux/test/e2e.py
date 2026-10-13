@@ -61,7 +61,6 @@ def main():
     time.sleep(1.5)
 
     try:
-        ic.enable()
         ic.focus_in()
         bus.set_global_engine("tuigo")
         time.sleep(0.5)
