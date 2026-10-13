@@ -1,10 +1,7 @@
 name: Linux
 
+# Manual only — push/PR builds disabled to save Actions minutes.
 on:
-  push:
-    paths: ["linux/**", "app/engine/**", "scripts/check-linux.sh", ".github/workflows/linux.yml"]
-  pull_request:
-    paths: ["linux/**", "app/engine/**", "scripts/check-linux.sh", ".github/workflows/linux.yml"]
   workflow_dispatch:
 
 jobs:

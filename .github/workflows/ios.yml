@@ -1,10 +1,7 @@
 name: iOS
 
+# Manual only — push/PR builds disabled to save Actions minutes.
 on:
-  push:
-    paths: ["ios/**", "scripts/**", "android/app/build.gradle.kts", "app/theme.go", ".github/workflows/ios.yml"]
-  pull_request:
-    paths: ["ios/**", "scripts/**", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 jobs:

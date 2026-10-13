@@ -1,10 +1,7 @@
 name: macOS
 
+# Manual only — push/PR builds disabled to save Actions minutes.
 on:
-  push:
-    paths: ["macos/**", "ios/Sources/**", "ios/Package.swift", "app/logo.jpg", "scripts/check-macos.sh", ".github/workflows/macos.yml"]
-  pull_request:
-    paths: ["macos/**", "ios/Sources/**", "ios/Package.swift", "scripts/check-macos.sh", ".github/workflows/macos.yml"]
   workflow_dispatch:
 
 jobs:

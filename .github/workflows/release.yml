@@ -1,10 +1,7 @@
 name: Release
 
+# Manual only — tag-push releases disabled to save Actions minutes.
 on:
-  push:
-    tags:
-      - 'v*'
-      - 'mobile-v*'
   workflow_dispatch:
     inputs:
       tag:

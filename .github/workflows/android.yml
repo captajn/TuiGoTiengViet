@@ -1,10 +1,7 @@
 name: Android
 
+# Manual only — push/PR builds disabled to save Actions minutes.
 on:
-  push:
-    paths: ["android/**", "scripts/**", "ios/project.yml", "app/theme.go", ".github/workflows/android.yml"]
-  pull_request:
-    paths: ["android/**", "scripts/**", ".github/workflows/android.yml"]
   workflow_dispatch:
 
 jobs:
