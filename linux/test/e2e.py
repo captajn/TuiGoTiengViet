@@ -48,7 +48,8 @@ def main():
     bus = IBus.Bus()
 
     ic = bus.create_input_context("tuigo-e2e")
-    ic.set_capabilities(IBus.Capabilite.PREEDIT_TEXT)
+    # CAP_FOCUS is required for focus_in/focus_out to do anything.
+    ic.set_capabilities(IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.FOCUS)
 
     ic.connect("commit-text", lambda ic, t: committed.append(t.get_text()))
     ic.connect("update-preedit-text-with-mode",
