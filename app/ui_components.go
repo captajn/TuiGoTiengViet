@@ -9,7 +9,7 @@ import (
 
 // drawSmoothSwitch renders a modern iOS/Fluent-style pill toggle switch with Liquid Glass GDI+.
 func drawSmoothSwitch(dc uintptr, rc rect, id int, on bool) {
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brCard)
+	fillParentBg(dc, rc, ctlHnd[id])
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -75,7 +75,7 @@ func drawSmoothSwitch(dc uintptr, rc rect, id int, on bool) {
 
 // drawSmoothCheckbox renders an anti-aliased rounded checkbox with liquid glass styling.
 func drawSmoothCheckbox(dc uintptr, rc rect, id int, checked bool) {
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
+	fillParentBg(dc, rc, ctlHnd[id])
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -126,7 +126,7 @@ func drawSmoothCheckbox(dc uintptr, rc rect, id int, checked bool) {
 
 // drawSmoothRadioCard renders an anti-aliased radio selection card with Liquid Glass styling.
 func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
+	fillParentBg(dc, rc, ctlHnd[id])
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -174,7 +174,7 @@ func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
 
 // drawSmoothButton renders a button with tactile liquid glass sheen and anti-aliasing.
 func drawSmoothButton(dc uintptr, rc rect, id int, pressed bool) {
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brCard)
+	fillParentBg(dc, rc, ctlHnd[id])
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -203,7 +203,7 @@ func drawSmoothButton(dc uintptr, rc rect, id int, pressed bool) {
 
 // drawSmoothModifierKeycap renders a modern mechanical keycap badge with liquid glass depth.
 func drawSmoothModifierKeycap(dc uintptr, rc rect, id int, selected, pressed bool) {
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brCard)
+	fillParentBg(dc, rc, ctlHnd[id])
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -318,7 +318,7 @@ func drawMinimalBrandMark(gfx *Gfx, x, y, size float32) {
 
 // drawSmoothThemeButton renders a modern segmented theme option with icon and label.
 func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brCard)
+	fillParentBg(dc, rc, ctlHnd[id])
 
 	gfx := NewGfx(dc)
 	if gfx == nil {

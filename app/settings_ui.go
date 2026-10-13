@@ -6,9 +6,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -27,6 +29,7 @@ var (
 	pGetDpiForWindow = user32.NewProc("GetDpiForWindow")
 	pGetDpiForSystem = user32.NewProc("GetDpiForSystem")
 	pGetClientRect   = user32.NewProc("GetClientRect")
+	pMapWindowPoints = user32.NewProc("MapWindowPoints")
 	pIsZoomed        = user32.NewProc("IsZoomed")
 	pIsIconic        = user32.NewProc("IsIconic")
 )
@@ -941,7 +944,7 @@ func drawLangBtn(di *drawItemStruct) {
 	rc := di.rcItem
 	pressed := di.itemState&ODS_SELECTED != 0
 
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
+	fillParentBg(dc, rc, di.hwndItem)
 
 	gfx := NewGfx(dc)
 	if gfx != nil {
@@ -1356,9 +1359,47 @@ func setTab(i int) {
 		}
 		pShowWindow.Call(hctl, vis)
 	}
+	redrawSettings()
+}
+
+// redrawSettings repaints the parent first, then every child, so children
+// copy a background that already belongs to the current tab.
+func redrawSettings() {
 	if gSettingsHwnd != 0 {
-		pInvalidateRect.Call(gSettingsHwnd, 0, 1)
+		pRedrawWindow.Call(gSettingsHwnd, 0, 0, RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW)
 	}
+}
+
+// Last full parent paint, kept so translucent cards and the gradient show
+// through child controls instead of a solid brush block.
+var (
+	gBgDC, gBgBmp, gBgOld uintptr
+	gBgW, gBgH            int32
+)
+
+func releaseBgCache() {
+	if gBgDC != 0 {
+		pSelectObject.Call(gBgDC, gBgOld)
+		pDeleteDC.Call(gBgDC)
+	}
+	if gBgBmp != 0 {
+		pDeleteObject.Call(gBgBmp)
+	}
+	gBgDC, gBgBmp, gBgOld, gBgW, gBgH = 0, 0, 0, 0, 0
+}
+
+// fillParentBg paints rc (child client coords) with the parent pixels
+// behind child.
+func fillParentBg(dc uintptr, rc rect, child uintptr) {
+	if gBgDC == 0 || child == 0 || gSettingsHwnd == 0 {
+		pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
+		return
+	}
+	var pt point
+	pMapWindowPoints.Call(child, gSettingsHwnd, uintptr(unsafe.Pointer(&pt)), 1)
+	pBitBlt.Call(dc, uintptr(rc.left), uintptr(rc.top),
+		uintptr(rc.right-rc.left), uintptr(rc.bottom-rc.top),
+		gBgDC, uintptr(pt.x+rc.left), uintptr(pt.y+rc.top), SRCCOPY)
 }
 
 func imIdx(im int) int {
@@ -1580,15 +1621,27 @@ func launchUpdater(now bool) {
 			uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))), 0x30)
 		return
 	}
-	args := ""
-	if now {
-		args = "-now"
+	if !updaterRunning.CompareAndSwap(false, true) {
+		return
 	}
-	pShellExecute.Call(0, uintptr(unsafe.Pointer(utf16ptr("open"))),
-		uintptr(unsafe.Pointer(utf16ptr(up))),
-		uintptr(unsafe.Pointer(utf16ptr(args))),
-		uintptr(unsafe.Pointer(utf16ptr(exeDir()))), SW_SHOW)
+	var args []string
+	if now {
+		args = []string{"-now"}
+	}
+	// Same reason as the startup spawn in main.go: process creation can block
+	// 10-15s on AV/SmartScreen scans, and this thread owns the LL hooks.
+	go func() {
+		defer updaterRunning.Store(false)
+		defer func() { recoverCrash("updater", recover()) }()
+		c := exec.Command(up, args...)
+		c.Dir = exeDir()
+		if c.Start() == nil {
+			c.Wait()
+		}
+	}()
 }
+
+var updaterRunning atomic.Bool
 
 func settingsCommand(id int) {
 	o := gEngine.GetOptions()
@@ -1783,6 +1836,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		if wp != 1 {
 			updateSettingsRegion(hwnd)
 			layoutAll()
+			redrawSettings()
 		}
 		return 0
 	case WM_GETMINMAXINFO:
@@ -1966,6 +2020,11 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		pSetTextColor.Call(wp, col)
 		pSetBkMode.Call(wp, TRANSPARENT)
+		// A NULL brush alone never erases: labels kept the previous tab's
+		// text underneath. Paint the parent's pixels first, then draw text.
+		var crc rect
+		pGetClientRect.Call(lp, uintptr(unsafe.Pointer(&crc)))
+		fillParentBg(wp, crc, lp)
 		nullB, _, _ := pGetStockObject.Call(NULL_BRUSH)
 		return nullB
 	case WM_CTLCOLORLISTBOX:
@@ -1992,22 +2051,28 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		// Paint into a back buffer, then blit once: drawing straight onto the
 		// window DC lets DWM present the bare background mid-paint (the white
 		// flash on open/tab switch).
-		mem, _, _ := pCreateCompatibleDC.Call(dc)
-		bmp, _, _ := pCreateCompatibleBitmap.Call(dc, uintptr(winW), uintptr(winH))
-		if mem != 0 && bmp != 0 {
-			oldBmp, _, _ := pSelectObject.Call(mem, bmp)
-			paintSettings(mem, hwnd)
-			pBitBlt.Call(dc, 0, 0, uintptr(winW), uintptr(winH), mem, 0, 0, SRCCOPY)
-			pSelectObject.Call(mem, oldBmp)
-			pDeleteObject.Call(bmp)
-			pDeleteDC.Call(mem)
+		// The buffer is kept: child controls copy their slice of it as
+		// their background (see fillParentBg).
+		if gBgDC == 0 || gBgW != winW || gBgH != winH {
+			releaseBgCache()
+			mem, _, _ := pCreateCompatibleDC.Call(dc)
+			bmp, _, _ := pCreateCompatibleBitmap.Call(dc, uintptr(winW), uintptr(winH))
+			if mem != 0 && bmp != 0 {
+				gBgOld, _, _ = pSelectObject.Call(mem, bmp)
+				gBgDC, gBgBmp, gBgW, gBgH = mem, bmp, winW, winH
+			} else {
+				if bmp != 0 {
+					pDeleteObject.Call(bmp)
+				}
+				if mem != 0 {
+					pDeleteDC.Call(mem)
+				}
+			}
+		}
+		if gBgDC != 0 {
+			paintSettings(gBgDC, hwnd)
+			pBitBlt.Call(dc, 0, 0, uintptr(winW), uintptr(winH), gBgDC, 0, 0, SRCCOPY)
 		} else {
-			if bmp != 0 {
-				pDeleteObject.Call(bmp)
-			}
-			if mem != 0 {
-				pDeleteDC.Call(mem)
-			}
 			paintSettings(dc, hwnd)
 		}
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
@@ -2021,6 +2086,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_DESTROY:
 		gSettingsHwnd = 0
 		gCaptionHover, gCaptionDown = -1, -1
+		releaseBgCache()
 		deleteGdiObj(&fontNormal)
 		deleteGdiObj(&fontBold)
 		deleteGdiObj(&fontTitle)
