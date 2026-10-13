@@ -138,6 +138,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun loadEngineConfig() {
         Prefs.applyTo(engine, this)
+        syncActiveSubtype()
         vietOn = Prefs.vietForApp(this, hostPkg) ?: Prefs.vietOn(this)
         engine.setVietKey(vietOn)
         doubleSpace = Prefs.doubleSpacePeriod(this)
@@ -146,6 +147,19 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         try {
             engine.loadMacroText(MacroFiles.read(this))
         } catch (_: java.io.IOException) { }
+    }
+
+    private fun syncActiveSubtype() {
+        val subtype = Prefs.syncSystemSubtype(this) ?: return
+        if (Build.VERSION.SDK_INT >= 28) {
+            try {
+                val imm = getSystemService(InputMethodManager::class.java) ?: return
+                if (imm.currentInputMethodSubtype?.hashCode() != subtype.hashCode()) {
+                    val imi = imm.inputMethodList?.firstOrNull { it.packageName == packageName } ?: return
+                    switchInputMethod(imi.id, subtype)
+                }
+            } catch (_: Exception) { }
+        }
     }
 
     /** VNI always gets the number row; other modes follow the user's toggle. */

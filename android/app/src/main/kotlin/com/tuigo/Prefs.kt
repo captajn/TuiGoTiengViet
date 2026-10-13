@@ -2,6 +2,9 @@ package com.tuigo
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
+import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.InputMethodSubtype
 import org.json.JSONObject
 import com.tuigo.engine.Engine
 import com.tuigo.engine.ImTelex
@@ -38,10 +41,45 @@ object Prefs {
         return selected
     }
 
+    fun subtypeForMethod(im: Int): InputMethodSubtype {
+        val labelRes = when (im) {
+            ImVni -> R.string.subtype_vi_vni
+            ImViqr -> R.string.subtype_vi_viqr
+            else -> R.string.subtype_vi_telex
+        }
+        @Suppress("DEPRECATION")
+        val builder = InputMethodSubtype.InputMethodSubtypeBuilder()
+            .setSubtypeNameResId(labelRes)
+            .setSubtypeLocale("vi_VN")
+            .setSubtypeMode("keyboard")
+            .setIsAsciiCapable(true)
+            .setOverridesImplicitlyEnabledSubtype(true)
+            .setSubtypeId(im + 100)
+        if (Build.VERSION.SDK_INT >= 24) {
+            builder.setLanguageTag("vi")
+        }
+        return builder.build()
+    }
+
+    /** Sync the active input method label (Telex / VNI / VIQR) shown in Android System Settings. */
+    @Suppress("DEPRECATION")
+    fun syncSystemSubtype(ctx: Context): InputMethodSubtype? {
+        return try {
+            val imm = ctx.getSystemService(InputMethodManager::class.java) ?: return null
+            val imi = imm.inputMethodList?.firstOrNull { it.packageName == ctx.packageName } ?: return null
+            val subtype = subtypeForMethod(inputMethod(ctx))
+            imm.setAdditionalInputMethodSubtypes(imi.id, arrayOf(subtype))
+            subtype
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** Apply persisted options onto a live engine. */
     fun applyTo(engine: Engine, ctx: Context) {
         val p = get(ctx)
         engine.setInputMethod(inputMethod(ctx))
+        syncSystemSubtype(ctx)
         engine.setOptions(Options(
             freeMarking = if (p.getBoolean(KEY_FREE_MARKING, true)) 1 else 0,
             modernStyle = if (p.getBoolean(KEY_MODERN_STYLE, true)) 1 else 0,

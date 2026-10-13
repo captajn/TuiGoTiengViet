@@ -44,6 +44,14 @@ class MobileSmokeTest : Instrumentation() {
                     (group.getChildAt(i) as RadioButton).performClick()
                     check((0 until group.childCount).count { (group.getChildAt(it) as RadioButton).isChecked } == 1)
                     check(prefs.getInt(Prefs.KEY_IM, -1) == method)
+                    val expectedSubtypeRes = when (method) {
+                        ImVni -> R.string.subtype_vi_vni
+                        ImViqr -> R.string.subtype_vi_viqr
+                        else -> R.string.subtype_vi_telex
+                    }
+                    val subtype = Prefs.subtypeForMethod(method)
+                    check(subtype.nameResId == expectedSubtypeRes)
+                    check(subtype.overridesImplicitlyEnabledSubtype())
                     val engine = Engine(); Prefs.applyTo(engine, targetContext)
                     val typed = when (method) { ImVni -> "on63 "; ImViqr -> "o^n? "; else -> "oonr " }
                     var document = ""

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Tui Gõ</string>
-    <string name="subtype_vi">Tiếng Việt (Telex)</string>
+    <string name="subtype_vi">Tiếng Việt</string>
+    <string name="subtype_vi_telex">Tiếng Việt (Telex)</string>
+    <string name="subtype_vi_vni">Tiếng Việt (VNI)</string>
+    <string name="subtype_vi_viqr">Tiếng Việt (VIQR)</string>
     <string name="subtype_en">English (US)</string>
 </resources>

@@ -83,8 +83,12 @@ class MainActivity : Activity() {
                 }
             }
             renderSelection()
+            Prefs.syncSystemSubtype(this@MainActivity)
             group.setOnCheckedChangeListener { _, id ->
-                ids[id]?.let { p.edit().putInt(Prefs.KEY_IM, it).apply() }
+                ids[id]?.let {
+                    p.edit().putInt(Prefs.KEY_IM, it).apply()
+                    Prefs.syncSystemSubtype(this@MainActivity)
+                }
                 renderSelection()
             }
             addView(group)
