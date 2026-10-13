@@ -40,6 +40,7 @@ if command -v ibus-daemon >/dev/null && command -v xvfb-run >/dev/null \
     sleep 3
     ibus list-engine 2>/dev/null | grep -i tuigo || echo "no tuigo engine listed"
     python3 test/e2e.py
+    pgrep -af tuigo-ibus || echo "tuigo-ibus not running"
   '
 else
   echo "check-linux: SKIP ibus e2e (ibus-daemon/xvfb/python-gi missing)"

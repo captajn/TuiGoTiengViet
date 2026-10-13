@@ -485,6 +485,8 @@ func component() *ibus.Component {
 
 func main() {
 	flag.Parse()
+	fmt.Fprintf(os.Stderr, "tuigo-ibus: starting (ibus=%v standalone=%v)\n",
+		*ibusMode, *standalone)
 
 	bus, err := ibus.NewBusE()
 	if err != nil {
@@ -511,8 +513,10 @@ func main() {
 		n := atomic.AddUint64(&engineCounter, 1)
 		path := dbus.ObjectPath("/org/freedesktop/IBus/Engine/" + strconv.FormatUint(n, 10))
 		ibus.PublishEngine(conn, path, newTuigoEngine(conn, path))
+		fmt.Fprintf(os.Stderr, "tuigo-ibus: created engine %s for %q\n", path, engineName)
 		return path
 	})
 
+	fmt.Fprintln(os.Stderr, "tuigo-ibus: factory ready")
 	<-bus.Done()
 }
