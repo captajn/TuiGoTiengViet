@@ -75,6 +75,20 @@ class KeyboardView @JvmOverloads constructor(
             requestLayout()
         }
 
+    /** Gboard-style 4x4 keypad for number/phone/date-time fields (PIN, OTP…). */
+    enum class NumericLayout { NONE, NUMBER, PHONE, DATETIME }
+
+    var numericLayout = NumericLayout.NONE
+        set(v) {
+            if (field == v) return
+            field = v
+            symbolsPage = false
+            symbolLevel = 0
+            rows = currentRows()
+            relayout()
+            requestLayout()
+        }
+
     var shifted = false
         private set
     var capsLock = false
@@ -83,6 +97,7 @@ class KeyboardView @JvmOverloads constructor(
     // ---- layout model ------------------------------------------------------
 
     private object K {
+        const val NUM_SPACE = -11
         const val MORE = -10
         const val IME = -9
         const val HIDE = -8
@@ -164,8 +179,24 @@ class KeyboardView @JvmOverloads constructor(
 
     private val numberRow = row("1234567890")
 
+    private fun numPadRows(layout: NumericLayout): Array<Array<KeySpec>> {
+        val phone = layout == NumericLayout.PHONE
+        val bottom = when (layout) {
+            NumericLayout.PHONE -> "*0#"
+            NumericLayout.DATETIME -> "/0:"
+            else -> ",0."
+        }
+        return arrayOf(
+            arrayOf(*row("123"), if (phone) KeySpec('+'.code, "+") else KeySpec('-'.code, "-")),
+            arrayOf(*row("456"), if (phone) KeySpec('-'.code, "-") else KeySpec(K.NUM_SPACE, "␣")),
+            arrayOf(*row("789"), KeySpec(K.DEL, "⌫")),
+            arrayOf(*row(bottom), KeySpec(K.ENTER, "✓")),
+        )
+    }
+
     private fun currentRows(): Array<Array<KeySpec>> =
-        if (symbolsPage) { when (symbolLevel) { 1 -> extraSymbolRows; 2 -> legacySymbolRows; else -> symbolsRows } }
+        if (numericLayout != NumericLayout.NONE) numPadRows(numericLayout)
+        else if (symbolsPage) { when (symbolLevel) { 1 -> extraSymbolRows; 2 -> legacySymbolRows; else -> symbolsRows } }
         else if (showNumberRow) arrayOf(numberRow, *lettersRows)
         else lettersRows
 
@@ -204,6 +235,13 @@ class KeyboardView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
+    private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1f; color = 0x40FFFFFF.toInt()
+    }
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL; color = 0x1A000000.toInt()
+    }
+    private val shadowRect = RectF()
 
     private var pressed: Key? = null
     private var shiftTapTime = 0L
@@ -337,11 +375,22 @@ class KeyboardView @JvmOverloads constructor(
         val t = theme
 
         fun cap(fill: Int, stroke: Int = t.border) {
+            shadowRect.set(r.left, r.top + 1.2f * dp, r.right, r.bottom + 1.2f * dp)
+            canvas.drawRoundRect(shadowRect, corner, corner, shadowPaint)
+
             keyPaint.color = fill
             canvas.drawRoundRect(r, corner, corner, keyPaint)
             if (stroke ushr 24 != 0) {
                 borderPaint.color = stroke
                 canvas.drawRoundRect(r, corner, corner, borderPaint)
+            }
+            canvas.drawLine(r.left + corner * 0.7f, r.top + 1f, r.right - corner * 0.7f, r.top + 1f, sheenPaint)
+            if (isPressed) {
+                val bloomColor = (0x35 shl 24) or (t.accent and 0x00FFFFFF)
+                borderPaint.color = bloomColor
+                borderPaint.strokeWidth = 2f * dp
+                canvas.drawRoundRect(r, corner, corner, borderPaint)
+                borderPaint.strokeWidth = 1f
             }
         }
         fun pressedGlyph(normal: Int) = if (t.pressAccent) t.onAccent else normal
@@ -381,12 +430,20 @@ class KeyboardView @JvmOverloads constructor(
                 cap(if (isPressed && !t.pressAccent) t.funcPressed else t.space, t.spaceBorder)
                 textPaint.color = if (isPressed) pressedGlyph(t.spaceText) else t.spaceText
                 textPaint.textSize = 13 * dp
-                drawCentered(canvas, if (vietnameseOn) "Tiếng Việt" else "English", r)
+                val spaceLabel = if (vietnameseOn) "Tiếng Việt" else "English"
+                drawCentered(canvas, spaceLabel, r)
+                if (vietnameseOn) {
+                    val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = t.accent }
+                    val labelWidth = textPaint.measureText(spaceLabel)
+                    val dotX = r.centerX() - labelWidth / 2f - 7 * dp
+                    val dotY = r.centerY()
+                    canvas.drawCircle(dotX, dotY, 2.5f * dp, dotPaint)
+                }
             }
-            K.DEL, K.MODE, K.MORE -> {
+            K.DEL, K.MODE, K.MORE, K.NUM_SPACE -> {
                 cap(if (isPressed) (if (t.pressAccent) t.accent else t.funcPressed) else t.func)
                 textPaint.color = if (isPressed) pressedGlyph(t.funcText) else t.funcText
-                textPaint.textSize = if (spec.code == K.DEL) 19 * dp else 14 * dp
+                textPaint.textSize = if (spec.code == K.DEL || spec.code == K.NUM_SPACE) 19 * dp else 14 * dp
                 drawCentered(canvas, spec.label, r)
             }
             else -> {
@@ -528,7 +585,7 @@ class KeyboardView @JvmOverloads constructor(
                 relayout()
             }
             K.ENTER -> listener?.onEnter()
-            K.SPACE -> listener?.onChar(' ')
+            K.SPACE, K.NUM_SPACE -> listener?.onChar(' ')
             K.HIDE -> listener?.onHideKeyboard()
             K.IME -> listener?.onSwitchIme()
             else -> {
