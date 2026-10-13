@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- IBus component descriptor. install.sh substitutes @PREFIX@ with the
-     install root (default ~/.local/lib/tuigo for --user installs). -->
+     install root (default ~/.local/lib/tuigo for user installs). -->
 <component>
 	<name>org.freedesktop.IBus.TuiGo</name>
 	<license>GPL-3.0-only</license>

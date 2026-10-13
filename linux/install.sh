@@ -25,7 +25,7 @@ if command -v go >/dev/null 2>&1; then
 	echo "==> building tuigo-ibus"
 	go build -trimpath -ldflags "-s -w" -o dist/tuigo-ibus ./cmd/tuigo-ibus
 	echo "==> building tuigo-settings"
-	go build -trimpath -ldflags "-s -w" -o dist/tuigo-settings ./cmd/tuigo-settings
+	(cd settings && go build -trimpath -ldflags "-s -w" -o ../dist/tuigo-settings .)
 else
 	echo "==> go not found; using prebuilt binaries in ./dist"
 fi
@@ -33,7 +33,7 @@ test -x dist/tuigo-ibus || { echo "missing dist/tuigo-ibus"; exit 1; }
 
 $SUDO mkdir -p "$PREFIX" "$COMPONENT_DIR"
 $SUDO cp dist/tuigo-ibus "$PREFIX/tuigo-ibus"
-[ -x dist/tuigo-settings ] && $SUDO cp dist/tuigo-settings "$PREFIX/tuigo-settings"
+if [ -x dist/tuigo-settings ]; then $SUDO cp dist/tuigo-settings "$PREFIX/tuigo-settings"; fi
 $SUDO cp data/logo.jpg "$PREFIX/logo.jpg"
 sed "s|@PREFIX@|$PREFIX|g" data/tuigo.xml | $SUDO tee "$COMPONENT_DIR/tuigo.xml" >/dev/null
 
