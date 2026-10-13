@@ -469,7 +469,7 @@ func component() *ibus.Component {
 	c := ibus.NewComponent(
 		"org.freedesktop.IBus.TuiGo",
 		"Vietnamese input method (Telex/VNI/VIQR)",
-		"0.0.1", "GPL-3.0", "Tui Go", "",
+		"0.0.9", "GPL-3.0", "Tui Go", "",
 		self+" --ibus", "",
 	)
 	ed := ibus.FullEngineDesc(
@@ -477,7 +477,7 @@ func component() *ibus.Component {
 		"Bộ gõ tiếng Việt — Telex, VNI, VIQR",
 		"vi", "GPL-3.0", "Tui Go", icon, "us",
 		0, "", "VI", filepath.Join(filepath.Dir(self), "tuigo-settings"),
-		"", "", "0.0.1", "",
+		"", "", "0.0.9", "",
 	)
 	c.AddEngine(ed)
 	return c
