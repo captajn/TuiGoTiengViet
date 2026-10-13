@@ -1,12 +1,17 @@
 package com.tuigo.ime
 
 import android.inputmethodservice.InputMethodService
+import android.annotation.SuppressLint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
 import android.os.SystemClock
 import android.os.Build
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.content.SharedPreferences
+import android.util.Size
+import android.util.TypedValue
 import android.view.WindowInsetsController
 import com.tuigo.UiTheme
 import android.text.InputType
@@ -16,9 +21,19 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.InlineSuggestionsRequest
+import android.view.inputmethod.InlineSuggestionsResponse
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
+import android.widget.inline.InlinePresentationSpec
+import androidx.autofill.inline.UiVersions
+import androidx.autofill.inline.common.ImageViewStyle
+import androidx.autofill.inline.common.TextViewStyle
+import androidx.autofill.inline.common.ViewStyle
+import androidx.autofill.inline.v1.InlineSuggestionUi
 import com.tuigo.KeyboardThemes
 import com.tuigo.Prefs
 import com.tuigo.engine.Engine
@@ -49,6 +64,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 keyboard.currentMethod = Prefs.inputMethod(this)
                 keyboard.showToolbar = Prefs.toolbar(this)
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+                suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
                 applySystemBarTheme()
             }
         }
@@ -63,6 +79,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     /** Host app's package — per-app VN/EN memory (Windows-style). */
     private var hostPkg: String? = null
     private var spacePopup: PopupWindow? = null
+
+    /** Inline-autofill suggestion strip (Gboard-style chips above the keys).
+     *  Content is rendered by the autofill provider — we never see the data. */
+    private var suggestionScroll: HorizontalScrollView? = null
+    private var suggestionStrip: LinearLayout? = null
+    private var pendingInline: InlineSuggestionsResponse? = null
+    private var inlineSeq = 0
+    private var editorKey: String? = null
 
     /** Cursor position we expect after our own edits — lets us distinguish
      *  external selection changes (cursor tap) from our own commits. */
@@ -107,7 +131,26 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
-        return keyboard
+        val dm = resources.displayMetrics.density
+        val pad = (4 * dm).toInt()
+        val strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(pad, pad, pad, pad)
+        }
+        val scroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isFillViewport = false
+            visibility = View.GONE
+            setBackgroundColor(keyboard.theme.bg)
+            addView(strip)
+        }
+        suggestionStrip = strip
+        suggestionScroll = scroll
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(scroll, LinearLayout.LayoutParams(-1, -2))
+            addView(keyboard, LinearLayout.LayoutParams(-1, -2))
+        }
     }
 
     // Always show the soft keyboard even when a hardware keyboard is attached
@@ -125,10 +168,23 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         return false
     }
 
+    override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(info, restarting)
+        // A different editor means any pending autofill suggestions are stale —
+        // the platform issues a fresh request/response for the new field.
+        val key = "${info?.packageName}/${info?.fieldId}"
+        if (key != editorKey) {
+            editorKey = key
+            clearInlineSuggestions()
+        }
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         hostPkg = info?.packageName
         loadEngineConfig()
+        suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
+        if (Build.VERSION.SDK_INT >= 30) renderInlineSuggestions()
         keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
         keyboard.currentMethod = Prefs.inputMethod(this)
@@ -357,6 +413,109 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onSwitchIme() {
         getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
+    }
+
+    // ---- inline autofill (API 30+) ---------------------------------------------
+    // Called only on API 30+ — references to the inline types resolve lazily.
+
+    @SuppressLint("NewApi") // override is only invoked on API 30+
+    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
+        if (!UiVersions.getVersions(uiExtras).contains(UiVersions.INLINE_UI_VERSION_1)) return null
+        val dm = resources.displayMetrics.density
+        val chipH = (40 * dm).toInt()
+        val t = KeyboardThemes.current(this)
+        val padH = (14 * dm).toInt()
+        val chip = ViewStyle.Builder()
+            .setBackgroundColor(t.key)
+            .setPadding(padH, 0, padH, 0)
+            .build()
+        val singleChip = ViewStyle.Builder()
+            .setBackgroundColor(t.key)
+            .build()
+        val title = TextViewStyle.Builder()
+            .setTextColor(t.text)
+            .setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            .build()
+        val subtitle = TextViewStyle.Builder()
+            .setTextColor(t.spaceText)
+            .setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            .build()
+        // Action icons get our glyph tint; provider app icons stay untinted.
+        val actionIcon = ImageViewStyle.Builder()
+            .setTintList(ColorStateList.valueOf(t.funcText))
+            .build()
+        val appIcon = ImageViewStyle.Builder()
+            .setScaleType(ImageView.ScaleType.FIT_CENTER)
+            .build()
+        val styles = UiVersions.newStylesBuilder()
+            .addStyle(
+                InlineSuggestionUi.newStyleBuilder()
+                    .setChipStyle(chip)
+                    .setSingleIconChipStyle(singleChip)
+                    .setTitleStyle(title)
+                    .setSubtitleStyle(subtitle)
+                    .setStartIconStyle(appIcon)
+                    .setEndIconStyle(actionIcon)
+                    .setSingleIconChipIconStyle(actionIcon)
+                    .build()
+            )
+            .build()
+        val maxW = (resources.displayMetrics.widthPixels * 0.8f).toInt()
+        val spec = InlinePresentationSpec.Builder(Size(chipH, chipH), Size(maxW, chipH))
+            .setStyle(styles)
+            .build()
+        val request = InlineSuggestionsRequest.Builder(mutableListOf(spec))
+            .setMaxSuggestionCount(InlineSuggestionsRequest.SUGGESTION_COUNT_UNLIMITED)
+        if (Build.VERSION.SDK_INT >= 31) {
+            val tooltipSpec = InlinePresentationSpec.Builder(
+                Size(chipH, chipH), Size((200 * dm).toInt(), chipH))
+                .setStyle(styles)
+                .build()
+            request.setInlineTooltipPresentationSpec(tooltipSpec)
+        }
+        return request.build()
+    }
+
+    @SuppressLint("NewApi")
+    override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
+        pendingInline = response
+        renderInlineSuggestions()
+        return true
+    }
+
+    private fun clearInlineSuggestions() {
+        pendingInline = null
+        inlineSeq++
+        suggestionStrip?.removeAllViews()
+        suggestionScroll?.visibility = View.GONE
+    }
+
+    @SuppressLint("NewApi")
+    private fun renderInlineSuggestions() {
+        val scroll = suggestionScroll ?: return
+        val strip = suggestionStrip ?: return
+        val suggestions = pendingInline?.inlineSuggestions.orEmpty()
+        inlineSeq++ // drop callbacks still in flight from a previous response
+        strip.removeAllViews()
+        if (suggestions.isEmpty()) {
+            scroll.visibility = View.GONE
+            return
+        }
+        scroll.visibility = View.VISIBLE
+        scroll.setBackgroundColor(keyboard.theme.bg)
+        val dm = resources.displayMetrics.density
+        val chipH = (40 * dm).toInt()
+        val gap = (6 * dm).toInt()
+        val seq = inlineSeq
+        for (suggestion in suggestions) {
+            suggestion.inflate(this,
+                Size(ViewGroup.LayoutParams.WRAP_CONTENT, chipH), mainExecutor) { view ->
+                if (seq != inlineSeq || view == null) return@inflate
+                view.layoutParams = LinearLayout.LayoutParams(view.layoutParams)
+                    .apply { marginEnd = gap }
+                strip.addView(view)
+            }
+        }
     }
 
     override fun onHideKeyboard() {

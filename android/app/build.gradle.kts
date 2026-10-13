@@ -60,4 +60,6 @@ kotlin {
 
 dependencies {
     implementation(project(":engine"))
+    // Inline-autofill suggestion styling (chips rendered by autofill providers).
+    implementation("androidx.autofill:autofill:1.3.0")
 }
