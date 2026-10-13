@@ -53,7 +53,7 @@ class MainActivity : Activity() {
             fun renderSelection() {
                 for (i in 0 until group.childCount) {
                     val radio = group.getChildAt(i) as RadioButton
-                    radio.background = if (radio.isChecked) ui.surface(ui.pal.glow, 14).apply { setStroke(ui.dp(1), ui.pal.accent) } else null
+                    radio.background = if (radio.isChecked) ui.glassCard(active = true, 16) else null
                 }
             }
             renderSelection()
