@@ -315,40 +315,151 @@ func (g *Gfx) FillRoundedRectGradient(x, y, w, h, radius float32, colorTop, colo
 }
 
 // DrawGlassCard renders a liquid glass surface with translucent frosted gradient,
-// subtle anti-aliased border, and a delicate top specular sheen line.
+// subtle anti-aliased border, ambient depth shadow, and a delicate top specular sheen line.
 func (g *Gfx) DrawGlassCard(x, y, w, h, radius float32, isDark bool, hover bool) {
+	g.DrawGlassCardExt(x, y, w, h, radius, isDark, hover, false)
+}
+
+// DrawGlassCardExt renders an advanced liquid glass surface with optional active jade glow.
+func (g *Gfx) DrawGlassCardExt(x, y, w, h, radius float32, isDark bool, hover, active bool) {
+	if g == nil || g.native == 0 || w <= 0 || h <= 0 {
+		return
+	}
+
+	// 1. Ambient soft drop shadow (creates genuine floating depth)
+	if h > 8 && w > 8 {
+		shadowCol := HexAlphaARGB(0x18, 0x000000)
+		if isDark {
+			shadowCol = HexAlphaARGB(0x30, 0x000000)
+		}
+		g.FillRoundedRect(x, y+2.0, w, h, radius, shadowCol)
+		g.FillRoundedRect(x+1.0, y+3.5, w-2.0, h-1.5, radius, HexAlphaARGB(0x12, 0x000000))
+	}
+
 	if isDark {
 		// Dark Mode Liquid Glass
-		bgTop := HexAlphaARGB(0x38, 0x222632)    // ~22% opacity #222632
-		bgBottom := HexAlphaARGB(0x22, 0x161820) // ~13% opacity #161820
-		border := HexAlphaARGB(0x35, 0xFFFFFF)   // 21% white border
-		sheen := HexAlphaARGB(0x45, 0xFFFFFF)    // 27% top specular sheen
-		if hover {
-			bgTop = HexAlphaARGB(0x48, 0x2B303F)
-			bgBottom = HexAlphaARGB(0x30, 0x1E212B)
-			border = HexAlphaARGB(0x50, 0xFFFFFF)
+		bgTop := HexAlphaARGB(0x42, 0x242A38)    // translucent tinted glass top
+		bgBottom := HexAlphaARGB(0x25, 0x141720) // darker frosted base
+		border := HexAlphaARGB(0x3A, 0xFFFFFF)   // translucent glass edge
+		sheen := HexAlphaARGB(0x55, 0xFFFFFF)    // crisp top specular reflection
+
+		if active {
+			bgTop = HexAlphaARGB(0x38, argbAccent&0x00FFFFFF)
+			bgBottom = HexAlphaARGB(0x1E, argbAccent&0x00FFFFFF)
+			border = HexAlphaARGB(0x85, argbAccent&0x00FFFFFF)
+			sheen = HexAlphaARGB(0x75, 0xFFFFFF)
+		} else if hover {
+			bgTop = HexAlphaARGB(0x55, 0x2D3445)
+			bgBottom = HexAlphaARGB(0x35, 0x1B1F2A)
+			border = HexAlphaARGB(0x55, 0xFFFFFF)
+			sheen = HexAlphaARGB(0x70, 0xFFFFFF)
 		}
+
 		g.FillRoundedRectGradient(x, y, w, h, radius, bgTop, bgBottom)
 		g.DrawRoundedRect(x, y, w, h, radius, border, 1.0)
 		if radius > 4 && w > radius*2 {
-			g.DrawLine(x+radius, y+1, x+w-radius, y+1, sheen, 1.0)
+			g.DrawLine(x+radius, y+1.0, x+w-radius, y+1.0, sheen, 1.0)
 		}
 	} else {
-		// Light Mode Liquid Glass
-		bgTop := HexAlphaARGB(0xF0, 0xFFFFFF)    // 94% white
-		bgBottom := HexAlphaARGB(0xD0, 0xF4F6F9) // 81% light slate
-		border := HexAlphaARGB(0x60, 0xD0D8E2)   // subtle frosted border
-		sheen := HexAlphaARGB(0xAA, 0xFFFFFF)    // pure white top specular
-		if hover {
-			bgTop = HexAlphaARGB(0xFA, 0xFFFFFF)
-			bgBottom = HexAlphaARGB(0xE0, 0xECF0F6)
-			border = HexAlphaARGB(0x80, 0xB0BCCB)
+		// Light Mode Liquid Glass (Pearlescent crystal frost)
+		bgTop := HexAlphaARGB(0xF4, 0xFFFFFF)    // 96% translucent white
+		bgBottom := HexAlphaARGB(0xDC, 0xF1F5F9) // 86% cool crystal slate
+		border := HexAlphaARGB(0x70, 0xD4DCE6)   // frosted crystal border
+		sheen := HexAlphaARGB(0xC8, 0xFFFFFF)    // brilliant specular sheen line
+
+		if active {
+			bgTop = HexAlphaARGB(0xEB, 0xEBF7F2)
+			bgBottom = HexAlphaARGB(0xD8, 0xD8F0E4)
+			border = HexAlphaARGB(0x90, argbAccent&0x00FFFFFF)
+			sheen = HexAlphaARGB(0xE0, 0xFFFFFF)
+		} else if hover {
+			bgTop = HexAlphaARGB(0xFC, 0xFFFFFF)
+			bgBottom = HexAlphaARGB(0xEA, 0xEBF2F8)
+			border = HexAlphaARGB(0x95, 0xB8C8D8)
+			sheen = HexAlphaARGB(0xEE, 0xFFFFFF)
 		}
+
 		g.FillRoundedRectGradient(x, y, w, h, radius, bgTop, bgBottom)
 		g.DrawRoundedRect(x, y, w, h, radius, border, 1.0)
 		if radius > 4 && w > radius*2 {
-			g.DrawLine(x+radius, y+1, x+w-radius, y+1, sheen, 1.0)
+			g.DrawLine(x+radius, y+1.0, x+w-radius, y+1.0, sheen, 1.0)
 		}
+	}
+}
+
+// DrawGlassPill renders a tactile pill button with liquid glass specular highlight.
+func (g *Gfx) DrawGlassPill(x, y, w, h, radius float32, isDark, active, hover bool) {
+	if g == nil || g.native == 0 || w <= 0 || h <= 0 {
+		return
+	}
+
+	// Soft pill shadow
+	g.FillRoundedRect(x, y+1.5, w, h, radius, HexAlphaARGB(0x20, 0x000000))
+
+	if isDark {
+		bgTop := HexAlphaARGB(0x35, 0x2A3140)
+		bgBottom := HexAlphaARGB(0x20, 0x181C26)
+		border := HexAlphaARGB(0x40, 0xFFFFFF)
+		sheen := HexAlphaARGB(0x60, 0xFFFFFF)
+
+		if active {
+			bgTop = HexAlphaARGB(0x38, argbAccent&0x00FFFFFF)
+			bgBottom = HexAlphaARGB(0x1C, argbAccent&0x00FFFFFF)
+			border = HexAlphaARGB(0x85, argbAccent&0x00FFFFFF)
+			sheen = HexAlphaARGB(0x70, 0xFFFFFF)
+		} else if hover {
+			bgTop = HexAlphaARGB(0x48, 0x343D4F)
+			bgBottom = HexAlphaARGB(0x2E, 0x202633)
+			border = HexAlphaARGB(0x55, 0xFFFFFF)
+			sheen = HexAlphaARGB(0x75, 0xFFFFFF)
+		}
+		g.FillRoundedRectGradient(x, y, w, h, radius, bgTop, bgBottom)
+		g.DrawRoundedRect(x, y, w, h, radius, border, 1.0)
+		if radius > 2 && w > radius*2 {
+			g.DrawLine(x+radius*0.8, y+1.0, x+w-radius*0.8, y+1.0, sheen, 1.0)
+		}
+	} else {
+		bgTop := HexAlphaARGB(0xFA, 0xFFFFFF)
+		bgBottom := HexAlphaARGB(0xDC, 0xE9EEF4)
+		border := HexAlphaARGB(0x75, 0xC4D0DC)
+		sheen := HexAlphaARGB(0xDD, 0xFFFFFF)
+
+		if active {
+			// Soft gentle mint tint in light mode
+			bgTop = HexAlphaARGB(0x28, 0x197F64)
+			bgBottom = HexAlphaARGB(0x14, 0x197F64)
+			border = HexAlphaARGB(0x60, 0x197F64)
+			sheen = HexAlphaARGB(0xEE, 0xFFFFFF)
+		} else if hover {
+			bgTop = HexAlphaARGB(0xFF, 0xFFFFFF)
+			bgBottom = HexAlphaARGB(0xE8, 0xDEE5EE)
+			border = HexAlphaARGB(0x90, 0xB0C0D0)
+			sheen = HexAlphaARGB(0xEE, 0xFFFFFF)
+		}
+		g.FillRoundedRectGradient(x, y, w, h, radius, bgTop, bgBottom)
+		g.DrawRoundedRect(x, y, w, h, radius, border, 1.0)
+		if radius > 2 && w > radius*2 {
+			g.DrawLine(x+radius*0.8, y+1.0, x+w-radius*0.8, y+1.0, sheen, 1.0)
+		}
+	}
+}
+
+// FillAtmosphericGlassBg renders a clean, subtle liquid glass window backdrop.
+func (g *Gfx) FillAtmosphericGlassBg(w, h float32, isDark bool) {
+	if g == nil || g.native == 0 || w <= 0 || h <= 0 {
+		return
+	}
+
+	if isDark {
+		// Deep Obsidian base with gentle vertical shift
+		colTop := HexARGB(0x12151B)
+		colBottom := HexARGB(0x0C0E12)
+		g.FillRoundedRectGradient(0, 0, w, h, 0, colTop, colBottom)
+	} else {
+		// Pristine clean Slate base
+		colTop := HexARGB(0xF8FAFC)
+		colBottom := HexARGB(0xF1F5F9)
+		g.FillRoundedRectGradient(0, 0, w, h, 0, colTop, colBottom)
 	}
 }
 

@@ -69,6 +69,8 @@ func hudPaint(hwnd uintptr) {
 	var ps paintStruct
 	dc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 
+	vnOn := effectiveViet()
+
 	gfx := NewGfx(dc)
 	defer func() {
 		if gfx != nil {
@@ -79,7 +81,7 @@ func hudPaint(hwnd uintptr) {
 
 	// 1. Liquid Glass capsule background
 	if gfx != nil {
-		gfx.DrawGlassCard(0, 0, float32(hudW), float32(hudH), 10, isDark(), false)
+		gfx.DrawGlassCardExt(0, 0, float32(hudW), float32(hudH), 12, isDark(), false, vnOn)
 	}
 
 	// 2. Row 1: Minimal Brand Mark + "Tui Gõ"
@@ -95,57 +97,68 @@ func hudPaint(hwnd uintptr) {
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// 3. Row 2: [ V ] badge + [ Telex ▾ ] pill + mini switch + ···
-	vnOn := effectiveViet()
-
-	// [ V ] / [ E ] badge
+	// [ V ] / [ E ] tactile glass pill badge
 	badgeLetter := "E"
-	badgeColor := argbMuted
 	if vnOn {
 		badgeLetter = "V"
-		badgeColor = argbAccent
 	}
 	if gfx != nil {
-		gfx.FillRoundedRect(8, 25, 22, 22, 5, HexAlphaARGB(0x35, badgeColor&0x00FFFFFF))
-		gfx.DrawRoundedRect(8, 25, 22, 22, 5, badgeColor, 1.0)
+		gfx.DrawGlassPill(8, 24, 24, 22, 6, isDark(), vnOn, false)
 	}
 
 	pSetTextColor.Call(dc, colText)
+	if vnOn {
+		pSetTextColor.Call(dc, 0xFFFFFF)
+	}
 	pSelectObject.Call(dc, fontBold)
-	blrc := rect{8, 25, 30, 47}
+	blrc := rect{8, 24, 32, 46}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(badgeLetter))),
 		^uintptr(0), uintptr(unsafe.Pointer(&blrc)),
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// [ Telex ▾ ] pill
 	if gfx != nil {
-		gfx.DrawGlassCard(35, 25, 61, 22, 5, isDark(), false)
+		gfx.DrawGlassPill(36, 24, 62, 22, 6, isDark(), false, false)
 	}
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontHint)
-	imrc := rect{40, 25, 84, 47}
+	imrc := rect{41, 24, 85, 46}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(imName()))),
 		^uintptr(0), uintptr(unsafe.Pointer(&imrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
-	chrc := rect{83, 25, 93, 47}
+	chrc := rect{84, 24, 95, 46}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("▾"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&chrc)),
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// Mini switch
 	if gfx != nil {
-		swCol := argbSwitchOff
-		knobX := float32(104)
+		swTrackW := float32(32)
+		swTrackH := float32(16)
+		swX := float32(102)
+		swY := float32(27)
+		swR := swTrackH / 2.0
+
+		// Switch shadow
+		gfx.FillRoundedRect(swX, swY+1.0, swTrackW, swTrackH, swR, HexAlphaARGB(0x25, 0x000000))
+
+		knobX := swX + 2.0
 		if vnOn {
-			swCol = argbSwitchOn
-			knobX = float32(120)
+			knobX = swX + swTrackW - 14.0
+			gfx.FillRoundedRectGradient(swX, swY, swTrackW, swTrackH, swR, argbSwitchOn, HexAlphaARGB(0xD0, argbSwitchOn&0x00FFFFFF))
+			gfx.DrawRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0x80, 0xFFFFFF), 1.0)
+		} else {
+			gfx.FillRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0x50, 0x333846))
+			gfx.DrawRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
 		}
-		gfx.FillRoundedRect(102, 28, 30, 16, 8, swCol)
-		gfx.FillCircle(knobX+4, 36, 5, 0xFFFFFFFF)
+		// Knob with sheen
+		gfx.FillCircle(knobX+6.0, swY+swR+0.5, 5.5, HexAlphaARGB(0x35, 0x000000))
+		gfx.FillCircle(knobX+6.0, swY+swR, 5.0, 0xFFFFFFFF)
 	}
 
 	// Menu dots ···
 	pSetTextColor.Call(dc, colMuted)
-	dotsRc := rect{138, 25, 162, 47}
+	dotsRc := rect{138, 24, 162, 46}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("···"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&dotsRc)),
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -158,6 +171,8 @@ func hudPaint(hwnd uintptr) {
 		dotColor = argbSwitchOn
 	}
 	if gfx != nil {
+		// Radiant multi-stop glow halo
+		gfx.FillCircle(14, 59, 7, HexAlphaARGB(0x18, dotColor&0x00FFFFFF))
 		gfx.FillCircle(14, 59, 5, HexAlphaARGB(0x35, dotColor&0x00FFFFFF))
 		gfx.FillCircle(14, 59, 3, dotColor)
 	}

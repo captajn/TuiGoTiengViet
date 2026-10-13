@@ -443,21 +443,24 @@ func updateSettingsRegion(hwnd uintptr) {
 func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
 	gfx := NewGfx(dc)
 	if gfx != nil {
-		drawMinimalBrandMark(gfx, float32(dp(16)), float32(dp(8)), float32(dp(32)))
+		// Subtle translucent specular bar along top edge
+		gfx.FillRoundedRectGradient(0, 0, float32(winW), float32(dp(44)), float32(dp(8)), HexAlphaARGB(0x18, 0xFFFFFF), HexAlphaARGB(0x04, 0xFFFFFF))
+		gfx.DrawLine(0, float32(dp(44)), float32(winW), float32(dp(44)), HexAlphaARGB(0x18, 0xFFFFFF), 1.0)
+		drawMinimalBrandMark(gfx, float32(dp(16)), float32(dp(6)), float32(dp(32)))
 		gfx.Destroy()
 	}
 
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontTitle)
-	trc := rect{dp(60), dp(7), dp(280), dp(29)}
+	trc := rect{dp(60), dp(5), dp(280), dp(27)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	sbc := rect{dp(60), dp(27), dp(280), dp(43)}
+	sbc := rect{dp(60), dp(25), dp(280), dp(41)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Gõ tiếng Việt tối giản & hiện đại"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sbc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -486,17 +489,17 @@ func drawNav(dc uintptr) {
 
 		if active {
 			if gfx != nil {
-				// Liquid glass active pill
-				bgTop := HexAlphaARGB(0x35, argbAccent&0x00FFFFFF)
-				bgBottom := HexAlphaARGB(0x18, argbAccent&0x00FFFFFF)
-				gfx.FillRoundedRectGradient(x, y, w, h, radius, bgTop, bgBottom)
-				gfx.DrawRoundedRect(x, y, w, h, radius, HexAlphaARGB(0x60, argbAccent&0x00FFFFFF), 1.0)
-				// Left indicator bar
-				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(8)), float32(dp(3)), h-float32(dp(16)), 1.5, argbAccent)
+				gfx.DrawGlassPill(x, y, w, h, radius, isDark(), true, false)
+				// Left indicator bar in jade brand accent
+				barCol := uint32(0xFF197F64)
+				if isDark() {
+					barCol = 0xFF3ED3B8
+				}
+				gfx.FillRoundedRect(x+float32(dp(4)), y+float32(dp(8)), float32(dp(4)), h-float32(dp(16)), 1.8, barCol)
 			}
 		} else if hover {
 			if gfx != nil {
-				gfx.FillRoundedRect(x, y, w, h, radius, HexAlphaARGB(0x18, 0xFFFFFF))
+				gfx.DrawGlassPill(x, y, w, h, radius, isDark(), false, true)
 			}
 		}
 
@@ -591,9 +594,13 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	drawTitleBlock(dc, cx, cw, "Tổng quan", "Thiết lập các tùy chọn cơ bản để sử dụng Tui Gõ")
 
-	// Hero Card
+	// Hero Card with active glass depth
 	heroRc := rect{cx, ct, cx + cw, ct + dp(56)}
-	drawSettingsCard(dc, heroRc)
+	gfx := NewGfx(dc)
+	if gfx != nil {
+		gfx.DrawGlassCardExt(float32(heroRc.left), float32(heroRc.top), float32(heroRc.right-heroRc.left), float32(heroRc.bottom-heroRc.top), float32(dp(10)), isDark(), false, effectiveViet())
+		gfx.Destroy()
+	}
 
 	// Hero Card text — status display only (no master switch, EVKey-style)
 	textX := cx + dp(18)
@@ -674,7 +681,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 
 	sx := cx + dp(22)
 	sy := ftRc.top + dp(24)
-	gfx := NewGfx(dc)
+	gfx = NewGfx(dc)
 	if gfx != nil {
 		dotCol := argbSwitchOn
 		if !effectiveViet() {
@@ -933,6 +940,8 @@ func drawLangBtn(di *drawItemStruct) {
 	dc := di.hDC
 	rc := di.rcItem
 	pressed := di.itemState&ODS_SELECTED != 0
+
+	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
 
 	gfx := NewGfx(dc)
 	if gfx != nil {
@@ -1957,10 +1966,8 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		pSetTextColor.Call(wp, col)
 		pSetBkMode.Call(wp, TRANSPARENT)
-		if bgCtls[lp] {
-			return brBg
-		}
-		return brCard
+		nullB, _, _ := pGetStockObject.Call(NULL_BRUSH)
+		return nullB
 	case WM_CTLCOLORLISTBOX:
 		pSetTextColor.Call(wp, colText)
 		pSetBkMode.Call(wp, TRANSPARENT)
@@ -2049,15 +2056,15 @@ func paintSettings(dc, hwnd uintptr) {
 	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 	winW, winH := rc.right, rc.bottom
 
-	// 1. Fill entire window background
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
-
-	// 2. Minimal liquid glass inner border with top specular highlight
+	// 1. Fill entire window background with atmospheric Liquid Glass gradient & jade bloom
 	gfx := NewGfx(dc)
 	if gfx != nil {
+		gfx.FillAtmosphericGlassBg(float32(winW), float32(winH), isDark())
 		gfx.DrawRoundedRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, float32(dp(8)), argbBorder, 1.0)
-		gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x35, 0xFFFFFF), 1.0)
+		gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
 		gfx.Destroy()
+	} else {
+		pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
 	}
 
 	// 3. Top bar: brand title, subtitle, and window controls
