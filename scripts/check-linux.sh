@@ -33,8 +33,11 @@ if command -v ibus-daemon >/dev/null && command -v xvfb-run >/dev/null \
     mkdir -p "$HOME/.local/share/ibus/component"
     sed "s|@PREFIX@|'"$repo"'/linux/dist|g" data/tuigo.xml \
       > "$HOME/.local/share/ibus/component/tuigo.xml"
+    cat "$HOME/.local/share/ibus/component/tuigo.xml"
     ibus-daemon -rv &
     sleep 3
+    ibus write-cache 2>/dev/null || true
+    ibus list-engine 2>/dev/null | grep -i tuigo || echo "no tuigo engine listed"
     python3 test/e2e.py
   '
 else
