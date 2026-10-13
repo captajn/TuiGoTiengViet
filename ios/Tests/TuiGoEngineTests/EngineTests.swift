@@ -87,6 +87,12 @@ final class EngineTests: XCTestCase {
             ("toanfs", "toán"), // later tone key overrides
             ("toansz", "toan"), // z strips the tone
             ("uow", "ươ"),
+            ("uoow", "uơ"),   // u+ô + w -> uơ (issue #3: huơ, khuơ)
+            ("huoow", "huơ"),
+            ("khuoow", "khuơ"),
+            ("uooiw", "ươi"), // len-3 vowel keeps double hook
+            ("nguooiw", "ngươi"),
+            ("uoowf", "uờ"),
             ("nguoiwf", "người"),
             ("quans", "quán"),
         ]
@@ -147,6 +153,12 @@ final class EngineTests: XCTestCase {
         let d = DocSim()
         d.typeKeys(e, "vie6t5 nam")
         XCTAssertEqual(d.string, "việt nam")
+
+        let e2 = newEngine(defaultOpts())
+        e2.setInputMethod(ImVni)
+        let d2 = DocSim()
+        d2.typeKeys(e2, "huo67 khuo67")
+        XCTAssertEqual(d2.string, "huơ khuơ")
     }
 
     func testBackspaceToneMove() {

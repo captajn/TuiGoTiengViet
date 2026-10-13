@@ -101,6 +101,12 @@ func TestTelex(t *testing.T) {
 		{"toanfs", "toán"}, // later tone key overrides
 		{"toansz", "toan"}, // z strips the tone
 		{"uow", "ươ"},
+		{"uoow", "uơ"}, // u+ô + w -> uơ (issue #3: huơ, khuơ)
+		{"huoow", "huơ"},
+		{"khuoow", "khuơ"},
+		{"uooiw", "ươi"}, // len-3 vowel keeps double hook
+		{"nguooiw", "ngươi"},
+		{"uoowf", "uờ"},
 		{"nguoiwf", "người"},
 		{"quans", "quán"},
 	}
@@ -175,6 +181,14 @@ func TestVni(t *testing.T) {
 	d.typeKeys(e, "vie6t5 nam")
 	if got := d.String(); got != "việt nam" {
 		t.Errorf("vni: got %q, want %q", got, "việt nam")
+	}
+
+	e = newEngine(defaultOpts)
+	e.SetInputMethod(ImVni)
+	d = &docSim{}
+	d.typeKeys(e, "huo67 khuo67")
+	if got := d.String(); got != "huơ khuơ" {
+		t.Errorf("vni uơ: got %q, want %q", got, "huơ khuơ")
 	}
 }
 

@@ -89,6 +89,12 @@ class EngineTest {
             "toanfs" to "toán", // later tone key overrides
             "toansz" to "toan", // z strips the tone
             "uow" to "ươ",
+            "uoow" to "uơ",   // u+ô + w -> uơ (issue #3: huơ, khuơ)
+            "huoow" to "huơ",
+            "khuoow" to "khuơ",
+            "uooiw" to "ươi", // len-3 vowel keeps double hook
+            "nguooiw" to "ngươi",
+            "uoowf" to "uờ",
             "nguoiwf" to "người",
             "quans" to "quán",
         )
@@ -154,6 +160,12 @@ class EngineTest {
         val d = DocSim()
         d.typeKeys(e, "vie6t5 nam")
         assertEquals("việt nam", d.toString())
+
+        val e2 = newEngine(defaultOpts)
+        e2.setInputMethod(ImVni)
+        val d2 = DocSim()
+        d2.typeKeys(e2, "huo67 khuo67")
+        assertEquals("huơ khuơ", d2.toString())
     }
 
     @Test

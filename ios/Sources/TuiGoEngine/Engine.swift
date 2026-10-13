@@ -436,9 +436,10 @@ public final class Engine {
         default: //vneHookAll, vneHookUO:
             if v[0] == Vnl_u {
                 if v[1] == Vnl_o || v[1] == Vnl_or {
-                    //uo -> uo+ if prefixed by "th"
-                    if (vs == Vs_uo || vs == Vs_uor) && vEnd == current &&
-                        buffer[current].form == VnwCV && buffer[current - 2].cseq() == CsTh {
+                    //uo -> uo+ if prefixed by "th"; u+o^ -> uo+ (uoow -> uơ)
+                    if ((vs == Vs_uo || vs == Vs_uor) && vEnd == current &&
+                        buffer[current].form == VnwCV && buffer[current - 2].cseq() == CsTh) ||
+                        (v[1] == Vnl_or && vSeqList[vs].length == 2) {
                         newVs = Vs_uoh
                         markChange(vStart + 1)
                         buffer[vStart + 1].vnSym = Vnl_oh

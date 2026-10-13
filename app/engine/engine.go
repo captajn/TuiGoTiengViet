@@ -505,9 +505,10 @@ func (e *Engine) processHookWithUO(ev *keyEvent) int {
 	default: //vneHookAll, vneHookUO:
 		if v[0] == Vnl_u {
 			if v[1] == Vnl_o || v[1] == Vnl_or {
-				//uo -> uo+ if prefixed by "th"
-				if (vs == Vs_uo || vs == Vs_uor) && vEnd == e.current &&
-					e.buffer[e.current].form == VnwCV && e.buffer[e.current-2].cseq() == CsTh {
+				//uo -> uo+ if prefixed by "th"; u+o^ -> uo+ (uoow -> uơ)
+				if ((vs == Vs_uo || vs == Vs_uor) && vEnd == e.current &&
+					e.buffer[e.current].form == VnwCV && e.buffer[e.current-2].cseq() == CsTh) ||
+					(v[1] == Vnl_or && vSeqList[vs].length == 2) {
 					newVs = Vs_uoh
 					e.markChange(vStart + 1)
 					e.buffer[vStart+1].vnSym = Vnl_oh

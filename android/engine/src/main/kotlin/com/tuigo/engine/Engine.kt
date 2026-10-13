@@ -427,9 +427,10 @@ class Engine {
             else -> { //vneHookAll, vneHookUO:
                 if (v[0] == Vnl_u) {
                     if (v[1] == Vnl_o || v[1] == Vnl_or) {
-                        //uo -> uo+ if prefixed by "th"
+                        //uo -> uo+ if prefixed by "th"; u+o^ -> uo+ (uoow -> uơ)
                         if ((vs == Vs_uo || vs == Vs_uor) && vEnd == current &&
-                            buffer[current].form == VnwCV && buffer[current - 2].cseq() == CsTh
+                            buffer[current].form == VnwCV && buffer[current - 2].cseq() == CsTh ||
+                            (v[1] == Vnl_or && vSeqList[vs].length == 2)
                         ) {
                             newVs = Vs_uoh
                             markChange(vStart + 1)
