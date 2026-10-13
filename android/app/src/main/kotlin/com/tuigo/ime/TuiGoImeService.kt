@@ -65,6 +65,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             engine.resetBuf(); spacePending = false
             if (::keyboard.isInitialized) {
                 keyboard.theme = KeyboardThemes.current(this)
+                keyboard.vniMode = Prefs.inputMethod(this) == ImVni
                 keyboard.showNumberRow = usesNumberRow()
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
                 suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
@@ -106,6 +107,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     /** Cursor position we expect after our own edits — lets us distinguish
      *  external selection changes (cursor tap) from our own commits. */
     private var expectedSel = -1
+    private var selStart = -1
+    private var selEnd = -1
 
     /** Positions the cursor may legitimately report while echoing our own
      *  edits. Apps deliver onUpdateSelection asynchronously; some report an
@@ -154,6 +157,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.listener = this
         keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
+        keyboard.vniMode = Prefs.inputMethod(this) == ImVni
         keyboard.showNumberRow = usesNumberRow()
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         val dm = resources.displayMetrics.density
@@ -211,6 +215,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         loadEngineConfig()
         keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
+        keyboard.vniMode = Prefs.inputMethod(this) == ImVni
         keyboard.showNumberRow = usesNumberRow()
         keyboard.numericLayout = numericLayoutFor(info)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
@@ -218,7 +223,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderSuggestionStrip()
         engine.resetBuf()
         ownSelEchoes.clear()
-        expectedSel = info?.initialSelEnd ?: -1
+        selStart = info?.initialSelStart ?: -1
+        selEnd = info?.initialSelEnd ?: -1
+        expectedSel = if (selStart >= 0 && selEnd >= 0) minOf(selStart, selEnd) else selEnd
         if (expectedSel >= 0) ownSelEchoes.add(expectedSel)
         spacePending = false
         applySystemBarTheme()
@@ -249,6 +256,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         engine.resetBuf()
         ownSelEchoes.clear()
         expectedSel = -1
+        selStart = -1
+        selEnd = -1
     }
 
     override fun onUpdateSelection(
@@ -258,12 +267,21 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd,
             candidatesStart, candidatesEnd)
-        if (newSelStart != expectedSel || newSelStart != newSelEnd) {
+        selStart = newSelStart
+        selEnd = newSelEnd
+        if (newSelStart != newSelEnd) {
+            engine.resetBuf()
+            spacePending = false
+            ownSelEchoes.clear()
+            expectedSel = minOf(newSelStart, newSelEnd)
+            return
+        }
+        if (newSelStart != expectedSel) {
             if (expectedSel < 0) {
                 // Never synced (app did not report an initial selection) —
                 // adopt the position without discarding the input buffer.
                 expectedSel = newSelStart
-            } else if (newSelStart == newSelEnd && ownSelEchoes.remove(newSelStart)) {
+            } else if (ownSelEchoes.remove(newSelStart)) {
                 // Intermediate echo of our own edit: keep expectedSel at the
                 // final position our pending edit will produce.
             } else {
@@ -283,6 +301,17 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val ei = currentInputEditorInfo
         dismissCurrentClipSuggestion()
 
+        if ((selStart >= 0 && selEnd >= 0 && selStart != selEnd) || !ic.getSelectedText(0).isNullOrEmpty()) {
+            engine.resetBuf()
+            spacePending = false
+            if (selStart >= 0 && selEnd >= 0) {
+                val anchor = minOf(selStart, selEnd)
+                expectedSel = anchor
+                selStart = anchor
+                selEnd = anchor
+            }
+        }
+
         if (isRestrictedField(ei)) {
             ic.commitText(ch.toString(), 1)
             bumpExpected(1)
@@ -301,6 +330,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             if (expectedSel >= 0) {
                 expectEcho(expectedSel - 1)
                 expectedSel += 1 // -1 + 2
+                selStart = expectedSel
+                selEnd = expectedSel
                 expectEcho(expectedSel)
             }
             engine.resetBuf()
@@ -333,6 +364,19 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val ic = currentInputConnection ?: return
         dismissCurrentClipSuggestion()
         spacePending = false
+        val selected = ic.getSelectedText(0)
+        if (!selected.isNullOrEmpty() || (selStart >= 0 && selEnd >= 0 && selStart != selEnd)) {
+            engine.resetBuf()
+            ic.commitText("", 1)
+            if (selStart >= 0 && selEnd >= 0) {
+                val anchor = minOf(selStart, selEnd)
+                expectedSel = anchor
+                selStart = anchor
+                selEnd = anchor
+                expectEcho(anchor)
+            }
+            return
+        }
         val res = engine.backspace()
         if (res.consumed) {
             applyResult(res)
@@ -512,7 +556,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderSuggestionStrip()
     }
 
-    private data class ClipCandidate(val raw: String, val label: String, val stamp: Long)
+    private data class ClipCandidate(
+        val key: String,
+        val rawText: String?,
+        val imageUri: android.net.Uri?,
+        val imageMime: String?,
+        val label: String,
+        val stamp: Long,
+    )
 
     private fun currentClipCandidate(): ClipCandidate? {
         if (!Prefs.clipboardSuggest(this)) return null
@@ -520,30 +571,81 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val cm = clipboardManager ?: getSystemService(ClipboardManager::class.java) ?: return null
         val clip = try { cm.primaryClip } catch (_: Exception) { null } ?: return null
         if (clip.itemCount <= 0) return null
-        val raw = clip.getItemAt(0)?.text?.toString() ?: return null
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return null
         val desc = clip.description
+        var imageUri: android.net.Uri? = null
+        var imageMime: String? = null
+        var rawText: String? = null
+        for (i in 0 until clip.itemCount) {
+            val item = clip.getItemAt(i) ?: continue
+            val u = item.uri
+            if (u != null && imageUri == null) {
+                val mime = (0 until (desc?.mimeTypeCount ?: 0))
+                    .mapNotNull { desc?.getMimeType(it) }
+                    .firstOrNull { it.startsWith("image/") }
+                    ?: try { contentResolver.getType(u) } catch (_: Exception) { null }
+                if (mime != null && mime.startsWith("image/")) {
+                    imageUri = u
+                    imageMime = mime
+                }
+            }
+            if (rawText == null) {
+                val t = item.text?.toString()
+                if (!t.isNullOrBlank()) rawText = t
+            }
+        }
+        if (imageUri == null && rawText == null) return null
+        val clipKey = if (imageUri != null) "img:$imageUri" else "txt:$rawText"
         val descTs = desc?.timestamp ?: 0L
-        if (raw != lastKnownClipText) {
-            lastKnownClipText = raw
+        if (clipKey != lastKnownClipText) {
+            lastKnownClipText = clipKey
             clipCopiedAtMs = if (descTs > 0L) maxOf(descTs, clipCopiedAtMs) else System.currentTimeMillis()
         }
         val effectiveTs = maxOf(descTs, clipCopiedAtMs)
         if (effectiveTs <= 0L || System.currentTimeMillis() - effectiveTs > 180_000L) return null
-        if (effectiveTs == dismissedClipStamp && raw == dismissedClipText) return null
+        if (effectiveTs == dismissedClipStamp && clipKey == dismissedClipText) return null
+        if (imageUri != null) {
+            return ClipCandidate(
+                key = clipKey,
+                rawText = null,
+                imageUri = imageUri,
+                imageMime = imageMime ?: "image/*",
+                label = "Hình ảnh",
+                stamp = effectiveTs,
+            )
+        }
         val isSensitive = desc?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true
-        val singleLine = trimmed.replace(Regex("\\s+"), " ")
+        val singleLine = rawText!!.trim().replace(Regex("\\s+"), " ")
         val label = if (isSensitive) "••••••••" else singleLine
-        return ClipCandidate(raw, label, effectiveTs)
+        return ClipCandidate(
+            key = clipKey,
+            rawText = rawText,
+            imageUri = null,
+            imageMime = null,
+            label = label,
+            stamp = effectiveTs,
+        )
     }
 
     private fun dismissCurrentClipSuggestion() {
         val cand = currentClipCandidate() ?: return
         dismissedClipStamp = cand.stamp
-        dismissedClipText = cand.raw
+        dismissedClipText = cand.key
         renderSuggestionStrip()
     }
+
+    private fun loadThumbnail(uri: android.net.Uri, sizePx: Int): android.graphics.Bitmap? = try {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null
+        else {
+            var sample = 1
+            while (bounds.outWidth / sample > sizePx * 2 && bounds.outHeight / sample > sizePx * 2) {
+                sample *= 2
+            }
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+            contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+        }
+    } catch (_: Exception) { null }
 
     private fun buildClipboardChip(cand: ClipCandidate): View {
         val dm = resources.displayMetrics.density
@@ -552,7 +654,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val pill = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14f), dp(6f), dp(14f), dp(6f))
+            setPadding(dp(12f), dp(5f), dp(14f), dp(5f))
             minimumHeight = dp(34f)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -564,37 +666,74 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             setOnClickListener {
                 val ic = currentInputConnection ?: return@setOnClickListener
                 dismissedClipStamp = cand.stamp
-                dismissedClipText = cand.raw
+                dismissedClipText = cand.key
                 engine.resetBuf()
                 spacePending = false
-                ic.commitText(cand.raw, 1)
-                bumpExpected(cand.raw.length)
+                if (cand.imageUri != null) {
+                    val committed = try {
+                        val clipDesc = android.content.ClipDescription("Hình ảnh", arrayOf(cand.imageMime ?: "image/*"))
+                        val contentInfo = android.view.inputmethod.InputContentInfo(cand.imageUri, clipDesc, null)
+                        ic.commitContent(contentInfo, android.view.inputmethod.InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+                    } catch (_: Exception) { false }
+                    if (!committed) {
+                        ic.performContextMenuAction(android.R.id.paste)
+                    }
+                } else if (cand.rawText != null) {
+                    if ((selStart >= 0 && selEnd >= 0 && selStart != selEnd) || !ic.getSelectedText(0).isNullOrEmpty()) {
+                        if (selStart >= 0 && selEnd >= 0) {
+                            val anchor = minOf(selStart, selEnd)
+                            expectedSel = anchor
+                            selStart = anchor
+                            selEnd = anchor
+                        }
+                    }
+                    ic.commitText(cand.rawText, 1)
+                    bumpExpected(cand.rawText.length)
+                }
                 renderSuggestionStrip()
             }
         }
-        val icon = object : View(this) {
-            private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = 1.6f * dm
-                strokeCap = Paint.Cap.ROUND
-                strokeJoin = Paint.Join.ROUND
-                color = t.funcText
+        val thumb = cand.imageUri?.let { loadThumbnail(it, dp(24f)) }
+        if (thumb != null) {
+            val thumbView = ImageView(this).apply {
+                setImageBitmap(thumb)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 6f * dm
+                }
+                clipToOutline = true
+                layoutParams = LinearLayout.LayoutParams(dp(22f), dp(22f)).apply {
+                    marginEnd = dp(8f)
+                }
             }
-            private val rect = RectF()
-            override fun onDraw(canvas: Canvas) {
-                val w = width.toFloat()
-                val h = height.toFloat()
-                rect.set(w * 0.18f, h * 0.20f, w * 0.82f, h * 0.90f)
-                canvas.drawRoundRect(rect, 2f * dm, 2f * dm, paint)
-                rect.set(w * 0.35f, h * 0.10f, w * 0.65f, h * 0.27f)
-                canvas.drawRoundRect(rect, 1.5f * dm, 1.5f * dm, paint)
-                canvas.drawLine(w * 0.32f, h * 0.48f, w * 0.68f, h * 0.48f, paint)
-                canvas.drawLine(w * 0.32f, h * 0.67f, w * 0.58f, h * 0.67f, paint)
+            pill.addView(thumbView)
+        } else {
+            val icon = object : View(this) {
+                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1.6f * dm
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    color = t.funcText
+                }
+                private val rect = RectF()
+                override fun onDraw(canvas: Canvas) {
+                    val w = width.toFloat()
+                    val h = height.toFloat()
+                    rect.set(w * 0.18f, h * 0.20f, w * 0.82f, h * 0.90f)
+                    canvas.drawRoundRect(rect, 2f * dm, 2f * dm, paint)
+                    rect.set(w * 0.35f, h * 0.10f, w * 0.65f, h * 0.27f)
+                    canvas.drawRoundRect(rect, 1.5f * dm, 1.5f * dm, paint)
+                    canvas.drawLine(w * 0.32f, h * 0.48f, w * 0.68f, h * 0.48f, paint)
+                    canvas.drawLine(w * 0.32f, h * 0.67f, w * 0.58f, h * 0.67f, paint)
+                }
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f)).apply {
+                    marginEnd = dp(7f)
+                }
             }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f)).apply {
-                marginEnd = dp(7f)
-            }
+            pill.addView(icon)
         }
         val labelView = TextView(this).apply {
             text = cand.label
@@ -604,7 +743,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ellipsize = TextUtils.TruncateAt.END
             maxWidth = dp(220f)
         }
-        pill.addView(icon)
         pill.addView(labelView)
         return pill
     }
@@ -666,6 +804,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             expectEcho(expectedSel)
             if (res.backs > 0) expectEcho(expectedSel - res.backs)
             expectedSel = expectedSel - res.backs + res.out.size
+            selStart = expectedSel
+            selEnd = expectedSel
             expectEcho(expectedSel)
         }
     }
@@ -674,6 +814,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (expectedSel >= 0) {
             expectEcho(expectedSel)
             expectedSel += delta
+            selStart = expectedSel
+            selEnd = expectedSel
             expectEcho(expectedSel)
         }
     }

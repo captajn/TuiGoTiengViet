@@ -25,7 +25,8 @@ final class KeyboardView: UIView {
         didSet { keys.forEach { styleKey($0) }; setNeedsLayout() }
     }
 
-    var vietnameseOn = true { didSet { updateToggleLabels() } }
+    var vietnameseOn = true { didSet { if oldValue != vietnameseOn && vniMode && showNumberRow { rebuildKeys() } else { updateToggleLabels() } } }
+    var vniMode = false { didSet { if oldValue != vniMode { rebuildKeys() } } }
     var showsGlobe = false { didSet { rebuildKeys() } }
     var returnLabel = "⏎" { didSet { updateToggleLabels() } }
     var showNumberRow = false { didSet { if oldValue != showNumberRow { rebuildKeys() } } }
@@ -55,33 +56,84 @@ final class KeyboardView: UIView {
         let code: Int
         let label: String
         let weight: CGFloat
-        init(_ code: Int, _ label: String, _ weight: CGFloat = 1) {
-            self.code = code; self.label = label; self.weight = weight
+        let hint: String
+        let longPressChar: Character?
+        init(_ code: Int, _ label: String, _ weight: CGFloat = 1, hint: String = "", longPressChar: Character? = nil) {
+            self.code = code
+            self.label = label
+            self.weight = weight
+            self.hint = hint
+            self.longPressChar = longPressChar ?? hint.first
         }
     }
 
     private final class Key {
         let spec: KeySpec
         let button: UIButton
+        let hintLabel: UILabel?
         init(_ spec: KeySpec) {
             self.spec = spec
             button = UIButton(type: .custom)
             button.layer.cornerRadius = 10
             button.titleLabel?.textAlignment = .center
+            if !spec.hint.isEmpty {
+                let lbl = UILabel()
+                lbl.text = spec.hint
+                lbl.font = .systemFont(ofSize: 10.5, weight: .medium)
+                lbl.textAlignment = .right
+                lbl.isUserInteractionEnabled = false
+                button.addSubview(lbl)
+                hintLabel = lbl
+            } else {
+                hintLabel = nil
+            }
         }
     }
 
-    private func row(_ s: String, inset: CGFloat = 0) -> [KeySpec] {
-        let keys = s.map { KeySpec(Int($0.unicodeScalars.first!.value), String($0)) }
+    private static let topRowNumberHints: [Character: Character] = [
+        "q": "1", "w": "2", "e": "3", "r": "4", "t": "5",
+        "y": "6", "u": "7", "i": "8", "o": "9", "p": "0",
+    ]
+
+    private static let letterHints: [Character: Character] = [
+        "a": "@", "s": "#", "d": "$", "f": "%", "g": "&",
+        "h": "-", "j": "+", "k": "(", "l": ")",
+        "z": "*", "x": "\"", "c": "'", "v": ":",
+        "b": ";", "n": "!", "m": "?",
+    ]
+
+    private static let vniNumberHints: [Character: String] = [
+        "1": "´", "2": "`", "3": "?", "4": "~", "5": ".",
+        "6": "^", "7": "ʼ", "8": "˘", "9": "Đ",
+    ]
+
+    private func row(_ s: String, inset: CGFloat = 0, withHints: Bool = false) -> [KeySpec] {
+        let keys = s.map { ch -> KeySpec in
+            let hintChar: Character? = !withHints ? nil : (Self.letterHints[ch] ?? (!showNumberRow ? Self.topRowNumberHints[ch] : nil))
+            let altChar: Character? = hintChar ?? (withHints ? Self.topRowNumberHints[ch] : nil)
+            return KeySpec(
+                Int(ch.unicodeScalars.first!.value),
+                String(ch),
+                hint: hintChar.map { String($0) } ?? "",
+                longPressChar: altChar
+            )
+        }
         guard inset > 0 else { return keys }
         return [KeySpec(K.spacer, "", inset)] + keys + [KeySpec(K.spacer, "", inset)]
     }
 
+    private func numberRowSpecs() -> [KeySpec] {
+        "1234567890".map { ch in
+            let vniHint = (vniMode && vietnameseOn) ? (Self.vniNumberHints[ch] ?? "") : ""
+            return KeySpec(Int(ch.unicodeScalars.first!.value), String(ch), hint: vniHint, longPressChar: nil)
+        }
+    }
+
     private func lettersRows() -> [[KeySpec]] {
         [
-            row("qwertyuiop"),
-            row("asdfghjkl", inset: 0.5),
-            [KeySpec(K.shift, "⇧", 1.5)] + row("zxcvbnm") + [KeySpec(K.del, "⌫", 1.5)],
+            row("qwertyuiop", withHints: true),
+            row("asdfghjkl", inset: 0.5, withHints: true),
+            [KeySpec(K.shift, "⇧", 1.5)] + row("zxcvbnm", withHints: true) + [KeySpec(K.del, "⌫", 1.5)],
             bottomRow(mode: "?123"),
         ]
     }
@@ -128,7 +180,7 @@ final class KeyboardView: UIView {
             }
         }
         if showNumberRow {
-            return [row("1234567890")] + lettersRows()
+            return [numberRowSpecs()] + lettersRows()
         }
         return lettersRows()
     }
@@ -257,6 +309,9 @@ final class KeyboardView: UIView {
         default:
             b.backgroundColor = pressed ? (t.pressAccent ? t.accent : t.keyPressed) : t.key
             b.setTitleColor(pressed ? (t.pressAccent ? t.onAccent : t.text) : t.text, for: .normal)
+            if let hl = key.hintLabel {
+                hl.textColor = (pressed ? (t.pressAccent ? t.onAccent : t.text) : t.funcText).withAlphaComponent(0.67)
+            }
         }
     }
 
@@ -318,6 +373,7 @@ final class KeyboardView: UIView {
                 let kw = unitW * spec.weight
                 if spec.code != K.spacer, let key = iter.next() {
                     key.button.frame = CGRect(x: x, y: y, width: kw, height: kh)
+                    key.hintLabel?.frame = CGRect(x: max(0, kw - 18), y: 2, width: 14, height: 13)
                     if (spec.code == K.enter || spec.code == K.space) && theme.enterAccentFill {
                         key.button.layer.cornerRadius = kh / 2
                     }
@@ -378,11 +434,12 @@ final class KeyboardView: UIView {
         popup = nil
     }
 
-    // ---- delete repeat ---------------------------------------------------------
+    // ---- delete repeat & long-press hint ---------------------------------------
 
     private var pressed: Key?
     private var shiftTapTime = Date.distantPast
     private var deleteTimer: Timer?
+    private var hintTimer: Timer?
 
     private func startDeleteRepeat() {
         stopDeleteRepeat()
@@ -399,6 +456,22 @@ final class KeyboardView: UIView {
         deleteTimer = nil
     }
 
+    private func startHintTimer(for key: Key) {
+        stopHintTimer()
+        guard let alt = key.spec.longPressChar else { return }
+        hintTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+            guard let self = self, self.pressed === key else { return }
+            self.clearPress()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            self.listener?.onChar(alt)
+        }
+    }
+
+    private func stopHintTimer() {
+        hintTimer?.invalidate()
+        hintTimer = nil
+    }
+
     // ---- touch callbacks --------------------------------------------------------
 
     @objc private func onDown(_ b: UIButton) {
@@ -411,6 +484,7 @@ final class KeyboardView: UIView {
             startDeleteRepeat()
         } else {
             showPopup(for: key)
+            startHintTimer(for: key)
         }
     }
 
@@ -479,13 +553,18 @@ final class KeyboardView: UIView {
         clearPress()
         pressed = key
         paintKey(key, pressed: true)
-        if key.spec.code == K.del { startDeleteRepeat() }
+        if key.spec.code == K.del {
+            startDeleteRepeat()
+        } else {
+            startHintTimer(for: key)
+        }
     }
 
     private func clearPress() {
         if let p = pressed { paintKey(p) }
         pressed = nil
         stopDeleteRepeat()
+        stopHintTimer()
         hidePopup()
     }
 

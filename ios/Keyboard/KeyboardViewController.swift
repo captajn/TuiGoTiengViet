@@ -22,6 +22,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     private var clipCopiedAt = Date.distantPast
     private var dismissedClipChangeCount = -1
     private var currentClipRaw: String?
+    private var currentClipImage: UIImage?
+    private var clipHintWorkItem: DispatchWorkItem?
 
     /// Pending "double space -> ." state (700ms window, same as Android).
     private var spaceAt = Date.distantPast
@@ -43,7 +45,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         clipButton = UIButton(type: .system)
         clipButton.translatesAutoresizingMaskIntoConstraints = false
         clipButton.layer.cornerRadius = 17
-        clipButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+        clipButton.contentEdgeInsets = UIEdgeInsets(top: 5, left: 12, bottom: 5, right: 14)
         clipButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .regular)
         clipButton.titleLabel?.lineBreakMode = .byTruncatingTail
         clipButton.addTarget(self, action: #selector(onTapClipSuggestion), for: .touchUpInside)
@@ -116,7 +118,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         doubleSpace = Prefs.doubleSpacePeriod()
         keyboard.vietnameseOn = vietOn
         engine.setVietKey(vietOn)
-        keyboard.showNumberRow = Prefs.numberRow()
+        let isVni = Prefs.inputMethod() == ImVni
+        keyboard.vniMode = isVni
+        keyboard.showNumberRow = Prefs.numberRow() || isVni
         // Read-only access to the containing app's shared container is sufficient.
         if let url = Prefs.macroURL {
             if !FileManager.default.fileExists(atPath: url.path) { engine.loadMacroText("") }
@@ -131,6 +135,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     private func refreshClipSuggestion() {
         guard clipBar != nil else { return }
+        clipHintWorkItem?.cancel()
+        clipHintWorkItem = nil
         let t = keyboard.theme
         clipBar.backgroundColor = t.bg
         clipButton.backgroundColor = t.key
@@ -141,13 +147,18 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
         let enabled = hasFullAccess ? Prefs.clipboardSuggest() : (UserDefaults.standard.object(forKey: Prefs.keyClipboardSuggest) as? Bool ?? Prefs.clipboardSuggest())
         let isPassword = textDocumentProxy.isSecureTextEntry == true
-        guard enabled, !isPassword, UIPasteboard.general.hasStrings,
-              let raw = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else {
+        guard enabled, !isPassword else {
             hideClipBar()
             return
         }
-        let changeCount = UIPasteboard.general.changeCount
+        let pb = UIPasteboard.general
+        let hasText = pb.hasStrings
+        let hasImage = pb.hasImages
+        guard hasText || hasImage else {
+            hideClipBar()
+            return
+        }
+        let changeCount = pb.changeCount
         if changeCount != lastClipChangeCount {
             lastClipChangeCount = changeCount
             clipCopiedAt = Date()
@@ -157,7 +168,25 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
             hideClipBar()
             return
         }
-        currentClipRaw = UIPasteboard.general.string
+
+        if hasImage, let img = pb.image {
+            currentClipImage = img
+            currentClipRaw = pb.string
+            let thumb = Self.roundedThumbnail(from: img, size: CGSize(width: 22, height: 22), radius: 5)
+            clipButton.setImage(thumb?.withRenderingMode(.alwaysOriginal), for: .normal)
+            clipButton.setTitle("  Hình ảnh", for: .normal)
+            clipBar.isHidden = false
+            clipBarHeightConstraint.constant = 42
+            return
+        }
+
+        guard let raw = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            hideClipBar()
+            return
+        }
+        currentClipImage = nil
+        currentClipRaw = pb.string
         let singleLine = raw.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         let display = singleLine.count > 26 ? String(singleLine.prefix(26)) + "…" : singleLine
         clipButton.setImage(UIImage(systemName: "doc.on.clipboard"), for: .normal)
@@ -166,14 +195,29 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         clipBarHeightConstraint.constant = 42
     }
 
+    private static func roundedThumbnail(from image: UIImage, size: CGSize, radius: CGFloat) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: radius).addClip()
+            let aspect = max(size.width / max(image.size.width, 1), size.height / max(image.size.height, 1))
+            let drawW = image.size.width * aspect
+            let drawH = image.size.height * aspect
+            let rect = CGRect(x: (size.width - drawW) / 2, y: (size.height - drawH) / 2, width: drawW, height: drawH)
+            image.draw(in: rect)
+        }
+    }
+
     private func hideClipBar() {
+        clipHintWorkItem?.cancel()
+        clipHintWorkItem = nil
         currentClipRaw = nil
+        currentClipImage = nil
         clipBar?.isHidden = true
         clipBarHeightConstraint?.constant = 0
     }
 
     private func dismissClipSuggestion() {
-        guard currentClipRaw != nil else { return }
+        guard currentClipRaw != nil || currentClipImage != nil else { return }
         dismissedClipChangeCount = lastClipChangeCount
         hideClipBar()
         if heightConstraint != nil {
@@ -182,6 +226,32 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     }
 
     @objc private func onTapClipSuggestion() {
+        if let img = currentClipImage {
+            if let raw = currentClipRaw, !raw.isEmpty {
+                dismissedClipChangeCount = lastClipChangeCount
+                hideClipBar()
+                engine.resetBuf()
+                spacePending = false
+                textDocumentProxy.insertText(raw)
+                rememberTail()
+                updateAutoShift()
+                if heightConstraint != nil {
+                    heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
+                }
+                return
+            }
+            // iOS UITextDocumentProxy does not expose an image-commit API to keyboard extensions;
+            // keep the image on UIPasteboard.general and prompt the user to paste in the host field.
+            UIPasteboard.general.image = img
+            clipButton.setTitle("  Chạm ô nhập → Dán ảnh", for: .normal)
+            clipHintWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.dismissClipSuggestion()
+            }
+            clipHintWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: work)
+            return
+        }
         guard let raw = currentClipRaw else { return }
         dismissedClipChangeCount = lastClipChangeCount
         hideClipBar()
@@ -243,6 +313,14 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     func onDelete() {
         dismissClipSuggestion()
+        if let sel = textDocumentProxy.selectedText, !sel.isEmpty {
+            engine.resetBuf()
+            spacePending = false
+            textDocumentProxy.deleteBackward()
+            rememberTail()
+            updateAutoShift()
+            return
+        }
         checkExternalChange()
         spacePending = false
         let res = engine.backspace()
@@ -347,6 +425,11 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     }
 
     private func checkExternalChange() {
+        if let sel = textDocumentProxy.selectedText, !sel.isEmpty {
+            engine.resetBuf()
+            spacePending = false
+            return
+        }
         let ctx = textDocumentProxy.documentContextBeforeInput ?? ""
         if !ctx.hasSuffix(expectedTail) {
             engine.resetBuf()

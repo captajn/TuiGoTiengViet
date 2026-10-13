@@ -60,7 +60,23 @@ class KeyboardView @JvmOverloads constructor(
 
     /** VN mode state shown on the space bar. */
     var vietnameseOn: Boolean = true
-        set(v) { field = v; invalidate() }
+        set(v) {
+            if (field == v) return
+            field = v
+            rows = currentRows()
+            relayout()
+            invalidate()
+        }
+
+    /** True when the active input method is VNI — shows VNI tone/mark hints on the number row. */
+    var vniMode: Boolean = false
+        set(v) {
+            if (field == v) return
+            field = v
+            rows = currentRows()
+            relayout()
+            invalidate()
+        }
 
     var symbolsPage = false
         private set
@@ -111,47 +127,69 @@ class KeyboardView @JvmOverloads constructor(
         const val SHIFT = -1
     }
 
-    private data class KeySpec(val code: Int, val label: String, val weight: Float = 1f, val hint: String = "")
+    private data class KeySpec(
+        val code: Int,
+        val label: String,
+        val weight: Float = 1f,
+        val hint: String = "",
+        val longPressChar: Char? = hint.firstOrNull(),
+    )
 
     private class Key(val spec: KeySpec, val rect: RectF = RectF())
 
-    /** Long-press alternates shown as small corner hints (Unikey/Gboard-style). */
-    private val letterHints = mapOf(
+    /** Top-row digit hints when the dedicated number row is hidden. */
+    private val topRowNumberHints = mapOf(
         'q' to '1', 'w' to '2', 'e' to '3', 'r' to '4', 't' to '5',
         'y' to '6', 'u' to '7', 'i' to '8', 'o' to '9', 'p' to '0',
-        'a' to '@', 's' to '*', 'd' to '+', 'f' to '-', 'g' to '=',
-        'h' to '/', 'j' to '#', 'k' to '(', 'l' to ')',
-        'z' to '\'', 'x' to ',', 'c' to ':', 'v' to '"',
-        'b' to '?', 'n' to '!', 'm' to '~',
-        ',' to ';', '.' to ':',
     )
 
-    private fun row(s: String, insetWeight: Float = 0f): Array<KeySpec> {
-        val keys = s.map { KeySpec(it.code, it.toString(), hint = letterHints[it]?.toString() ?: "") }
+    /** Standard Gboard / Laban Key secondary symbols on rows 2 and 3. */
+    private val letterHints = mapOf(
+        'a' to '@', 's' to '#', 'd' to '$', 'f' to '%', 'g' to '&',
+        'h' to '-', 'j' to '+', 'k' to '(', 'l' to ')',
+        'z' to '*', 'x' to '"', 'c' to '\'', 'v' to ':',
+        'b' to ';', 'n' to '!', 'm' to '?',
+    )
+
+    /** Standard Laban Key VNI diacritic/tone hints on the number row (1..9). */
+    private val vniNumberHints = mapOf(
+        '1' to "´", '2' to "`", '3' to "?", '4' to "~", '5' to ".",
+        '6' to "^", '7' to "ʼ", '8' to "˘", '9' to "Đ",
+    )
+
+    private fun row(s: String, insetWeight: Float = 0f, withLetterHints: Boolean = false): Array<KeySpec> {
+        val keys = s.map { ch ->
+            val hintChar = if (!withLetterHints) null
+            else letterHints[ch] ?: if (!showNumberRow) topRowNumberHints[ch] else null
+            KeySpec(
+                code = ch.code,
+                label = ch.toString(),
+                hint = hintChar?.toString() ?: "",
+                longPressChar = hintChar ?: if (withLetterHints) topRowNumberHints[ch] else null,
+            )
+        }
         return if (insetWeight > 0f) {
             (listOf(KeySpec(K.SPACER, "", insetWeight)) + keys +
                 KeySpec(K.SPACER, "", insetWeight)).toTypedArray()
         } else keys.toTypedArray()
     }
 
-    private val lettersRows: Array<Array<KeySpec>> by lazy {
+    private fun buildLettersRows(): Array<Array<KeySpec>> = arrayOf(
+        row("qwertyuiop", withLetterHints = true),
+        row("asdfghjkl", insetWeight = 0.5f, withLetterHints = true),
         arrayOf(
-            row("qwertyuiop"),
-            row("asdfghjkl", insetWeight = 0.5f),
-            arrayOf(
-                KeySpec(K.SHIFT, "⇧", 1.5f),
-                *row("zxcvbnm"),
-                KeySpec(K.DEL, "⌫", 1.5f),
-            ),
-            arrayOf(
-                KeySpec(K.MODE, "?123", 1.5f),
-                KeySpec(','.code, ",", 0.8f),
-                KeySpec(K.SPACE, "Tiếng Việt", 6.2f),
-                KeySpec('.'.code, ".", 1f),
-                KeySpec(K.ENTER, "⏎", 1.5f),
-            ),
-        )
-    }
+            KeySpec(K.SHIFT, "⇧", 1.5f),
+            *row("zxcvbnm", withLetterHints = true),
+            KeySpec(K.DEL, "⌫", 1.5f),
+        ),
+        arrayOf(
+            KeySpec(K.MODE, "?123", 1.5f),
+            KeySpec(','.code, ",", 0.8f),
+            KeySpec(K.SPACE, "Tiếng Việt", 6.2f),
+            KeySpec('.'.code, ".", 1f),
+            KeySpec(K.ENTER, "⏎", 1.5f),
+        ),
+    )
 
     private val symbolsRows: Array<Array<KeySpec>> by lazy {
         arrayOf(
@@ -190,7 +228,11 @@ class KeyboardView @JvmOverloads constructor(
         )
     }
 
-    private val numberRow = row("1234567890")
+    private fun buildNumberRow(): Array<KeySpec> =
+        "1234567890".map { ch ->
+            val vniHint = if (vniMode && vietnameseOn) vniNumberHints[ch] ?: "" else ""
+            KeySpec(code = ch.code, label = ch.toString(), hint = vniHint, longPressChar = null)
+        }.toTypedArray()
 
     private fun numPadRows(layout: NumericLayout): Array<Array<KeySpec>> {
         val phone = layout == NumericLayout.PHONE
@@ -210,11 +252,11 @@ class KeyboardView @JvmOverloads constructor(
     private fun currentRows(): Array<Array<KeySpec>> =
         if (numericLayout != NumericLayout.NONE) numPadRows(numericLayout)
         else if (symbolsPage) { when (symbolLevel) { 1 -> extraSymbolRows; 2 -> legacySymbolRows; else -> symbolsRows } }
-        else if (showNumberRow) arrayOf(numberRow, *lettersRows)
-        else lettersRows
+        else if (showNumberRow) arrayOf(buildNumberRow(), *buildLettersRows())
+        else buildLettersRows()
 
     private val keys = mutableListOf<Key>()
-    private var rows: Array<Array<KeySpec>> = lettersRows
+    private var rows: Array<Array<KeySpec>> = buildLettersRows()
 
     // ---- metrics ------------------------------------------------------------
 
@@ -288,13 +330,12 @@ class KeyboardView @JvmOverloads constructor(
     /** Long-press a hinted key types the hint char directly (Unikey-style). */
     private val hintLongPress = Runnable {
         val k = pressed ?: return@Runnable
-        if (k.spec.hint.isNotEmpty()) {
-            pressed = null
-            pressConsumed = true
-            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            listener?.onChar(k.spec.hint.first())
-            invalidate()
-        }
+        val alt = k.spec.longPressChar ?: return@Runnable
+        pressed = null
+        pressConsumed = true
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        listener?.onChar(alt)
+        invalidate()
     }
 
     /** Long-press Space = language/input-method menu (Gboard-style). */
@@ -659,7 +700,7 @@ class KeyboardView @JvmOverloads constructor(
             spaceDownY = y
             spaceLastStepX = x
             handler.postDelayed(spaceLongPress, 550)
-        } else if (key.spec.hint.isNotEmpty()) {
+        } else if (key.spec.longPressChar != null) {
             handler.postDelayed(hintLongPress, 400)
         }
         invalidate()
@@ -693,7 +734,7 @@ class KeyboardView @JvmOverloads constructor(
             handler.removeCallbacks(spaceLongPress)
             handler.removeCallbacks(hintLongPress)
             if (key?.spec?.code == K.DEL) handler.postDelayed(repeatDelete, 400)
-            else if (key?.spec?.hint?.isNotEmpty() == true) handler.postDelayed(hintLongPress, 400)
+            else if (key?.spec?.longPressChar != null) handler.postDelayed(hintLongPress, 400)
             invalidate()
         }
     }
