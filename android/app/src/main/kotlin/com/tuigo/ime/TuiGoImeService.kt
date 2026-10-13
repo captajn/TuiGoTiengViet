@@ -92,6 +92,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
      *  external selection changes (cursor tap) from our own commits. */
     private var expectedSel = -1
 
+    /** Positions the cursor may legitimately report while echoing our own
+     *  edits. Apps deliver onUpdateSelection asynchronously; some report an
+     *  intermediate position (after deleteSurroundingText, before commitText)
+     *  instead of one update per batch. Treating those echoes as external
+     *  cursor moves would reset the engine mid-word (e.g. "owr" -> "ơr"). */
+    private val ownSelEchoes = HashSet<Int>()
+
     /** Pending "double space -> ." state. */
     private var spaceAt = 0L
     private var spacePending = false
@@ -193,7 +200,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.numericLayout = numericLayoutFor(info)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         engine.resetBuf()
+        ownSelEchoes.clear()
         expectedSel = info?.initialSelEnd ?: -1
+        if (expectedSel >= 0) ownSelEchoes.add(expectedSel)
         spacePending = false
         applySystemBarTheme()
     }
@@ -221,6 +230,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         engine.resetBuf()
+        ownSelEchoes.clear()
+        expectedSel = -1
     }
 
     override fun onUpdateSelection(
@@ -230,12 +241,22 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd,
             candidatesStart, candidatesEnd)
-        if (expectedSel != newSelStart) {
-            // cursor was moved by the app/user, not by our commits
-            engine.resetBuf()
-            spacePending = false
+        if (newSelStart != expectedSel || newSelStart != newSelEnd) {
+            if (expectedSel < 0) {
+                // Never synced (app did not report an initial selection) —
+                // adopt the position without discarding the input buffer.
+                expectedSel = newSelStart
+            } else if (newSelStart == newSelEnd && ownSelEchoes.remove(newSelStart)) {
+                // Intermediate echo of our own edit: keep expectedSel at the
+                // final position our pending edit will produce.
+            } else {
+                // cursor was moved by the app/user, not by our commits
+                engine.resetBuf()
+                spacePending = false
+                ownSelEchoes.clear()
+                expectedSel = newSelStart
+            }
         }
-        expectedSel = newSelStart
     }
 
     // ---- keyboard events -----------------------------------------------------
@@ -259,7 +280,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ic.deleteSurroundingText(1, 0)
             ic.commitText(". ", 1)
             ic.endBatchEdit()
-            expectedSel += 1 // -1 + 2
+            if (expectedSel >= 0) {
+                expectEcho(expectedSel - 1)
+                expectedSel += 1 // -1 + 2
+                expectEcho(expectedSel)
+            }
             engine.resetBuf()
             return
         }
@@ -530,11 +555,26 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (res.backs > 0) ic.deleteSurroundingText(res.backs, 0)
         if (res.out.isNotEmpty()) ic.commitText(String(res.out), 1)
         ic.endBatchEdit()
-        if (expectedSel >= 0) expectedSel = expectedSel - res.backs + res.out.size
+        if (expectedSel >= 0) {
+            expectEcho(expectedSel)
+            if (res.backs > 0) expectEcho(expectedSel - res.backs)
+            expectedSel = expectedSel - res.backs + res.out.size
+            expectEcho(expectedSel)
+        }
     }
 
     private fun bumpExpected(delta: Int) {
-        if (expectedSel >= 0) expectedSel += delta
+        if (expectedSel >= 0) {
+            expectEcho(expectedSel)
+            expectedSel += delta
+            expectEcho(expectedSel)
+        }
+    }
+
+    private fun expectEcho(pos: Int) {
+        if (pos < 0) return
+        ownSelEchoes.add(pos)
+        if (ownSelEchoes.size > 128) ownSelEchoes.clear()
     }
 
     private fun numericLayoutFor(info: EditorInfo?): KeyboardView.NumericLayout =
