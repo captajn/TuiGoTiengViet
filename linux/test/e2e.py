@@ -17,24 +17,40 @@ from gi.repository import IBus, GLib
 
 IBUS_MOD_RELEASE = 1 << 30
 
-committed = []   # committed text fragments
-preedits = []    # last shown preedit text
+document = []  # what the app would show: commit-text + forwarded chars
+preedits = []  # last shown preedit text
 failures = []
 
 
+def pump():
+    while GLib.MainContext.default().pending():
+        GLib.MainContext.default().iteration(False)
+
+
 def type_str(ic, s, verbose=False):
-    """Feed an ASCII string through the input context."""
+    """Feed an ASCII string through the input context. Keys the engine
+    does not handle are forwarded — a real app inserts them itself, so
+    we record them into the document."""
     for i, ch in enumerate(s):
         keyval = ord(ch)
-        # process_key_event(keyval, keycode, state) — keycode is the
-        # hardware code; ibus only forwards it, any unique value works.
         handled = ic.process_key_event(keyval, i, 0)
         ic.process_key_event(keyval, i, IBUS_MOD_RELEASE)
         if verbose:
             print(f"    key {ch!r}: handled={handled}")
-        # let the dbus round-trips land
-        while GLib.MainContext.default().pending():
-            GLib.MainContext.default().iteration(False)
+        # deliver pending commit-text signals before treating an
+        # unhandled key as app-inserted text — the engine commits the
+        # word just before letting the terminator key through.
+        pump()
+        if not handled and 0x20 <= keyval <= 0x7E:
+            document.append(ch)
+
+
+def doc_text():
+    return "".join(document)
+
+
+def doc_clear():
+    document.clear()
 
 
 def check(name, got, want):
@@ -51,7 +67,7 @@ def main():
     # CAP_FOCUS is required for focus_in/focus_out to do anything.
     ic.set_capabilities(IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.FOCUS)
 
-    ic.connect("commit-text", lambda ic, t: committed.append(t.get_text()))
+    ic.connect("commit-text", lambda ic, t: document.append(t.get_text()))
     ic.connect("update-preedit-text-with-mode",
                lambda ic, t, c, v, m: preedits.append(t.get_text() if v else ""))
     ic.connect("update-preedit-text",
@@ -71,13 +87,13 @@ def main():
         names = [d.get_name() for d in bus.list_engines()]
         print("known engines:", [n for n in names if "tuigo" in n])
 
-        # telex: vieejt -> việt
+        # telex: vieejt + space -> "việt " (space forwarded to the app)
         type_str(ic, "vieejt ", verbose=True)
-        check("telex", "".join(committed), "việt ")
+        check("telex", doc_text(), "việt ")
 
-        committed.clear()
-        type_str(ic, "duowngf xin chaof ")
-        check("phrases", "".join(committed), "đường xin chào ")
+        doc_clear()
+        type_str(ic, "dduowngf xin chaof ")
+        check("phrases", doc_text(), "đường xin chào ")
     finally:
         ic.focus_out()
 
