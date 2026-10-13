@@ -23,6 +23,7 @@ enum Prefs {
     static let keyKeyHeight = "key_height"
     static let keyKeyGap = "key_gap"
     static let keyTheme = "key_theme"
+    static let keyClipboardSuggest = "clipboard_suggest"
     static let keyVietPerApp = "viet_per_app"
 
     static func keyHeight() -> Double {
@@ -33,6 +34,9 @@ enum Prefs {
     }
     static func numberRow() -> Bool {
         defaults.bool(forKey: keyNumberRow) || inputMethod() == ImVni
+    }
+    static func clipboardSuggest() -> Bool {
+        defaults.object(forKey: keyClipboardSuggest) as? Bool ?? true
     }
     static func inputMethod() -> Int {
         let saved = defaults.object(forKey: keyIM) as? Int ?? ImTelex

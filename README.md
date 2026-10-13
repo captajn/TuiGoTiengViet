@@ -42,7 +42,7 @@ Source có đủ năm nền tảng. Bản tải sẵn, chữ ký và kết quả
 - **Telex, VNI, VIQR**; hỗ trợ đặt dấu tự do, kiểu dấu mới/cũ, kiểm tra chính tả và khôi phục từ ngoại ngữ.
 - **Gõ tắt (macro)** lưu cục bộ; Backspace hoàn tác theo engine.
 - **Windows:** thêm Telex đơn giản, Telex + VNI, MS-VI và keymap tùy chỉnh; Unicode/TCVN3, SendInput/Clipboard, ứng dụng loại trừ, phím tắt, khay hệ thống, HUD và giao diện sáng/tối.
-- **Android/iOS:** ba kiểu gõ Telex/VNI/VIQR, theme, hàng số, điều chỉnh kích thước/khoảng cách phím và màn hình quản lý macro. Vuốt ngang Space để di chuyển con trỏ; giữ Space để mở menu ngôn ngữ/kiểu gõ/chuyển bàn phím.
+- **Android/iOS:** ba kiểu gõ Telex/VNI/VIQR, theme, hàng số, tùy chọn gợi ý dán nhanh từ bộ nhớ tạm, điều chỉnh kích thước/khoảng cách phím và màn hình quản lý macro. Vuốt ngang Space để di chuyển con trỏ; giữ Space để mở menu ngôn ngữ/kiểu gõ/chuyển bàn phím.
 - **macOS/Linux:** chọn kiểu gõ trong cài đặt, bật/tắt tiếng Việt bằng menu hoặc phím tắt. Từ đang soạn được giữ trong marked text/preedit cho đến ranh giới từ.
 
 ### Gõ tắt
@@ -99,8 +99,8 @@ Windows chỉ tạo Run key/task khởi động khi bạn bật chức năng tư
 ### Quyền truy cập và clipboard
 
 - **Windows:** hook bàn phím/chuột phục vụ xử lý gõ, con trỏ và phím tắt. Chế độ Clipboard và nhánh tương thích lựa chọn có thể đọc/thay tạm clipboard để gửi/sửa chữ, với cơ chế khôi phục; dữ liệu này không được ghi thành log hoặc tải lên.
-- **Android:** đăng ký dịch vụ bàn phím với quyền BIND_INPUT_METHOD. Manifest không xin INTERNET; bạn tự bật/chọn bàn phím trong Cài đặt hệ thống.
-- **iOS:** extension không yêu cầu Full Access để gõ. Ghi lựa chọn VI/EN vào App Group từ extension chỉ thực hiện khi có quyền ghi; thiếu quyền thì vẫn đổi được trong phiên. App không dùng Full Access để kết nối mạng.
+- **Android:** đăng ký dịch vụ bàn phím với quyền BIND_INPUT_METHOD. Khi bật tùy chọn **Gợi ý dán từ bộ nhớ tạm**, bàn phím chỉ đọc mục văn bản vừa sao chép trong bộ nhớ để hiện chip dán nhanh trên thanh gợi ý (không lưu lịch sử clipboard xuống đĩa). Manifest không xin INTERNET; bạn tự bật/chọn bàn phím trong Cài đặt hệ thống.
+- **iOS:** extension không yêu cầu Full Access để gõ. Ghi lựa chọn VI/EN vào App Group hoặc đọc pasteboard hệ thống từ extension phụ thuộc quyền hệ điều hành cấp; thiếu quyền thì vẫn đổi VI/EN trong phiên. App không dùng Full Access để kết nối mạng.
 - **macOS/Linux:** dùng API input method của hệ điều hành. Source xử lý việc gõ không có HTTP client hay chức năng đồng bộ cloud.
 
 ### Kết nối mạng và cập nhật

@@ -2,6 +2,10 @@ package com.tuigo.ime
 
 import android.inputmethodservice.InputMethodService
 import android.annotation.SuppressLint
+import android.content.ClipboardManager
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -15,6 +19,7 @@ import android.util.TypedValue
 import android.view.WindowInsetsController
 import com.tuigo.UiTheme
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -63,6 +68,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 keyboard.showNumberRow = usesNumberRow()
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
                 suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
+                renderSuggestionStrip()
                 applySystemBarTheme()
             }
         }
@@ -78,13 +84,24 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var hostPkg: String? = null
     private var spacePopup: PopupWindow? = null
 
-    /** Inline-autofill suggestion strip (Gboard-style chips above the keys).
-     *  Content is rendered by the autofill provider — we never see the data. */
+    /** Inline-autofill & clipboard suggestion strip (Gboard-style chips above the keys). */
     private var suggestionScroll: HorizontalScrollView? = null
     private var suggestionStrip: LinearLayout? = null
     private var pendingInline: InlineSuggestionsResponse? = null
     private var inlineSeq = 0
     private var editorKey: String? = null
+
+    private var clipboardManager: ClipboardManager? = null
+    private var clipCopiedAtMs = 0L
+    private var lastKnownClipText: String? = null
+    private var dismissedClipStamp = -1L
+    private var dismissedClipText: String? = null
+    private val clipChangedListener = ClipboardManager.OnPrimaryClipChangedListener {
+        clipCopiedAtMs = System.currentTimeMillis()
+        dismissedClipStamp = -1L
+        dismissedClipText = null
+        if (::keyboard.isInitialized) renderSuggestionStrip()
+    }
 
     /** Cursor position we expect after our own edits — lets us distinguish
      *  external selection changes (cursor tap) from our own commits. */
@@ -106,9 +123,12 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         engine = Engine()
         loadEngineConfig()
         Prefs.get(this).registerOnSharedPreferenceChangeListener(preferenceListener)
+        clipboardManager = getSystemService(ClipboardManager::class.java)
+        clipboardManager?.addPrimaryClipChangedListener(clipChangedListener)
     }
 
     override fun onDestroy() {
+        clipboardManager?.removePrimaryClipChangedListener(clipChangedListener)
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(preferenceListener)
         super.onDestroy()
     }
@@ -137,17 +157,18 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.showNumberRow = usesNumberRow()
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         val dm = resources.displayMetrics.density
-        val pad = (4 * dm).toInt()
+        val pad = (6 * dm).toInt()
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(pad, pad, pad, pad)
+            gravity = Gravity.CENTER
+            setPadding(pad, (6 * dm).toInt(), pad, (2 * dm).toInt())
         }
         val scroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            isFillViewport = false
+            isFillViewport = true
             visibility = View.GONE
             setBackgroundColor(keyboard.theme.bg)
-            addView(strip)
+            addView(strip, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         suggestionStrip = strip
         suggestionScroll = scroll
@@ -188,13 +209,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         super.onStartInputView(info, restarting)
         hostPkg = info?.packageName
         loadEngineConfig()
-        suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
-        if (Build.VERSION.SDK_INT >= 30) renderInlineSuggestions()
         keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
         keyboard.showNumberRow = usesNumberRow()
         keyboard.numericLayout = numericLayoutFor(info)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+        suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
+        renderSuggestionStrip()
         engine.resetBuf()
         ownSelEchoes.clear()
         expectedSel = info?.initialSelEnd ?: -1
@@ -260,6 +281,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     override fun onChar(ch: Char) {
         val ic = currentInputConnection ?: return
         val ei = currentInputEditorInfo
+        dismissCurrentClipSuggestion()
 
         if (isRestrictedField(ei)) {
             ic.commitText(ch.toString(), 1)
@@ -309,6 +331,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onDelete() {
         val ic = currentInputConnection ?: return
+        dismissCurrentClipSuggestion()
         spacePending = false
         val res = engine.backspace()
         if (res.consumed) {
@@ -320,6 +343,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     override fun onEnter() {
+        dismissCurrentClipSuggestion()
         spacePending = false
         engine.resetBuf()
         if (!sendDefaultEditorAction(true)) {
@@ -415,8 +439,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
     }
 
-    // ---- inline autofill (API 30+) ---------------------------------------------
-    // Called only on API 30+ — references to the inline types resolve lazily.
+    // ---- inline autofill & clipboard suggestion strip --------------------------
 
     @SuppressLint("NewApi") // override is only invoked on API 30+
     override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
@@ -479,41 +502,150 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     @SuppressLint("NewApi")
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
         pendingInline = response
-        renderInlineSuggestions()
+        renderSuggestionStrip()
         return true
     }
 
     private fun clearInlineSuggestions() {
         pendingInline = null
         inlineSeq++
-        suggestionStrip?.removeAllViews()
-        suggestionScroll?.visibility = View.GONE
+        renderSuggestionStrip()
+    }
+
+    private data class ClipCandidate(val raw: String, val label: String, val stamp: Long)
+
+    private fun currentClipCandidate(): ClipCandidate? {
+        if (!Prefs.clipboardSuggest(this)) return null
+        if (isPasswordField(currentInputEditorInfo)) return null
+        val cm = clipboardManager ?: getSystemService(ClipboardManager::class.java) ?: return null
+        val clip = try { cm.primaryClip } catch (_: Exception) { null } ?: return null
+        if (clip.itemCount <= 0) return null
+        val raw = clip.getItemAt(0)?.text?.toString() ?: return null
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val desc = clip.description
+        val descTs = desc?.timestamp ?: 0L
+        if (raw != lastKnownClipText) {
+            lastKnownClipText = raw
+            clipCopiedAtMs = if (descTs > 0L) maxOf(descTs, clipCopiedAtMs) else System.currentTimeMillis()
+        }
+        val effectiveTs = maxOf(descTs, clipCopiedAtMs)
+        if (effectiveTs <= 0L || System.currentTimeMillis() - effectiveTs > 180_000L) return null
+        if (effectiveTs == dismissedClipStamp && raw == dismissedClipText) return null
+        val isSensitive = desc?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true
+        val singleLine = trimmed.replace(Regex("\\s+"), " ")
+        val label = if (isSensitive) "••••••••" else singleLine
+        return ClipCandidate(raw, label, effectiveTs)
+    }
+
+    private fun dismissCurrentClipSuggestion() {
+        val cand = currentClipCandidate() ?: return
+        dismissedClipStamp = cand.stamp
+        dismissedClipText = cand.raw
+        renderSuggestionStrip()
+    }
+
+    private fun buildClipboardChip(cand: ClipCandidate): View {
+        val dm = resources.displayMetrics.density
+        fun dp(v: Float) = (v * dm).toInt()
+        val t = keyboard.theme
+        val pill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14f), dp(6f), dp(14f), dp(6f))
+            minimumHeight = dp(34f)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 18f * dm
+                setColor(t.key)
+                if (t.border ushr 24 != 0) setStroke(maxOf(1, dp(1f)), t.border)
+            }
+            contentDescription = "Dán từ bộ nhớ tạm"
+            setOnClickListener {
+                val ic = currentInputConnection ?: return@setOnClickListener
+                dismissedClipStamp = cand.stamp
+                dismissedClipText = cand.raw
+                engine.resetBuf()
+                spacePending = false
+                ic.commitText(cand.raw, 1)
+                bumpExpected(cand.raw.length)
+                renderSuggestionStrip()
+            }
+        }
+        val icon = object : View(this) {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1.6f * dm
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+                color = t.funcText
+            }
+            private val rect = RectF()
+            override fun onDraw(canvas: Canvas) {
+                val w = width.toFloat()
+                val h = height.toFloat()
+                rect.set(w * 0.18f, h * 0.20f, w * 0.82f, h * 0.90f)
+                canvas.drawRoundRect(rect, 2f * dm, 2f * dm, paint)
+                rect.set(w * 0.35f, h * 0.10f, w * 0.65f, h * 0.27f)
+                canvas.drawRoundRect(rect, 1.5f * dm, 1.5f * dm, paint)
+                canvas.drawLine(w * 0.32f, h * 0.48f, w * 0.68f, h * 0.48f, paint)
+                canvas.drawLine(w * 0.32f, h * 0.67f, w * 0.58f, h * 0.67f, paint)
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f)).apply {
+                marginEnd = dp(7f)
+            }
+        }
+        val labelView = TextView(this).apply {
+            text = cand.label
+            textSize = 14f
+            setTextColor(t.text)
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = dp(220f)
+        }
+        pill.addView(icon)
+        pill.addView(labelView)
+        return pill
     }
 
     @SuppressLint("NewApi")
-    private fun renderInlineSuggestions() {
+    private fun renderSuggestionStrip() {
         val scroll = suggestionScroll ?: return
         val strip = suggestionStrip ?: return
-        val suggestions = pendingInline?.inlineSuggestions.orEmpty()
+        val suggestions = if (Build.VERSION.SDK_INT >= 30) pendingInline?.inlineSuggestions.orEmpty() else emptyList()
+        val clipCand = currentClipCandidate()
         inlineSeq++ // drop callbacks still in flight from a previous response
         strip.removeAllViews()
-        if (suggestions.isEmpty()) {
+        if (suggestions.isEmpty() && clipCand == null) {
             scroll.visibility = View.GONE
             return
         }
         scroll.visibility = View.VISIBLE
         scroll.setBackgroundColor(keyboard.theme.bg)
         val dm = resources.displayMetrics.density
-        val chipH = (40 * dm).toInt()
+        val chipH = (36 * dm).toInt()
         val gap = (6 * dm).toInt()
-        val seq = inlineSeq
-        for (suggestion in suggestions) {
-            suggestion.inflate(this,
-                Size(ViewGroup.LayoutParams.WRAP_CONTENT, chipH), mainExecutor) { view ->
-                if (seq != inlineSeq || view == null) return@inflate
-                view.layoutParams = LinearLayout.LayoutParams(view.layoutParams)
-                    .apply { marginEnd = gap }
-                strip.addView(view)
+        if (clipCand != null) {
+            val chip = buildClipboardChip(clipCand)
+            chip.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                if (suggestions.isNotEmpty()) marginEnd = gap
+            }
+            strip.addView(chip)
+        }
+        if (Build.VERSION.SDK_INT >= 30 && suggestions.isNotEmpty()) {
+            val seq = inlineSeq
+            for (suggestion in suggestions) {
+                suggestion.inflate(this,
+                    Size(ViewGroup.LayoutParams.WRAP_CONTENT, chipH), mainExecutor) { view ->
+                    if (seq != inlineSeq || view == null) return@inflate
+                    view.layoutParams = LinearLayout.LayoutParams(view.layoutParams)
+                        .apply { marginEnd = gap }
+                    strip.addView(view)
+                }
             }
         }
     }
@@ -560,16 +692,22 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             else -> KeyboardView.NumericLayout.NONE
         }
 
-    private fun isRestrictedField(info: EditorInfo?): Boolean {
-        if (info == null) return true
-        if (info.inputType == InputType.TYPE_NULL) return true
+    private fun isPasswordField(info: EditorInfo?): Boolean {
+        if (info == null) return false
         val klass = info.inputType and InputType.TYPE_MASK_CLASS
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
-        if (klass == InputType.TYPE_CLASS_PHONE || klass == InputType.TYPE_CLASS_NUMBER ||
-            klass == InputType.TYPE_CLASS_DATETIME) return true
         return klass == InputType.TYPE_CLASS_TEXT &&
             (variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
              variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
              variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
+    }
+
+    private fun isRestrictedField(info: EditorInfo?): Boolean {
+        if (info == null) return true
+        if (info.inputType == InputType.TYPE_NULL) return true
+        val klass = info.inputType and InputType.TYPE_MASK_CLASS
+        if (klass == InputType.TYPE_CLASS_PHONE || klass == InputType.TYPE_CLASS_NUMBER ||
+            klass == InputType.TYPE_CLASS_DATETIME) return true
+        return isPasswordField(info)
     }
 }

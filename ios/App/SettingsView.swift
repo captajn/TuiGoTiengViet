@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.keyDoubleSpace, store: Prefs.defaults) private var doubleSpace = true
     @AppStorage(Prefs.keyVietOn, store: Prefs.defaults) private var vietOnDefault = true
     @AppStorage(Prefs.keyNumberRow, store: Prefs.defaults) private var numberRow = false
+    @AppStorage(Prefs.keyClipboardSuggest, store: Prefs.defaults) private var clipboardSuggest = true
     @AppStorage(Prefs.keyKeyHeight, store: Prefs.defaults) private var keyHeight = 52.0
     @AppStorage(Prefs.keyKeyGap, store: Prefs.defaults) private var keyGap = 4.0
     @AppStorage(Prefs.keyTheme, store: Prefs.defaults) private var keyTheme = KeyboardThemes.defaultId
@@ -104,6 +105,10 @@ struct SettingsView: View {
                             }.frame(maxWidth: .infinity)
                             Toggle("Hiện hàng số", isOn: $numberRow)
                             Text("VNI luôn có hàng số để gõ dấu.").font(.caption).foregroundColor(GlassTheme.muted)
+                            Divider()
+                            Toggle("Gợi ý dán từ bộ nhớ tạm", isOn: $clipboardSuggest)
+                            Text("Hiện chip dán nhanh trên bàn phím khi bộ nhớ tạm có văn bản mới.").font(.caption).foregroundColor(GlassTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("Chiều cao phím · \(Int(keyHeight)) pt").font(.subheadline)
                                 Slider(value: $keyHeight, in: 44...68, step: 1)

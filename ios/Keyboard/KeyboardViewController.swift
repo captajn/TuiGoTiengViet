@@ -11,10 +11,17 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     private let engine = Engine()
     private var keyboard: KeyboardView!
+    private var clipBar: UIView!
+    private var clipButton: UIButton!
+    private var clipBarHeightConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
 
     private var vietOn = true
     private var doubleSpace = true
+    private var lastClipChangeCount = -1
+    private var clipCopiedAt = Date.distantPast
+    private var dismissedClipChangeCount = -1
+    private var currentClipRaw: String?
 
     /// Pending "double space -> ." state (700ms window, same as Android).
     private var spaceAt = Date.distantPast
@@ -29,14 +36,38 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        clipBar = UIView()
+        clipBar.translatesAutoresizingMaskIntoConstraints = false
+        clipBar.isHidden = true
+
+        clipButton = UIButton(type: .system)
+        clipButton.translatesAutoresizingMaskIntoConstraints = false
+        clipButton.layer.cornerRadius = 17
+        clipButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+        clipButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .regular)
+        clipButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        clipButton.addTarget(self, action: #selector(onTapClipSuggestion), for: .touchUpInside)
+        clipBar.addSubview(clipButton)
+
         keyboard = KeyboardView()
         keyboard.listener = self
         keyboard.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(clipBar)
         view.addSubview(keyboard)
+
+        clipBarHeightConstraint = clipBar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
+            clipBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            clipBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            clipBar.topAnchor.constraint(equalTo: view.topAnchor),
+            clipBarHeightConstraint,
+            clipButton.centerXAnchor.constraint(equalTo: clipBar.centerXAnchor),
+            clipButton.centerYAnchor.constraint(equalTo: clipBar.centerYAnchor, constant: 2),
+            clipButton.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
+            clipButton.heightAnchor.constraint(equalToConstant: 34),
             keyboard.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             keyboard.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            keyboard.topAnchor.constraint(equalTo: view.topAnchor),
+            keyboard.topAnchor.constraint(equalTo: clipBar.bottomAnchor),
             keyboard.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
         heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboard.intrinsicContentSize.height)
@@ -49,7 +80,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         super.viewWillLayoutSubviews()
         let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape == true
         keyboard.setMetrics(height: CGFloat(landscape ? min(40, Prefs.keyHeight()) : Prefs.keyHeight()), gap: CGFloat(Prefs.keyGap()))
-        heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
+        heightConstraint.constant = keyboard.intrinsicContentSize.height + clipBarHeightConstraint.constant + view.safeAreaInsets.bottom
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -61,6 +92,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         spacePending = false
         rememberTail()
         updateAutoShift()
+        refreshClipSuggestion()
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -90,16 +122,84 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
             if !FileManager.default.fileExists(atPath: url.path) { engine.loadMacroText("") }
             else if let text = try? String(contentsOf: url, encoding: .utf8) { engine.loadMacroText(text) }
         }
+        refreshClipSuggestion()
+        if heightConstraint != nil {
+            heightConstraint.constant = keyboard.intrinsicContentSize.height + clipBarHeightConstraint.constant + view.safeAreaInsets.bottom
+        }
+        view.setNeedsLayout()
+    }
+
+    private func refreshClipSuggestion() {
+        guard clipBar != nil else { return }
+        let t = keyboard.theme
+        clipBar.backgroundColor = t.bg
+        clipButton.backgroundColor = t.key
+        clipButton.setTitleColor(t.text, for: .normal)
+        clipButton.tintColor = t.funcText
+        clipButton.layer.borderWidth = t.border.cgColor.alpha > 0 ? 1 : 0
+        clipButton.layer.borderColor = t.border.resolvedColor(with: traitCollection).cgColor
+
+        let enabled = hasFullAccess ? Prefs.clipboardSuggest() : (UserDefaults.standard.object(forKey: Prefs.keyClipboardSuggest) as? Bool ?? Prefs.clipboardSuggest())
+        let isPassword = textDocumentProxy.isSecureTextEntry == true
+        guard enabled, !isPassword, UIPasteboard.general.hasStrings,
+              let raw = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            hideClipBar()
+            return
+        }
+        let changeCount = UIPasteboard.general.changeCount
+        if changeCount != lastClipChangeCount {
+            lastClipChangeCount = changeCount
+            clipCopiedAt = Date()
+        }
+        guard changeCount != dismissedClipChangeCount,
+              Date().timeIntervalSince(clipCopiedAt) <= 180 else {
+            hideClipBar()
+            return
+        }
+        currentClipRaw = UIPasteboard.general.string
+        let singleLine = raw.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        let display = singleLine.count > 26 ? String(singleLine.prefix(26)) + "…" : singleLine
+        clipButton.setImage(UIImage(systemName: "doc.on.clipboard"), for: .normal)
+        clipButton.setTitle("  " + display, for: .normal)
+        clipBar.isHidden = false
+        clipBarHeightConstraint.constant = 42
+    }
+
+    private func hideClipBar() {
+        currentClipRaw = nil
+        clipBar?.isHidden = true
+        clipBarHeightConstraint?.constant = 0
+    }
+
+    private func dismissClipSuggestion() {
+        guard currentClipRaw != nil else { return }
+        dismissedClipChangeCount = lastClipChangeCount
+        hideClipBar()
         if heightConstraint != nil {
             heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
         }
-        view.setNeedsLayout()
+    }
+
+    @objc private func onTapClipSuggestion() {
+        guard let raw = currentClipRaw else { return }
+        dismissedClipChangeCount = lastClipChangeCount
+        hideClipBar()
+        engine.resetBuf()
+        spacePending = false
+        textDocumentProxy.insertText(raw)
+        rememberTail()
+        updateAutoShift()
+        if heightConstraint != nil {
+            heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
+        }
     }
 
     // ---- KeyboardView.Listener ------------------------------------------------
 
     func onChar(_ ch: Character) {
         let proxy = textDocumentProxy
+        dismissClipSuggestion()
         checkExternalChange()
 
         if isRestrictedField {
@@ -142,6 +242,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     }
 
     func onDelete() {
+        dismissClipSuggestion()
         checkExternalChange()
         spacePending = false
         let res = engine.backspace()
@@ -155,6 +256,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     }
 
     func onEnter() {
+        dismissClipSuggestion()
         checkExternalChange()
         spacePending = false
         engine.resetBuf()

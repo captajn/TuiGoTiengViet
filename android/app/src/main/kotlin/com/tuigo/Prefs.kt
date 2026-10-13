@@ -23,6 +23,7 @@ object Prefs {
     const val KEY_KEY_HEIGHT = "key_height"
     const val KEY_KEY_GAP = "key_gap"
     const val KEY_THEME = "key_theme"
+    const val KEY_CLIPBOARD_SUGGEST = "clipboard_suggest"
     const val KEY_VIET_PER_APP = "viet_per_app"
 
     fun get(ctx: Context): SharedPreferences =
@@ -56,6 +57,8 @@ object Prefs {
         get(ctx).getBoolean(KEY_DOUBLE_SPACE, true)
     fun numberRow(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_NUMBER_ROW, false)
+    fun clipboardSuggest(ctx: Context): Boolean =
+        get(ctx).getBoolean(KEY_CLIPBOARD_SUGGEST, true)
     fun keyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_HEIGHT, 56)
     fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)
 
