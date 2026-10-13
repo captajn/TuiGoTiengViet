@@ -22,14 +22,16 @@ preedits = []    # last shown preedit text
 failures = []
 
 
-def type_str(ic, s):
+def type_str(ic, s, verbose=False):
     """Feed an ASCII string through the input context."""
     for i, ch in enumerate(s):
         keyval = ord(ch)
         # process_key_event(keyval, keycode, state) — keycode is the
         # hardware code; ibus only forwards it, any unique value works.
-        ic.process_key_event(keyval, i, 0)
+        handled = ic.process_key_event(keyval, i, 0)
         ic.process_key_event(keyval, i, IBUS_MOD_RELEASE)
+        if verbose:
+            print(f"    key {ch!r}: handled={handled}")
         # let the dbus round-trips land
         while GLib.MainContext.default().pending():
             GLib.MainContext.default().iteration(False)
@@ -63,10 +65,17 @@ def main():
     try:
         ic.focus_in()
         bus.set_global_engine("tuigo")
-        time.sleep(0.5)
+        time.sleep(1.0)
+        try:
+            eng = bus.get_global_engine()
+            print("global engine:", eng.get_name() if eng else None)
+        except Exception as ex:
+            print("get_global_engine:", ex)
+        names = [d.get_name() for d in bus.list_engines()]
+        print("known engines:", [n for n in names if "tuigo" in n])
 
         # telex: vieejt -> việt
-        type_str(ic, "vieejt ")
+        type_str(ic, "vieejt ", verbose=True)
         check("telex", "".join(committed), "việt ")
 
         committed.clear()
