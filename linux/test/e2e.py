@@ -57,8 +57,11 @@ def main():
                lambda ic, t, c, v: preedits.append(t.get_text() if v else ""))
 
     try:
+        # Enable is a raw D-Bus method (no GI override) — case matters.
+        ic.Enable()
         ic.focus_in()
         bus.set_global_engine("tuigo")
+        ic.focus_in()
         time.sleep(1.0)
         try:
             eng = bus.get_global_engine()
