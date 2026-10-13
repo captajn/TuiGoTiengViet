@@ -98,7 +98,7 @@ func main() {
 	// --- save ----------------------------------------------------------
 	status := widget.NewLabel("")
 	save := func() bool {
-		for i, n := range imNames {
+		for _, n := range imNames {
 			if imRadio.Selected == n.label {
 				cfg.InputMethod = n.im
 			}

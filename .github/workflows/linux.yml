@@ -15,6 +15,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: linux/go.mod
+          cache-dependency-path: |
+            linux/go.sum
+            linux/settings/go.sum
       - name: Dependencies (IBus + Fyne GL + headless session)
         run: >-
           sudo apt-get update -qq && sudo apt-get install -y -qq
