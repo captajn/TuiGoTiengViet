@@ -27,20 +27,24 @@ struct GlassBackground: View {
 struct BrandHeader: View {
     let title: String
     let subtitle: String
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
-        HStack(spacing: 16) {
+        let iconSize: CGFloat = sizeClass == .regular ? 76 : 64
+        HStack(spacing: 14) {
             Image("TuiGoLogo").resizable().scaledToFill()
-                .frame(width: 76, height: 76)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.4), lineWidth: 1.5))
+                .frame(width: iconSize, height: iconSize)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.4), lineWidth: 1.5))
                 .shadow(color: GlassTheme.accent.opacity(0.25), radius: 10, y: 4)
                 .accessibilityLabel("Logo Tui Gõ")
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.largeTitle.bold()).lineLimit(1).minimumScaleFactor(0.8)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.largeTitle.bold()).lineLimit(1).minimumScaleFactor(0.75)
                 Text(subtitle).font(.subheadline).foregroundColor(GlassTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -49,19 +53,23 @@ struct GlassCard<Content: View>: View {
     let subtitle: String
     let content: Content
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.horizontalSizeClass) private var sizeClass
     init(_ title: String, subtitle: String, @ViewBuilder content: () -> Content) {
         self.title = title; self.subtitle = subtitle; self.content = content()
     }
     var body: some View {
+        let pad: CGFloat = sizeClass == .regular ? 22 : 18
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.title3.weight(.semibold))
                 Text(subtitle).font(.footnote).foregroundColor(GlassTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        .padding(pad)
         .background {
             if reduceTransparency {
                 RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color(uiColor: .tuiSurface))

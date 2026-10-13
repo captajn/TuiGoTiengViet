@@ -24,7 +24,6 @@ object Prefs {
     const val KEY_KEY_GAP = "key_gap"
     const val KEY_THEME = "key_theme"
     const val KEY_VIET_PER_APP = "viet_per_app"
-    const val KEY_TOOLBAR = "quick_toolbar"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -57,8 +56,6 @@ object Prefs {
         get(ctx).getBoolean(KEY_DOUBLE_SPACE, true)
     fun numberRow(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_NUMBER_ROW, false)
-    fun toolbar(ctx: Context): Boolean =
-        get(ctx).getBoolean(KEY_TOOLBAR, true)
     fun keyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_HEIGHT, 56)
     fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)
 

@@ -10,12 +10,14 @@ struct MacroEditView: View {
     @State private var message = ""
     @State private var showMessage = false
     @State private var confirmDiscard = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private var validation: String? { macroValidationError(text) }
     var body: some View {
+        let outerHPad: CGFloat = sizeClass == .regular ? 24 : 16
         ZStack {
             GlassBackground()
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     BrandHeader(title: "Gõ tắt", subtitle: "Một từ ngắn, cả câu dài.")
                     GlassCard("Cách dùng", subtitle: "Bật gõ tắt và dùng chế độ Tiếng Việt") {
                         Text("Mỗi dòng là một mục, ngăn bằng dấu hai chấm. Gõ từ tắt rồi chạm Space để thay thế.")
@@ -27,8 +29,9 @@ struct MacroEditView: View {
                             .modifier(PlainEditorBackground())
                             .font(.system(.body, design: .monospaced))
                             .autocapitalization(.none).disableAutocorrection(true)
-                            .frame(minHeight: 240).padding(8)
-                            .background(Color(uiColor: .tuiRaised), in: RoundedRectangle(cornerRadius: 14))
+                            .frame(maxWidth: .infinity, minHeight: 240).padding(10)
+                            .background(Color(uiColor: .tuiRaised), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(uiColor: .tuiBorder), lineWidth: 1))
                             .accessibilityLabel("Danh sách gõ tắt")
                         if let error = validation { Text(error).font(.footnote).foregroundColor(.red) }
                         if loadFailed { Text(message).font(.footnote).foregroundColor(.red) }
@@ -37,7 +40,11 @@ struct MacroEditView: View {
                         }.buttonStyle(.borderedProminent).foregroundColor(Color(uiColor: .tuiOnAccent)).disabled(loadFailed || validation != nil || text == original)
                         Text("Dữ liệu chỉ được lưu trên thiết bị. Mở lại bàn phím để dùng danh sách mới.").font(.footnote).foregroundColor(GlassTheme.muted)
                     }
-                }.padding(20).frame(maxWidth: 640).frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, outerHPad)
+                .padding(.vertical, 20)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
         }.foregroundColor(GlassTheme.text).navigationTitle("Gõ tắt").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .navigationBarBackButtonHidden(true)

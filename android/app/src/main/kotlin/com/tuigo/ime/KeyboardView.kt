@@ -22,9 +22,7 @@ import android.view.WindowInsets
 import com.tuigo.KeyTheme
 import com.tuigo.KeyboardThemes
 import com.tuigo.Prefs
-import com.tuigo.engine.ImTelex
-import com.tuigo.engine.ImVni
-import com.tuigo.engine.ImViqr
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -47,8 +45,6 @@ class KeyboardView @JvmOverloads constructor(
         fun onSwitchIme() {}
         fun onSpaceMenu() {}
         fun onHideKeyboard() {}
-        fun onQuickMethodToggle() {}
-        fun onToggleNumberRow() {}
         fun onCursorMove(delta: Int) {}
     }
 
@@ -65,17 +61,6 @@ class KeyboardView @JvmOverloads constructor(
     /** VN mode state shown on the space bar. */
     var vietnameseOn: Boolean = true
         set(v) { field = v; invalidate() }
-
-    var currentMethod: Int = Prefs.inputMethod(context)
-        set(v) { field = v; invalidate() }
-
-    var showToolbar: Boolean = Prefs.toolbar(context)
-        set(v) {
-            if (field == v) return
-            field = v
-            relayout()
-            requestLayout()
-        }
 
     var symbolsPage = false
         private set
@@ -114,11 +99,6 @@ class KeyboardView @JvmOverloads constructor(
     // ---- layout model ------------------------------------------------------
 
     private object K {
-        const val TOOL_METHOD = -20
-        const val TOOL_NUM = -21
-        const val TOOL_LEFT = -22
-        const val TOOL_RIGHT = -23
-        const val TOOL_MENU = -24
         const val NUM_SPACE = -11
         const val MORE = -10
         const val IME = -9
@@ -285,6 +265,12 @@ class KeyboardView @JvmOverloads constructor(
     private var shiftTapTime = 0L
     private var downPointerId = -1
     private var spaceLongFired = false
+    private var spaceSliding = false
+    private var spaceDownX = 0f
+    private var spaceDownY = 0f
+    private var spaceLastStepX = 0f
+    private val spaceSwipeSlop = 7 * dp
+    private val spaceStepPx = 10 * dp
 
     /** True after a long-press already produced output — further moves in
      *  the same gesture must not re-arm the touched key (finger jitter used
@@ -313,6 +299,7 @@ class KeyboardView @JvmOverloads constructor(
 
     /** Long-press Space = language/input-method menu (Gboard-style). */
     private val spaceLongPress = Runnable {
+        if (spaceSliding) return@Runnable
         spaceLongFired = true
         pressed = null
         pressConsumed = true
@@ -382,17 +369,13 @@ class KeyboardView @JvmOverloads constructor(
         invalidate()
     }
 
-    private val toolbarHeight get() = 34 * dp
-    private val toolbarGap get() = 4 * dp
-
     // ---- sizing -------------------------------------------------------------
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val n = rows.size
-        val tbH = if (showToolbar && numericLayout == NumericLayout.NONE) toolbarHeight + toolbarGap else 0f
         val h = (padTop + padBottom + navInset +
-            n * keyHeight + (n - 1) * rowGap + tbH).roundToInt()
+            n * keyHeight + (n - 1) * rowGap).roundToInt()
         setMeasuredDimension(w, h)
     }
 
@@ -404,26 +387,6 @@ class KeyboardView @JvmOverloads constructor(
         keys.clear()
         val contentW = width - 2 * padH
         var y = padTop
-        if (showToolbar && numericLayout == NumericLayout.NONE) {
-            val mLabel = when (currentMethod) { ImVni -> "VNI"; ImViqr -> "VIQR"; else -> "TELEX" }
-            val tbSpecs = arrayOf(
-                KeySpec(K.TOOL_METHOD, mLabel, 1.8f),
-                KeySpec(K.TOOL_NUM, "123", 1.2f),
-                KeySpec(K.SPACER, "", 3.4f),
-                KeySpec(K.TOOL_LEFT, "◀", 1.2f),
-                KeySpec(K.TOOL_RIGHT, "▶", 1.2f),
-                KeySpec(K.TOOL_MENU, "⋯", 1.2f)
-            )
-            val totalWeight = tbSpecs.sumOf { it.weight.toDouble() }.toFloat()
-            val unitW = (contentW - keyGap * (tbSpecs.size - 1)) / totalWeight
-            var x = padH
-            for (spec in tbSpecs) {
-                val kw = unitW * spec.weight
-                keys += Key(spec, RectF(x, y, x + kw, y + toolbarHeight))
-                x += kw + keyGap
-            }
-            y += toolbarHeight + toolbarGap
-        }
         for (rowSpec in rows) {
             var x = padH
             val totalWeight = rowSpec.sumOf { it.weight.toDouble() }.toFloat()
@@ -479,27 +442,6 @@ class KeyboardView @JvmOverloads constructor(
         fun pressedGlyph(normal: Int) = if (t.pressAccent) t.onAccent else normal
 
         when (spec.code) {
-            K.TOOL_METHOD, K.TOOL_NUM, K.TOOL_LEFT, K.TOOL_RIGHT, K.TOOL_MENU -> {
-                val pillCorner = r.height() / 2f
-                if (spec.code == K.TOOL_METHOD) {
-                    keyPaint.color = if (isPressed) t.funcPressed else ((0x28 shl 24) or (t.accent and 0x00FFFFFF))
-                    canvas.drawRoundRect(r, pillCorner, pillCorner, keyPaint)
-                    borderPaint.color = t.accent
-                    borderPaint.strokeWidth = 1f * dp
-                    canvas.drawRoundRect(r, pillCorner, pillCorner, borderPaint)
-                    borderPaint.strokeWidth = 1f
-                    textPaint.color = t.accent
-                    textPaint.textSize = 11.5f * dp
-                    val mLabel = when (currentMethod) { ImVni -> "VNI"; ImViqr -> "VIQR"; else -> "TELEX" }
-                    drawCentered(canvas, mLabel, r)
-                } else {
-                    keyPaint.color = if (isPressed) t.funcPressed else ((0x18 shl 24) or (t.text and 0x00FFFFFF))
-                    canvas.drawRoundRect(r, pillCorner, pillCorner, keyPaint)
-                    textPaint.color = if (isPressed) pressedGlyph(t.funcText) else t.funcText
-                    textPaint.textSize = 12 * dp
-                    drawCentered(canvas, spec.label, r)
-                }
-            }
             K.SHIFT -> {
                 val active = capsLock || shifted
                 cap(when {
@@ -535,9 +477,10 @@ class KeyboardView @JvmOverloads constructor(
                 cap(if (isPressed && !t.pressAccent) t.funcPressed else t.space, t.spaceBorder, spaceCorner)
                 textPaint.color = if (isPressed) pressedGlyph(t.spaceText) else t.spaceText
                 textPaint.textSize = 13 * dp
-                val spaceLabel = if (vietnameseOn) "Tiếng Việt" else "English"
+                val baseLabel = if (vietnameseOn) "Tiếng Việt" else "English"
+                val spaceLabel = if (spaceSliding) "◀   $baseLabel   ▶" else baseLabel
                 drawCentered(canvas, spaceLabel, r)
-                if (vietnameseOn) {
+                if (vietnameseOn && !spaceSliding) {
                     val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = t.accent }
                     val labelWidth = textPaint.measureText(spaceLabel)
                     val dotX = r.centerX() - labelWidth / 2f - 7 * dp
@@ -711,7 +654,11 @@ class KeyboardView @JvmOverloads constructor(
         }
         if (key.spec.code == K.SPACE) {
             spaceLongFired = false
-            handler.postDelayed(spaceLongPress, 500)
+            spaceSliding = false
+            spaceDownX = x
+            spaceDownY = y
+            spaceLastStepX = x
+            handler.postDelayed(spaceLongPress, 550)
         } else if (key.spec.hint.isNotEmpty()) {
             handler.postDelayed(hintLongPress, 400)
         }
@@ -720,6 +667,25 @@ class KeyboardView @JvmOverloads constructor(
 
     private fun onMove(x: Float, y: Float) {
         if (pressConsumed) return
+        if (spaceSliding || pressed?.spec?.code == K.SPACE) {
+            val dx = x - spaceDownX
+            val dy = y - spaceDownY
+            if (!spaceSliding && abs(dx) > spaceSwipeSlop && abs(dx) >= abs(dy)) {
+                spaceSliding = true
+                handler.removeCallbacks(spaceLongPress)
+                invalidate()
+            }
+            if (spaceSliding) {
+                val steps = ((x - spaceLastStepX) / spaceStepPx).toInt()
+                if (steps != 0) {
+                    spaceLastStepX += steps * spaceStepPx
+                    val dir = if (steps > 0) 1 else -1
+                    repeat(abs(steps)) { listener?.onCursorMove(dir) }
+                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
+                return
+            }
+        }
         val key = hit(x, y)
         if (key !== pressed) {
             pressed = key
@@ -734,14 +700,16 @@ class KeyboardView @JvmOverloads constructor(
 
     private fun onUp(x: Float, y: Float) {
         val p = pressed ?: return
+        val wasSliding = spaceSliding
         cancelPress()
-        if (hit(x, y) === p && p.spec.code != K.DEL && p.spec.code != K.SPACER) {
+        if (!wasSliding && hit(x, y) === p && p.spec.code != K.DEL && p.spec.code != K.SPACER) {
             dispatch(p)
         }
     }
 
     private fun cancelPress() {
         pressed = null
+        spaceSliding = false
         handler.removeCallbacks(repeatDelete)
         handler.removeCallbacks(spaceLongPress)
         handler.removeCallbacks(hintLongPress)
@@ -784,11 +752,6 @@ class KeyboardView @JvmOverloads constructor(
                 rows = currentRows()
                 relayout()
             }
-            K.TOOL_METHOD -> listener?.onQuickMethodToggle()
-            K.TOOL_NUM -> listener?.onToggleNumberRow()
-            K.TOOL_LEFT -> listener?.onCursorMove(-1)
-            K.TOOL_RIGHT -> listener?.onCursorMove(1)
-            K.TOOL_MENU -> listener?.onSpaceMenu()
             K.ENTER -> listener?.onEnter()
             K.SPACE, K.NUM_SPACE -> listener?.onChar(' ')
             K.HIDE -> listener?.onHideKeyboard()

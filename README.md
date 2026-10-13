@@ -42,7 +42,7 @@ Source có đủ năm nền tảng. Bản tải sẵn, chữ ký và kết quả
 - **Telex, VNI, VIQR**; hỗ trợ đặt dấu tự do, kiểu dấu mới/cũ, kiểm tra chính tả và khôi phục từ ngoại ngữ.
 - **Gõ tắt (macro)** lưu cục bộ; Backspace hoàn tác theo engine.
 - **Windows:** thêm Telex đơn giản, Telex + VNI, MS-VI và keymap tùy chỉnh; Unicode/TCVN3, SendInput/Clipboard, ứng dụng loại trừ, phím tắt, khay hệ thống, HUD và giao diện sáng/tối.
-- **Android/iOS:** ba kiểu gõ Telex/VNI/VIQR, theme, hàng số, điều chỉnh kích thước/khoảng cách phím, toolbar và màn hình quản lý macro. Giữ Space để mở menu ngôn ngữ/kiểu gõ/chuyển bàn phím.
+- **Android/iOS:** ba kiểu gõ Telex/VNI/VIQR, theme, hàng số, điều chỉnh kích thước/khoảng cách phím và màn hình quản lý macro. Vuốt ngang Space để di chuyển con trỏ; giữ Space để mở menu ngôn ngữ/kiểu gõ/chuyển bàn phím.
 - **macOS/Linux:** chọn kiểu gõ trong cài đặt, bật/tắt tiếng Việt bằng menu hoặc phím tắt. Từ đang soạn được giữ trong marked text/preedit cho đến ranh giới từ.
 
 ### Gõ tắt

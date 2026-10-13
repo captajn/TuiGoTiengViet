@@ -44,7 +44,7 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 background = ui.surface(ui.pal.raised, 14)
                 setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4))
-                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(6) }
+                layoutParams = ui.fullWidthLp(topMarginDp = 6)
             }
             val ids = mutableMapOf<Int, Int>()
             val hints = mutableMapOf<Int, String>()
@@ -52,11 +52,12 @@ class MainActivity : Activity() {
             methods.forEach { (im, name, hint) ->
                 val radio = RadioButton(this@MainActivity).apply {
                     id = View.generateViewId(); tag = "method-$im"
-                    text = name; textSize = 14.5f
+                    text = name; textSize = 14.5f; isSingleLine = true
                     gravity = android.view.Gravity.CENTER
                     buttonDrawable = null // modern segmented pill
-                    setPadding(ui.dp(8), ui.dp(10), ui.dp(8), ui.dp(10))
-                    layoutParams = RadioGroup.LayoutParams(0, ui.dp(44), 1f)
+                    minHeight = ui.dp(44)
+                    setPadding(ui.dp(6), ui.dp(10), ui.dp(6), ui.dp(10))
+                    layoutParams = RadioGroup.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 ids[radio.id] = im
                 hints[radio.id] = hint
@@ -104,11 +105,10 @@ class MainActivity : Activity() {
         root.addView(ui.card("Bàn phím", "Không gian gõ vừa tay bạn").apply {
             addView(ui.text("Giao diện", 14f, ui.pal.text, true))
             addView(themePicker())
-            addView(toggle("Thanh công cụ nhanh", "Hiện phím tắt kiểu gõ, số nhanh và di chuyển con trỏ", Prefs.KEY_TOOLBAR, true))
             addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
             addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
             addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
-            addView(ui.text("Giữ phím Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
+            addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
         })
         root.addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {
             addView(ui.editor("Ví dụ: tieengs Vieetj", false).apply { tag = "typing-preview" })
@@ -144,6 +144,8 @@ class MainActivity : Activity() {
         return Switch(this).apply {
             text = ui.twoLines(title, hint); textSize = 14f; setTextColor(ui.pal.text)
             setPadding(0, ui.dp(12), 0, ui.dp(12)); minHeight = ui.dp(60)
+            switchPadding = ui.dp(12)
+            layoutParams = ui.fullWidthLp()
             thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(ui.pal.accent, ui.pal.muted))
             trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf((ui.pal.accent and 0x00FFFFFF) or 0x33000000, ui.pal.border))
             isChecked = p.getBoolean(key, default)
@@ -169,19 +171,29 @@ class MainActivity : Activity() {
             val t = KeyboardThemes.get(id, dark)
             val chip = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL; gravity = android.view.Gravity.CENTER_HORIZONTAL
-                setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(6))
+                minimumWidth = ui.dp(92)
+                setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(8))
                 tag = "theme-$id"
                 background = ui.surface(ui.pal.raised, 14)
                 addView(ImageView(this@MainActivity).apply {
                     setImageDrawable(swatch(t))
-                    layoutParams = LinearLayout.LayoutParams(ui.dp(52), ui.dp(20))
+                    layoutParams = LinearLayout.LayoutParams(ui.dp(72), ui.dp(32))
                 })
                 addView(TextView(this@MainActivity).apply {
-                    text = KeyboardThemes.label(id); textSize = 11f; setTextColor(ui.pal.text)
-                    setPadding(0, ui.dp(5), 0, 0)
+                    text = KeyboardThemes.label(id); textSize = 12f; setTextColor(ui.pal.text)
+                    isSingleLine = true
+                    gravity = android.view.Gravity.CENTER
+                    setPadding(0, ui.dp(6), 0, 0)
+                    layoutParams = LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    )
                 })
                 setOnClickListener { select(id) }
-                layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = ui.dp(8) }
+                layoutParams = LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { rightMargin = ui.dp(8) }
             }
             chips[id] = chip
             row.addView(chip)
@@ -189,29 +201,37 @@ class MainActivity : Activity() {
         select(current)
         return HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
+            isFillViewport = true
             tag = "keyboard-themes"
-            addView(row)
+            layoutParams = ui.fullWidthLp(topMarginDp = 6).apply { bottomMargin = ui.dp(6) }
+            addView(row, FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
         }
     }
     /** Mini keyboard preview used as theme card swatch. */
     private fun swatch(t: KeyTheme): android.graphics.drawable.Drawable {
-        val w = ui.dp(52); val h = ui.dp(20); val r = ui.dp(4).toFloat()
+        val w = ui.dp(72); val h = ui.dp(32); val r = ui.dp(6).toFloat()
         return object : android.graphics.drawable.Drawable() {
             private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
             override fun draw(canvas: android.graphics.Canvas) {
                 p.color = t.bg; p.style = android.graphics.Paint.Style.FILL
                 canvas.drawRoundRect(0f, 0f, w.toFloat(), h.toFloat(), r, r, p)
                 p.color = t.key
-                val kw = w / 4.9f; val kh = h / 3.4f
+                val pad = 3.5f
+                val gap = 2f
+                val kw = (w - pad * 2 - gap * 3) / 4f
+                val kh = (h - pad * 2 - gap) / 2.2f
                 for (i in 0..3) {
-                    val kx = 2.5f + i * (kw + 1.2f)
-                    canvas.drawRoundRect(kx, 2f, kx + kw, 2f + kh, 2f, 2f, p)
+                    val kx = pad + i * (kw + gap)
+                    canvas.drawRoundRect(kx, pad, kx + kw, pad + kh, 2.5f, 2.5f, p)
                 }
-                val spaceW = w * 0.52f; val sy = h - kh - 2.5f
+                val spaceW = w * 0.54f; val sy = h - kh - pad
                 p.color = t.space
-                canvas.drawRoundRect(2.5f, sy, 2.5f + spaceW, sy + kh, 2f, 2f, p)
+                canvas.drawRoundRect(pad, sy, pad + spaceW, sy + kh, 2.5f, 2.5f, p)
                 p.color = t.accent
-                canvas.drawRoundRect(w - kw - 2.5f, sy, w - 2.5f, sy + kh, 2f, 2f, p)
+                canvas.drawRoundRect(w - kw - pad, sy, w - pad, sy + kh, 2.5f, 2.5f, p)
             }
             override fun setAlpha(alpha: Int) { p.alpha = alpha }
             override fun setColorFilter(filter: android.graphics.ColorFilter?) { p.colorFilter = filter }
@@ -225,10 +245,15 @@ class MainActivity : Activity() {
     private fun slider(title: String, key: String, min: Int, max: Int, default: Int): View {
         val p = Prefs.get(this)
         return ui.column().apply {
+            layoutParams = ui.fullWidthLp(topMarginDp = 8)
             val label = ui.text("", 14f)
             val seek = SeekBar(this@MainActivity).apply {
                 this.max = max - min; progress = p.getInt(key, default).coerceIn(min, max) - min
-                progressTintList = ColorStateList.valueOf(ui.pal.accent); thumbTintList = ColorStateList.valueOf(ui.pal.accent)
+                progressTintList = ColorStateList.valueOf(ui.pal.accent)
+                progressBackgroundTintList = ColorStateList.valueOf(ui.pal.border)
+                thumbTintList = ColorStateList.valueOf(ui.pal.accent)
+                setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+                layoutParams = ui.fullWidthLp()
             }
             label.text = "$title · ${seek.progress + min} dp"; seek.contentDescription = label.text
             seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {

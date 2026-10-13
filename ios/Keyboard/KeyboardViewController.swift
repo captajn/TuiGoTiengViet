@@ -83,8 +83,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         keyboard.theme = KeyboardThemes.current(dark: traitCollection.userInterfaceStyle == .dark)
         doubleSpace = Prefs.doubleSpacePeriod()
         keyboard.vietnameseOn = vietOn
-        keyboard.currentMethod = Prefs.inputMethod()
-        keyboard.showToolbar = Prefs.toolbar()
         engine.setVietKey(vietOn)
         keyboard.showNumberRow = Prefs.numberRow()
         // Read-only access to the containing app's shared container is sufficient.
@@ -223,29 +221,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         handleInputModeList(from: sender, with: event)
     }
 
-    func onQuickMethodToggle() {
-        let current = Prefs.inputMethod()
-        let next: Int
-        switch current {
-        case ImTelex: next = ImVni
-        case ImVni: next = ImViqr
-        default: next = ImTelex
-        }
-        Prefs.defaults.set(next, forKey: Prefs.keyIM)
-        applyPrefs()
-    }
-
-    func onToggleNumberRow() {
-        let next = !keyboard.showNumberRow
-        Prefs.defaults.set(next, forKey: Prefs.keyNumberRow)
-        keyboard.showNumberRow = next
-        if heightConstraint != nil {
-            heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
-        }
-        view.setNeedsLayout()
-    }
-
     func onCursorMove(_ delta: Int) {
+        engine.resetBuf()
+        spacePending = false
         textDocumentProxy.adjustTextPosition(byCharacterOffset: delta)
         rememberTail()
     }
