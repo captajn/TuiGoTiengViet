@@ -61,8 +61,9 @@ def main():
     time.sleep(1.5)
 
     try:
-        bus.set_global_engine("tuigo")
+        ic.enable()
         ic.focus_in()
+        bus.set_global_engine("tuigo")
         time.sleep(0.5)
 
         # telex: vieejt -> việt
