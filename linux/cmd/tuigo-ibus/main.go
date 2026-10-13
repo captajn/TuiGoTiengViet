@@ -276,6 +276,7 @@ func (e *tuigoEngine) onModRelease(keyval uint32) {
 // ------------------------------------------------------------------
 
 func (e *tuigoEngine) ProcessKeyEvent(keyval uint32, keycode uint32, state uint32) (bool, *dbus.Error) {
+	fmt.Fprintf(os.Stderr, "tuigo-ibus: key %x code %d state %x\n", keyval, keycode, state)
 	if state&ibusReleaseMask != 0 {
 		e.onModRelease(keyval)
 		return false, nil

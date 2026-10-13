@@ -57,7 +57,8 @@ def main():
                lambda ic, t, c, v: preedits.append(t.get_text() if v else ""))
 
     try:
-        ic.focus_in()
+        # Set the global engine BEFORE focusing the context — a second
+        # focus_in on an already-focused context is a no-op.
         bus.set_global_engine("tuigo")
         ic.focus_in()
         time.sleep(1.0)
