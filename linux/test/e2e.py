@@ -5,11 +5,11 @@ Runs inside a dbus session with a real ibus-daemon (headless via xvfb).
 Feeds fake key events through an IBus.InputContext bound to engine "tuigo"
 and asserts on the text the engine commits back.
 
-Usage: e2e.py <path-to-tuigo-ibus>
+Usage: e2e.py  (run inside a dbus session with ibus-daemon already up
+and the tuigo component installed in ~/.local/share/ibus/component/)
 """
 import sys
 import time
-import threading
 
 import gi
 gi.require_version("IBus", "1.0")
@@ -45,7 +45,6 @@ def check(name, got, want):
 
 
 def main():
-    exe = sys.argv[1]
     bus = IBus.Bus()
 
     ic = bus.create_input_context("tuigo-e2e")
@@ -56,11 +55,6 @@ def main():
                lambda ic, t, c, v, m: preedits.append(t.get_text() if v else ""))
     ic.connect("update-preedit-text",
                lambda ic, t, c, v: preedits.append(t.get_text() if v else ""))
-
-    # spawn the engine component (standalone registration)
-    import subprocess
-    proc = subprocess.Popen([exe, "--standalone"])
-    time.sleep(1.5)
 
     try:
         ic.focus_in()
@@ -82,7 +76,7 @@ def main():
         type_str(ic, "duowngf xin chaof ")
         check("phrases", "".join(committed), "đường xin chào ")
     finally:
-        proc.terminate()
+        ic.focus_out()
 
     if failures:
         print("\n".join(failures))
