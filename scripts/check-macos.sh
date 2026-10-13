@@ -18,9 +18,9 @@ iconset=build/AppIcon.iconset
 mkdir -p "$iconset" build
 sips -s format tiff -Z 32 "$repo/app/logo.jpg" --out Resources/icon.tiff >/dev/null
 for px in 16 32 128 256 512; do
-  sips -Z $px "$repo/app/logo.jpg" --out "$iconset/icon_${px}x${px}.png" >/dev/null
+  sips -s format png -Z $px "$repo/app/logo.jpg" --out "$iconset/icon_${px}x${px}.png" >/dev/null
   dbl=$((px*2))
-  sips -Z $dbl "$repo/app/logo.jpg" --out "$iconset/icon_${px}x${px}@2x.png" >/dev/null
+  sips -s format png -Z $dbl "$repo/app/logo.jpg" --out "$iconset/icon_${px}x${px}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o Resources/AppIcon.icns
 
