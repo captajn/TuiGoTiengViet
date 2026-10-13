@@ -109,12 +109,23 @@ class KeyboardView @JvmOverloads constructor(
         const val SHIFT = -1
     }
 
-    private data class KeySpec(val code: Int, val label: String, val weight: Float = 1f)
+    private data class KeySpec(val code: Int, val label: String, val weight: Float = 1f, val hint: String = "")
 
     private class Key(val spec: KeySpec, val rect: RectF = RectF())
 
+    /** Long-press alternates shown as small corner hints (Unikey/Gboard-style). */
+    private val letterHints = mapOf(
+        'q' to '1', 'w' to '2', 'e' to '3', 'r' to '4', 't' to '5',
+        'y' to '6', 'u' to '7', 'i' to '8', 'o' to '9', 'p' to '0',
+        'a' to '@', 's' to '*', 'd' to '+', 'f' to '-', 'g' to '=',
+        'h' to '/', 'j' to '#', 'k' to '(', 'l' to ')',
+        'z' to '\'', 'x' to ',', 'c' to ':', 'v' to '"',
+        'b' to '?', 'n' to '!', 'm' to '~',
+        ',' to ';', '.' to ':',
+    )
+
     private fun row(s: String, insetWeight: Float = 0f): Array<KeySpec> {
-        val keys = s.map { KeySpec(it.code, it.toString()) }
+        val keys = s.map { KeySpec(it.code, it.toString(), hint = letterHints[it]?.toString() ?: "") }
         return if (insetWeight > 0f) {
             (listOf(KeySpec(K.SPACER, "", insetWeight)) + keys +
                 KeySpec(K.SPACER, "", insetWeight)).toTypedArray()
@@ -238,6 +249,11 @@ class KeyboardView @JvmOverloads constructor(
     private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = 1f; color = 0x40FFFFFF.toInt()
     }
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL; color = 0x1A000000.toInt()
     }
@@ -248,6 +264,11 @@ class KeyboardView @JvmOverloads constructor(
     private var downPointerId = -1
     private var spaceLongFired = false
 
+    /** True after a long-press already produced output — further moves in
+     *  the same gesture must not re-arm the touched key (finger jitter used
+     *  to type "4r" instead of just the hint char). */
+    private var pressConsumed = false
+
     private val handler = Handler(Looper.getMainLooper())
     private val repeatDelete = object : Runnable {
         override fun run() {
@@ -256,10 +277,23 @@ class KeyboardView @JvmOverloads constructor(
         }
     }
 
+    /** Long-press a hinted key types the hint char directly (Unikey-style). */
+    private val hintLongPress = Runnable {
+        val k = pressed ?: return@Runnable
+        if (k.spec.hint.isNotEmpty()) {
+            pressed = null
+            pressConsumed = true
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            listener?.onChar(k.spec.hint.first())
+            invalidate()
+        }
+    }
+
     /** Long-press Space = language/input-method menu (Gboard-style). */
     private val spaceLongPress = Runnable {
         spaceLongFired = true
         pressed = null
+        pressConsumed = true
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         listener?.onSpaceMenu()
         invalidate()
@@ -403,13 +437,12 @@ class KeyboardView @JvmOverloads constructor(
                     active -> if (t.blueGlyphs) t.space else t.accent
                     else -> t.func
                 })
-                textPaint.color = when {
+                iconPaint.color = when {
                     isPressed -> pressedGlyph(t.funcText)
                     active -> if (t.blueGlyphs) t.accent else t.onAccent
                     else -> t.funcText
                 }
-                textPaint.textSize = 20 * dp
-                drawCentered(canvas, if (capsLock) "⇪" else "⇧", r)
+                drawShiftIcon(canvas, r, active, capsLock)
             }
             K.ENTER -> {
                 cap(when {
@@ -417,14 +450,14 @@ class KeyboardView @JvmOverloads constructor(
                     t.enterAccentFill -> t.accent
                     else -> t.func
                 })
-                textPaint.color = when {
+                iconPaint.color = when {
                     isPressed -> pressedGlyph(t.funcText)
                     t.enterAccentFill -> t.onAccent
                     t.blueGlyphs -> t.accent
                     else -> t.funcText
                 }
-                textPaint.textSize = 19 * dp
-                drawCentered(canvas, spec.label, r)
+                if (numericLayout != NumericLayout.NONE) drawCheckIcon(canvas, r)
+                else drawEnterIcon(canvas, r)
             }
             K.SPACE -> {
                 cap(if (isPressed && !t.pressAccent) t.funcPressed else t.space, t.spaceBorder)
@@ -440,10 +473,15 @@ class KeyboardView @JvmOverloads constructor(
                     canvas.drawCircle(dotX, dotY, 2.5f * dp, dotPaint)
                 }
             }
-            K.DEL, K.MODE, K.MORE, K.NUM_SPACE -> {
+            K.DEL -> {
+                cap(if (isPressed) (if (t.pressAccent) t.accent else t.funcPressed) else t.func)
+                iconPaint.color = if (isPressed) pressedGlyph(t.funcText) else t.funcText
+                drawDeleteIcon(canvas, r)
+            }
+            K.MODE, K.MORE, K.NUM_SPACE -> {
                 cap(if (isPressed) (if (t.pressAccent) t.accent else t.funcPressed) else t.func)
                 textPaint.color = if (isPressed) pressedGlyph(t.funcText) else t.funcText
-                textPaint.textSize = if (spec.code == K.DEL || spec.code == K.NUM_SPACE) 19 * dp else 14 * dp
+                textPaint.textSize = if (spec.code == K.NUM_SPACE) 19 * dp else 14 * dp
                 drawCentered(canvas, spec.label, r)
             }
             else -> {
@@ -451,6 +489,14 @@ class KeyboardView @JvmOverloads constructor(
                 textPaint.color = if (isPressed) pressedGlyph(t.text) else t.text
                 textPaint.textSize = 21 * dp
                 drawCentered(canvas, currentLabel(spec), r)
+                if (spec.hint.isNotEmpty()) {
+                    textPaint.textSize = 10.5f * dp
+                    textPaint.color = if (isPressed) pressedGlyph(t.text) else t.funcText
+                    textPaint.alpha = 0xAA
+                    val hx = r.right - 7 * dp - textPaint.measureText(spec.hint) / 2
+                    canvas.drawText(spec.hint, hx, r.top + 13 * dp, textPaint)
+                    textPaint.alpha = 0xFF
+                }
             }
         }
     }
@@ -459,6 +505,81 @@ class KeyboardView @JvmOverloads constructor(
         if (label.isEmpty()) return
         val y = r.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
         canvas.drawText(label, r.centerX(), y, textPaint)
+    }
+
+    private val iconPath = android.graphics.Path()
+
+    /** Gboard-style arrow: outline when off, filled when shifted, filled +
+     *  underline when caps-lock. */
+    private fun drawShiftIcon(canvas: Canvas, r: RectF, active: Boolean, caps: Boolean) {
+        val cx = r.centerX(); val cy = r.centerY(); val s = 6.5f * dp
+        iconPath.reset()
+        iconPath.moveTo(cx, cy - s)
+        iconPath.lineTo(cx + s, cy - 0.05f * s)
+        iconPath.lineTo(cx + 0.42f * s, cy - 0.05f * s)
+        iconPath.lineTo(cx + 0.42f * s, cy + 0.95f * s)
+        iconPath.lineTo(cx - 0.42f * s, cy + 0.95f * s)
+        iconPath.lineTo(cx - 0.42f * s, cy - 0.05f * s)
+        iconPath.lineTo(cx - s, cy - 0.05f * s)
+        iconPath.close()
+        iconPaint.style = if (active) Paint.Style.FILL else Paint.Style.STROKE
+        iconPaint.strokeWidth = 1.7f * dp
+        canvas.drawPath(iconPath, iconPaint)
+        if (caps) {
+            iconPaint.style = Paint.Style.STROKE
+            iconPaint.strokeWidth = 1.6f * dp
+            canvas.drawLine(cx - 0.42f * s, cy + 1.35f * s, cx + 0.42f * s, cy + 1.35f * s, iconPaint)
+        }
+        iconPaint.style = Paint.Style.STROKE
+    }
+
+    /** Return-arrow icon (letter page). */
+    private fun drawEnterIcon(canvas: Canvas, r: RectF) {
+        val cx = r.centerX(); val cy = r.centerY(); val s = 6.5f * dp
+        iconPaint.style = Paint.Style.STROKE
+        iconPaint.strokeWidth = 1.8f * dp
+        iconPath.reset()
+        iconPath.moveTo(cx + 0.65f * s, cy - 1.0f * s)
+        iconPath.lineTo(cx + 0.65f * s, cy + 0.3f * s)
+        iconPath.lineTo(cx - 0.8f * s, cy + 0.3f * s)
+        canvas.drawPath(iconPath, iconPaint)
+        iconPath.reset()
+        iconPath.moveTo(cx - 0.25f * s, cy - 0.35f * s)
+        iconPath.lineTo(cx - 0.8f * s, cy + 0.3f * s)
+        iconPath.lineTo(cx - 0.25f * s, cy + 0.95f * s)
+        canvas.drawPath(iconPath, iconPaint)
+    }
+
+    /** Check icon (numeric keypad "done" key). */
+    private fun drawCheckIcon(canvas: Canvas, r: RectF) {
+        val cx = r.centerX(); val cy = r.centerY(); val s = 6f * dp
+        iconPaint.style = Paint.Style.STROKE
+        iconPaint.strokeWidth = 2f * dp
+        iconPath.reset()
+        iconPath.moveTo(cx - 0.9f * s, cy + 0.1f * s)
+        iconPath.lineTo(cx - 0.25f * s, cy + 0.75f * s)
+        iconPath.lineTo(cx + s, cy - 0.6f * s)
+        canvas.drawPath(iconPath, iconPaint)
+    }
+
+    /** Backspace icon: pentagon with an x inside. */
+    private fun drawDeleteIcon(canvas: Canvas, r: RectF) {
+        val cx = r.centerX(); val cy = r.centerY(); val s = 7.5f * dp
+        iconPaint.style = Paint.Style.STROKE
+        iconPaint.strokeWidth = 1.6f * dp
+        iconPath.reset()
+        iconPath.moveTo(cx - s, cy)
+        iconPath.lineTo(cx - 0.15f * s, cy - 0.72f * s)
+        iconPath.lineTo(cx + 0.85f * s, cy - 0.72f * s)
+        iconPath.quadTo(cx + s, cy - 0.72f * s, cx + s, cy - 0.5f * s)
+        iconPath.lineTo(cx + s, cy + 0.5f * s)
+        iconPath.quadTo(cx + s, cy + 0.72f * s, cx + 0.85f * s, cy + 0.72f * s)
+        iconPath.lineTo(cx - 0.15f * s, cy + 0.72f * s)
+        iconPath.close()
+        canvas.drawPath(iconPath, iconPaint)
+        val x = 0.22f * s
+        canvas.drawLine(cx - x, cy - x, cx + 0.5f * s, cy + x, iconPaint)
+        canvas.drawLine(cx + 0.5f * s, cy - x, cx - x, cy + x, iconPaint)
     }
 
     private fun drawPreview(canvas: Canvas) {
@@ -508,6 +629,7 @@ class KeyboardView @JvmOverloads constructor(
 
     private fun onDown(x: Float, y: Float) {
         val key = hit(x, y) ?: return
+        pressConsumed = false
         pressed = key
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         playSoundEffect(SoundEffectConstants.CLICK)
@@ -518,17 +640,22 @@ class KeyboardView @JvmOverloads constructor(
         if (key.spec.code == K.SPACE) {
             spaceLongFired = false
             handler.postDelayed(spaceLongPress, 500)
+        } else if (key.spec.hint.isNotEmpty()) {
+            handler.postDelayed(hintLongPress, 400)
         }
         invalidate()
     }
 
     private fun onMove(x: Float, y: Float) {
+        if (pressConsumed) return
         val key = hit(x, y)
         if (key !== pressed) {
             pressed = key
             handler.removeCallbacks(repeatDelete)
             handler.removeCallbacks(spaceLongPress)
+            handler.removeCallbacks(hintLongPress)
             if (key?.spec?.code == K.DEL) handler.postDelayed(repeatDelete, 400)
+            else if (key?.spec?.hint?.isNotEmpty() == true) handler.postDelayed(hintLongPress, 400)
             invalidate()
         }
     }
@@ -545,6 +672,7 @@ class KeyboardView @JvmOverloads constructor(
         pressed = null
         handler.removeCallbacks(repeatDelete)
         handler.removeCallbacks(spaceLongPress)
+        handler.removeCallbacks(hintLongPress)
         invalidate()
     }
 
