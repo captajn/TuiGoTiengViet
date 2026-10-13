@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- IBus component descriptor. install.sh substitutes @PREFIX@ with the
+     install root (default ~/.local/lib/tuigo for --user installs). -->
+<component>
+	<name>org.freedesktop.IBus.TuiGo</name>
+	<license>GPL-3.0-only</license>
+	<exec>@PREFIX@/tuigo-ibus --ibus</exec>
+	<version>0.0.1</version>
+	<author>Tui Go</author>
+	<description>Bộ gõ tiếng Việt — Telex, VNI, VIQR</description>
+	<engines>
+		<engine>
+			<name>tuigo</name>
+			<longname>Tui Gõ (Vietnamese)</longname>
+			<description>Bộ gõ tiếng Việt — Telex, VNI, VIQR</description>
+			<language>vi</language>
+			<license>GPL-3.0-only</license>
+			<author>Tui Go</author>
+			<icon>@PREFIX@/logo.jpg</icon>
+			<layout>us</layout>
+			<symbol>VI</symbol>
+			<setup>@PREFIX@/tuigo-settings</setup>
+			<version>0.0.1</version>
+			<rank>1</rank>
+		</engine>
+	</engines>
+</component>

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Tui Gõ</string>
+	<key>CFBundleDisplayName</key>
+	<string>Tui Gõ</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.tuigo.inputmethod</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.1</string>
+	<key>CFBundleExecutable</key>
+	<string>Tui Go</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>tsInputMethodIconFile</key>
+	<string>icon.tiff</string>
+	<key>tsInputMethodCharacterRepertoire</key>
+	<array>
+		<string>Latn</string>
+	</array>
+	<key>InputMethodConnectionName</key>
+	<string>TuiGo_Connection</string>
+	<key>InputMethodServerControllerClass</key>
+	<string>TuiGoInputController</string>
+	<key>ComponentInputModeDict</key>
+	<dict>
+		<key>tsInputModeList</key>
+		<dict>
+			<key>com.tuigo.inputmethod.TuiGo</key>
+			<dict>
+				<key>TISInputSourceID</key>
+				<string>com.tuigo.inputmethod.TuiGo</string>
+				<key>tsInputModeDefaultState</key>
+				<true/>
+				<key>tsInputModeIsVisible</key>
+				<true/>
+				<key>tsInputModePrimaryLanguage</key>
+				<string>vi</string>
+				<key>tsInputModeIconFile</key>
+				<string>icon.tiff</string>
+				<key>tsInputModeShowInWindow</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>

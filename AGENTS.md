@@ -16,3 +16,11 @@
 - Mobile release metadata comes from scripts/mobile-release.py: Android/iOS versions must match the mobile-v* tag, filenames tuigo-vX.Y.Z.apk/.ipa, display title Tui Gõ Mobile vX.Y.Z. Check out the release tag when dispatching; never package an arbitrary APK variant. Inspect the embedded keyboard extension and mark unsigned IPA explicitly.
 - Use scripts/publish-mobile-tag.ps1 to check local AND remote tag targets and stop on every Git failure before pushing. A missing remote tag does not mean the local tag is absent. Preserve a preexisting local tag; never continue a push after tag creation fails.
 - Symbol pages include / and * plus the Gboard reference symbols. Keep VIQR marks and existing currencies/brackets reachable; verify actual touch input and page transitions on the built keyboard.
+
+# macOS + Linux ports
+
+- macOS (`macos/`): InputMethodKit app reusing ios/Sources/TuiGoEngine (SwiftPM, macOS 12). Single input mode `com.tuigo.inputmethod.TuiGo`; VN/EN is a session flag toggled via input menu or Ctrl+Shift/Alt+Z. Verify with `sh scripts/check-macos.sh` on macOS.
+- Linux (`linux/`): IBus engine in Go (`cmd/tuigo-ibus`, module tuigo-linux, `replace tuigo => ../app`). Settings GUI `settings/` is a separate Go module (fyne.io/fyne needs cgo; godbus must stay v5.1.0 for goibus — newer godbus drops AuthCookieSha1 on Unix). Verify with `sh scripts/check-linux.sh` on Ubuntu.
+- IME shells can't delete committed text (IBus/IMK have no backchannel backspace): keep the word in preedit/marked text until a word boundary. `Session` (linux/internal/session, macos/Sources/Session.swift) handles this — swallow unconsumed mid-word chars into the model instead of forwarding.
+- Engine returns Consumed=false with Backs>0 for plain backspace — consume it yourself when the deleted char lives in preedit.
+- Shared config: tuigo.ini (same key names as Windows) + macro.txt + keymap.txt. Linux: ~/.config/tuigo/, macOS: ~/Library/Application Support/TuiGo/.

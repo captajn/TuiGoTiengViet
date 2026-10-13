@@ -1,0 +1,33 @@
+name: Linux
+
+on:
+  push:
+    paths: ["linux/**", "app/engine/**", "scripts/check-linux.sh", ".github/workflows/linux.yml"]
+  pull_request:
+    paths: ["linux/**", "app/engine/**", "scripts/check-linux.sh", ".github/workflows/linux.yml"]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linux/go.mod
+      - name: Dependencies (IBus + Fyne GL + headless session)
+        run: >-
+          sudo apt-get update -qq && sudo apt-get install -y -qq
+          ibus gir1.2-ibus-1.0 python3-gi dbus-x11 xvfb
+          libgl1-mesa-dev xorg-dev pkg-config
+      - name: Test + build + e2e
+        run: sh scripts/check-linux.sh
+      - name: Package tarball
+        run: |
+          mkdir -p dist
+          tar -czf dist/tuigo-linux-x86_64.tar.gz -C linux dist data install.sh uninstall.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tuigo-linux
+          path: dist/tuigo-linux-x86_64.tar.gz
+          if-no-files-found: error

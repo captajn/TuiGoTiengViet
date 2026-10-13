@@ -66,3 +66,9 @@ ios/.swiftpm/
 
 # Swift package build products
 ios/.build/
+
+# macOS/Linux port build outputs
+dist/
+macos/TuiGoMac.xcodeproj/
+macos/Resources/icon.tiff
+macos/Resources/AppIcon.icns

@@ -1,0 +1,28 @@
+name: macOS
+
+on:
+  push:
+    paths: ["macos/**", "ios/Sources/**", "ios/Package.swift", "app/logo.jpg", "scripts/check-macos.sh", ".github/workflows/macos.yml"]
+  pull_request:
+    paths: ["macos/**", "ios/Sources/**", "ios/Package.swift", "scripts/check-macos.sh", ".github/workflows/macos.yml"]
+  workflow_dispatch:
+
+jobs:
+  app-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Engine tests + unsigned .app build
+        run: |
+          brew install xcodegen
+          sh scripts/check-macos.sh
+      - name: Package app bundle
+        run: |
+          mkdir -p dist
+          cd build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent "Tui Go.app" "$GITHUB_WORKSPACE/dist/tuigo-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tuigo-macos-app
+          path: dist/tuigo-macos.zip
+          if-no-files-found: error
