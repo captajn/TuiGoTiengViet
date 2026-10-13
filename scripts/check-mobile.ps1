@@ -25,7 +25,7 @@ try {
             & $adb -s $Serial install -r $apk
             if ($LASTEXITCODE -ne 0) { throw "Install failed: $apk" }
         }
-        $result = & $adb -s $Serial shell am instrument -w com.tuigo.test/com.tuigo.MobileSmokeTest
+        $result = & $adb -s $Serial shell am instrument -w com.tuigo.tiengviet.test/com.tuigo.MobileSmokeTest
         $result | Tee-Object -FilePath (Join-Path $output 'android-device-tests.log')
         if (($result -join "`n") -notmatch 'PASS: 3 exclusive selections') { throw 'Device smoke test failed' }
     }

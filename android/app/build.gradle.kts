@@ -18,7 +18,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.tuigo"
+        applicationId = "com.tuigo.tiengviet"
         minSdk = 26
         targetSdk = 36
         versionCode = 9

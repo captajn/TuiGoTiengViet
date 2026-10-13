@@ -71,7 +71,7 @@ def main():
             raise ValueError('Expected an explicit built APK path')
         manifest = args.source.parent / 'output-metadata.json'
         info = json.loads(manifest.read_text())
-        if info['applicationId'] != 'com.tuigo' or len(info['elements']) != 1:
+        if info['applicationId'] != 'com.tuigo.tiengviet' or len(info['elements']) != 1:
             raise ValueError('Unexpected APK output')
         element = info['elements'][0]
         if element['versionName'] != values['version'] or element['outputFile'] != args.source.name:
