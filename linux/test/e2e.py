@@ -46,10 +46,8 @@ def main():
     exe = sys.argv[1]
     bus = IBus.Bus()
 
-    ic = IBus.InputContext(
-        client_name="tuigo-e2e",
-        connection=bus.get_connection(),
-        capabilities=IBus.Capabilite.PREEDIT_TEXT)
+    ic = bus.create_input_context("tuigo-e2e")
+    ic.set_capabilities(IBus.Capabilite.PREEDIT_TEXT)
 
     ic.connect("commit-text", lambda ic, t: committed.append(t.get_text()))
     ic.connect("update-preedit-text-with-mode",
@@ -63,8 +61,8 @@ def main():
     time.sleep(1.5)
 
     try:
-        ic.set_engine("tuigo")
-        ic.set_focus(True)
+        bus.set_global_engine("tuigo")
+        ic.focus_in()
         time.sleep(0.5)
 
         # telex: vieejt -> việt
