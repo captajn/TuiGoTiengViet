@@ -11,8 +11,16 @@ enum GlassTheme {
 
 struct GlassBackground: View {
     var body: some View {
-        LinearGradient(colors: [GlassTheme.background, GlassTheme.glow, GlassTheme.background], startPoint: .topLeading, endPoint: .bottomTrailing)
-            .ignoresSafeArea()
+        ZStack {
+            LinearGradient(colors: [GlassTheme.background, GlassTheme.glow.opacity(0.7), GlassTheme.background], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+            // Ambient soft aurora glow in upper-left
+            Circle()
+                .fill(GlassTheme.accent.opacity(0.08))
+                .frame(width: 280, height: 280)
+                .blur(radius: 60)
+                .offset(x: -80, y: -180)
+        }
     }
 }
 
@@ -23,8 +31,9 @@ struct BrandHeader: View {
         HStack(spacing: 16) {
             Image("TuiGoLogo").resizable().scaledToFill()
                 .frame(width: 76, height: 76)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color(uiColor: .tuiBorder), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.4), lineWidth: 1.5))
+                .shadow(color: GlassTheme.accent.opacity(0.25), radius: 10, y: 4)
                 .accessibilityLabel("Logo Tui Gõ")
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.largeTitle.bold()).lineLimit(1).minimumScaleFactor(0.8)
@@ -54,11 +63,33 @@ struct GlassCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .background {
-            if reduceTransparency { RoundedRectangle(cornerRadius: 24).fill(Color(uiColor: .tuiSurface)) }
-            else { RoundedRectangle(cornerRadius: 24).fill(.thinMaterial) }
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color(uiColor: .tuiSurface))
+            } else {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.12), Color.white.opacity(0.02)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    )
+            }
         }
-        .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color(uiColor: .tuiBorder), lineWidth: 1))
-        .shadow(color: .black.opacity(0.04), radius: 12, y: 5)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.35), Color(uiColor: .tuiBorder).opacity(0.6)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: .black.opacity(0.05), radius: 14, y: 6)
     }
 }
 

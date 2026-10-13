@@ -48,17 +48,45 @@ class MobileUi(private val context: Context) {
     fun surface(color: Int = pal.surface, radius: Int = 22) = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(radius).toFloat(); setStroke(dp(1), pal.border)
     }
+    fun glassCard(active: Boolean = false, radius: Int = 22): GradientDrawable {
+        val isDark = UiTheme.isDark(context)
+        val topCol = if (active) {
+            if (isDark) 0x383ED3B8.toInt() else 0xEBEBF7F2.toInt()
+        } else {
+            if (isDark) 0xD91E232E.toInt() else 0xF8FFFFFF.toInt()
+        }
+        val botCol = if (active) {
+            if (isDark) 0x1E3ED3B8.toInt() else 0xD8D8F0E4.toInt()
+        } else {
+            if (isDark) 0xE612151B.toInt() else 0xE8EDF2F7.toInt()
+        }
+        val borderCol = if (active) pal.accent else pal.border
+        return GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(topCol, botCol)).apply {
+            cornerRadius = dp(radius).toFloat()
+            setStroke(dp(if (active) 2 else 1), borderCol)
+        }
+    }
     fun card(title: String, hint: String) = column().apply {
         setPadding(dp(20), dp(18), dp(20), dp(18))
-        background = surface(); elevation = dp(1).toFloat()
+        background = glassCard(false, 22)
+        elevation = dp(3).toFloat()
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) }
         addView(text(title, 20f, bold = true)); addView(text(hint, 13f, pal.muted))
     }
     fun button(label: String, primary: Boolean = false, action: () -> Unit) = Button(context).apply {
         text = label; isAllCaps = false; textSize = 14f
         setTextColor(if (primary) pal.onAccent else pal.accent)
-        background = RippleDrawable(ColorStateList.valueOf(pal.border), surface(if (primary) pal.accent else pal.raised, 14), null)
-        minHeight = dp(50); setPadding(dp(12), dp(10), dp(12), dp(10))
+        val btnDrawable = if (primary) {
+            GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(pal.accent, pal.accentHover)).apply {
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), 0x60FFFFFF.toInt())
+            }
+        } else {
+            glassCard(false, 16)
+        }
+        background = RippleDrawable(ColorStateList.valueOf(if (primary) 0x30FFFFFF.toInt() else pal.border), btnDrawable, null)
+        elevation = dp(if (primary) 2 else 1).toFloat()
+        minHeight = dp(52); setPadding(dp(16), dp(12), dp(16), dp(12))
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }
         setOnClickListener { action() }
     }
@@ -67,7 +95,8 @@ class MobileUi(private val context: Context) {
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
             (if (multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
         gravity = android.view.Gravity.TOP; minHeight = dp(if (multiline) 140 else 56)
-        setPadding(dp(14), dp(14), dp(14), dp(14)); background = surface(pal.raised, 14)
+        setPadding(dp(14), dp(14), dp(14), dp(14))
+        background = glassCard(false, 16)
     }
     fun install(activity: Activity, content: LinearLayout) {
         content.setPadding(dp(20), dp(20), dp(20), dp(28))
