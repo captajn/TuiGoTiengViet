@@ -16,6 +16,7 @@
 - Mobile release metadata comes from scripts/mobile-release.py: Android/iOS versions must match the mobile-v* tag, filenames tuigo-vX.Y.Z.apk/.ipa, display title Tui Gõ Mobile vX.Y.Z. Check out the release tag when dispatching; never package an arbitrary APK variant. Inspect the embedded keyboard extension and mark unsigned IPA explicitly.
 - Use scripts/publish-mobile-tag.ps1 to check local AND remote tag targets and stop on every Git failure before pushing. A missing remote tag does not mean the local tag is absent. Preserve a preexisting local tag; never continue a push after tag creation fails.
 - Symbol pages include / and * plus the Gboard reference symbols. Keep VIQR marks and existing currencies/brackets reachable; verify actual touch input and page transitions on the built keyboard.
+- Android release builds use `applicationId = "com.tuigo.tiengviet"` and must always be signed with the existing `android/keystore/tuigo-release.jks` (`CN=Tui Go, OU=Mobile, O=TuiGo, C=VN`, Certificate SHA-256: `4e5f43f62a3c5442ddb85663fa1fe812fc1d655620a70693659d0feb14b67f1b`, submitted to Google Play Protect). Never regenerate or replace `tuigo-release.jks`, and always build `dist/tuigo-vX.Y.Z.apk` from `:app:assembleRelease` so the Play Protect whitelisted signature is preserved.
 
 # macOS + Linux ports
 

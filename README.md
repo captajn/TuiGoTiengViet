@@ -134,7 +134,7 @@ cd android
 ./gradlew.bat :engine:test :app:assembleDebug
 ~~~
 
-APK debug nằm ở android/app/build/outputs/apk/debug/app-debug.apk. Cài APK rồi mở **Tui Gõ → Bật bàn phím → Chọn bàn phím**. APK release cần khóa ký phù hợp; debug APK không thay được app release có chữ ký khác.
+APK debug nằm ở `android/app/build/outputs/apk/debug/app-debug.apk`. Cài APK rồi mở **Tui Gõ → Bật bàn phím → Chọn bàn phím**. Bản phát hành chính thức (`com.tuigo.tiengviet`, build bằng `:app:assembleRelease`) được ký với chứng chỉ SHA-256: `4e5f43f62a3c5442ddb85663fa1fe812fc1d655620a70693659d0feb14b67f1b` (V2 + V3 Signature Scheme); debug APK không thay được app release có chữ ký khác.
 
 ### iOS / iPadOS
 
