@@ -24,7 +24,18 @@ func TestTrayIconHandles(t *testing.T) {
 	for _, theme := range []struct {
 		name string
 		p    palette
-	}{{"dark", palDark}, {"light", palLight}} {
+	}{
+		{"dark", palDark},
+		{"light", palLight},
+		{"ios_light", palIosLight},
+		{"ios_dark", palIosDark},
+		{"cyber_dark", palCyberDark},
+		{"cyber_light", palCyberLight},
+		{"matcha_light", palMatchaLight},
+		{"matcha_dark", palMatchaDark},
+		{"material_dark", palMaterialDark},
+		{"material_light", palMaterialLight},
+	} {
 		for _, size := range []int{16, 20, 24, 32, 48} {
 			for _, on := range []bool{true, false} {
 				letter := "E"

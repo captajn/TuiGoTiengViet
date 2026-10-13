@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"time"
 	"unsafe"
 )
@@ -42,26 +41,17 @@ func injectOutput(res Result) {
 	// Ctrl+X — Ctrl+Shift+X opens side panels in a few apps.
 	delPairs := false
 	var savedClip uintptr
-	if gSafeDel && res.Backs > 0 && !res.KeyOut {
-		if !gNoGuard {
-			// VKey approach: suggestion-tail bait (U+202F) swallows any live
-			// autocomplete tail cleanly without touching clipboard or adding
-			// latency. delPairs is false because bait clears the selection.
-			logLine(fmt.Sprintf("inject: backs=%d bait=0x202F caretEnd=%v",
-				res.Backs, gCaretAtEnd))
-		} else if !gShiftHeld {
-			// Legacy cut-probe kept only for A/B testing (TUIGO_NO_GUARD set).
-			delPairs = gCaretAtEnd
-			cut, saved, ok := probeSelectionCut()
-			if ok {
-				delPairs = false // selection resolved: plain Backspaces suffice
-				savedClip = saved
-				if cut == res.Backs {
-					res.Backs = 0 // the selection WAS the text to replace
-				}
+	// The bait path needs no cut probe. Keep the legacy probe only for
+	// TUIGO_NO_GUARD; never log correction metadata from the keyboard hook.
+	if gSafeDel && res.Backs > 0 && !res.KeyOut && gNoGuard && !gShiftHeld {
+		delPairs = gCaretAtEnd
+		cut, saved, ok := probeSelectionCut()
+		if ok {
+			delPairs = false
+			savedClip = saved
+			if cut == res.Backs {
+				res.Backs = 0
 			}
-			logLine(fmt.Sprintf("inject: backs=%d cut=%d ok=%v caretEnd=%v noGuard=true",
-				res.Backs, cut, ok, gCaretAtEnd))
 		}
 	}
 	if (cfg.UseClipboard || gForceClip) && !res.KeyOut && len(res.Out) > 0 {
@@ -161,7 +151,7 @@ func isModifierKey(vk uint32) bool {
 // postToggle defers the actual toggle work (registry writes, tray RPC, HUD)
 // to the message loop so the hook returns instantly — rapid hotkey presses
 // then queue as cheap messages instead of serializing key events behind I/O.
-// wParam identifies the source for the crash.log line.
+// wParam identifies the deferred toggle source.
 func postToggle(src uintptr) {
 	pPostMessage.Call(gHwnd, WM_TOGGLE_VN, src, 0)
 }
@@ -400,7 +390,7 @@ var gHookSeen uint64
 func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 	// A panic escaping a windows.NewCallback can't unwind through Windows
 	// frames — the process dies instantly and silently. Catch it here.
-	defer func() { recoverCrash("hook", recover()) }()
+	defer func() { _ = recover() }()
 	gHookSeen++
 	if nCode == 0 && !gSending { // HC_ACTION
 		p := (*kbdLLHookStruct)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam)))
@@ -463,7 +453,7 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 var gMouseSeen uint64 // liveness counter, mirrors gHookSeen
 
 func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
-	defer func() { recoverCrash("mousehook", recover()) }()
+	defer func() { _ = recover() }()
 	gMouseSeen++
 	if nCode == 0 {
 		switch wParam {

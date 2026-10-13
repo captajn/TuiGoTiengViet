@@ -5,7 +5,9 @@
 #   libgl1-mesa-dev xorg-dev  (Fyne settings GUI)
 set -eu
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+python3 -P "$repo/scripts/check-no-diagnostics.py"
 cd "$repo/linux"
+export GOWORK=off
 
 mkdir -p dist
 go test ./...

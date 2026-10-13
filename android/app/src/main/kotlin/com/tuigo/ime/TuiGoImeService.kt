@@ -46,6 +46,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             if (::keyboard.isInitialized) {
                 keyboard.theme = KeyboardThemes.current(this)
                 keyboard.showNumberRow = usesNumberRow()
+                keyboard.currentMethod = Prefs.inputMethod(this)
+                keyboard.showToolbar = Prefs.toolbar(this)
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
                 applySystemBarTheme()
             }
@@ -129,6 +131,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         loadEngineConfig()
         keyboard.theme = KeyboardThemes.current(this)
         keyboard.vietnameseOn = vietOn
+        keyboard.currentMethod = Prefs.inputMethod(this)
+        keyboard.showToolbar = Prefs.toolbar(this)
         keyboard.showNumberRow = usesNumberRow()
         keyboard.numericLayout = numericLayoutFor(info)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
@@ -262,6 +266,34 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         engine.setVietKey(on)
         engine.resetBuf()
         spacePending = false
+    }
+
+    override fun onQuickMethodToggle() {
+        val current = Prefs.inputMethod(this)
+        val next = when (current) {
+            ImTelex -> ImVni
+            ImVni -> ImViqr
+            else -> ImTelex
+        }
+        Prefs.get(this).edit().putInt(Prefs.KEY_IM, next).apply()
+        loadEngineConfig()
+        if (::keyboard.isInitialized) {
+            keyboard.currentMethod = next
+            keyboard.showNumberRow = usesNumberRow()
+            keyboard.invalidate()
+        }
+    }
+
+    override fun onToggleNumberRow() {
+        if (!::keyboard.isInitialized) return
+        val next = !keyboard.showNumberRow
+        Prefs.get(this).edit().putBoolean(Prefs.KEY_NUMBER_ROW, next).apply()
+        keyboard.showNumberRow = next
+    }
+
+    override fun onCursorMove(delta: Int) {
+        val ic = currentInputConnection ?: return
+        sendDownUpKeyEvents(if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
     }
 
     /** Long-press Space: quick settings for language and input method. */

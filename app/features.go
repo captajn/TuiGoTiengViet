@@ -37,6 +37,7 @@ type config struct {
 	UseCtrlShift    bool // extra Ctrl+Shift chord besides the custom hotkey
 	FKeys           int  // bit0 F1=VN on, bit1 F2=VN off, bit2 F5=settings, bit3 F9=macro, bit4 F12=reset
 	Theme           int  // 0=auto, 1=dark, 2=light
+	Style           int  // 0=jade, 1=ios_pure, 2=cyber_neon, 3=matcha_latte, 4=material_teal
 	HudX, HudY      int
 }
 
@@ -457,7 +458,7 @@ func probeSelectionCut() (cut int, saved uintptr, ok bool) {
 // Runs off-thread because the wait must not stall the keyboard hook.
 func restoreClipboardLater(saved uintptr, seq0 uintptr) {
 	go func() {
-		defer func() { recoverCrash("cliprestore", recover()) }()
+		defer func() { _ = recover() }()
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		time.Sleep(60 * time.Millisecond)
@@ -555,7 +556,7 @@ func injectViaClipboard(res Result, delPairs bool) {
 
 	// restore clipboard after the target app processed the paste
 	go func(saved windows.Handle, sz int) {
-		defer func() { recoverCrash("clipboard", recover()) }()
+		defer func() { _ = recover() }()
 		time.Sleep(60 * time.Millisecond)
 		pOpenClipboard.Call(gHwnd)
 		pEmptyClipboard.Call()

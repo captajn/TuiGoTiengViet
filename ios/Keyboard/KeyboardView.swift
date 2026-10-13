@@ -1,4 +1,5 @@
 import UIKit
+import TuiGoEngine
 
 // Canvas-free keyboard built on UIButtons, mirroring android/KeyboardView.kt:
 // key popup preview, shift one-shot / caps-lock on double tap,
@@ -14,6 +15,9 @@ final class KeyboardView: UIView {
         func onSwitchIme()
         func onSpaceMenu()
         func onInputModeMenu(_ sender: UIButton, event: UIEvent)
+        func onQuickMethodToggle()
+        func onToggleNumberRow()
+        func onCursorMove(_ delta: Int)
     }
 
     weak var listener: Listener?
@@ -24,6 +28,8 @@ final class KeyboardView: UIView {
     }
 
     var vietnameseOn = true { didSet { updateToggleLabels() } }
+    var currentMethod = ImTelex { didSet { updateToggleLabels() } }
+    var showToolbar = true { didSet { if oldValue != showToolbar { rebuildKeys() } } }
     var showsGlobe = false { didSet { rebuildKeys() } }
     var returnLabel = "⏎" { didSet { updateToggleLabels() } }
     var showNumberRow = false { didSet { if oldValue != showNumberRow { rebuildKeys() } } }
@@ -36,6 +42,11 @@ final class KeyboardView: UIView {
     // ---- layout model -------------------------------------------------------
 
     private enum K {
+        static let toolMethod = -20
+        static let toolNum = -21
+        static let toolLeft = -22
+        static let toolRight = -23
+        static let toolMenu = -24
         static let more = -9
         static let spacer = -7
         static let space = -5
@@ -114,9 +125,41 @@ final class KeyboardView: UIView {
         return specs
     }
 
+    private func toolbarRow() -> [KeySpec] {
+        let mLabel: String
+        switch currentMethod {
+        case ImVni: mLabel = "VNI"
+        case ImViqr: mLabel = "VIQR"
+        default: mLabel = "TELEX"
+        }
+        return [
+            KeySpec(K.toolMethod, mLabel, 1.8),
+            KeySpec(K.toolNum, "123", 1.2),
+            KeySpec(K.spacer, "", 3.4),
+            KeySpec(K.toolLeft, "◀", 1.2),
+            KeySpec(K.toolRight, "▶", 1.2),
+            KeySpec(K.toolMenu, "⋯", 1.2)
+        ]
+    }
+
     private var rows: [[KeySpec]] {
-        if symbolsPage { switch symbolLevel { case 1: return extraSymbolRows(); case 2: return legacySymbolRows(); default: return symbolsRows() } }
-        return (showNumberRow ? [row("1234567890")] : []) + lettersRows()
+        var result: [[KeySpec]] = []
+        if showToolbar {
+            result.append(toolbarRow())
+        }
+        if symbolsPage {
+            switch symbolLevel {
+            case 1: result.append(contentsOf: extraSymbolRows())
+            case 2: result.append(contentsOf: legacySymbolRows())
+            default: result.append(contentsOf: symbolsRows())
+            }
+        } else {
+            if showNumberRow {
+                result.append(row("1234567890"))
+            }
+            result.append(contentsOf: lettersRows())
+        }
+        return result
     }
     private var keys = [Key]()
 
@@ -128,9 +171,18 @@ final class KeyboardView: UIView {
     private let padH: CGFloat = 3
     private let padV: CGFloat = 8
 
+    private func rowHeight(isToolbar: Bool) -> CGFloat {
+        isToolbar ? max(32, keyHeight * 0.65) : keyHeight
+    }
+
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric,
-               height: padV * 2 + CGFloat(rows.count) * keyHeight + CGFloat(rows.count - 1) * rowGap)
+        var h: CGFloat = padV * 2
+        for (idx, _) in rows.enumerated() {
+            let isTb = showToolbar && idx == 0
+            h += rowHeight(isToolbar: isTb)
+            if idx > 0 { h += (isTb ? rowGap * 0.75 : rowGap) }
+        }
+        return CGSize(width: UIView.noIntrinsicMetric, height: h)
     }
 
     func setMetrics(height: CGFloat, gap: CGFloat) {
@@ -179,7 +231,15 @@ final class KeyboardView: UIView {
 
     private func styleKey(_ key: Key) {
         let b = key.button
-        b.layer.cornerRadius = theme.corner
+        let code = key.spec.code
+        let isTool = code == K.toolMethod || code == K.toolNum || code == K.toolLeft || code == K.toolRight || code == K.toolMenu
+        if isTool {
+            b.layer.cornerRadius = max(32, keyHeight * 0.65) / 2
+        } else if (code == K.enter || code == K.space) && theme.enterAccentFill {
+            b.layer.cornerRadius = keyHeight / 2
+        } else {
+            b.layer.cornerRadius = theme.corner
+        }
         let border = theme.border
         b.layer.borderWidth = border.cgColor.alpha > 0 ? 1 : 0
         b.layer.borderColor = border.resolvedColor(with: traitCollection).cgColor
@@ -191,6 +251,26 @@ final class KeyboardView: UIView {
         let code = key.spec.code
         let t = theme
         switch code {
+        case K.toolMethod:
+            if pressed {
+                b.backgroundColor = t.funcPressed
+                b.setTitleColor(t.accent, for: .normal)
+            } else {
+                b.backgroundColor = t.accent.withAlphaComponent(0.16)
+                b.setTitleColor(t.accent, for: .normal)
+            }
+            b.layer.borderWidth = 1
+            b.layer.borderColor = t.accent.resolvedColor(with: traitCollection).cgColor
+        case K.toolNum, K.toolLeft, K.toolRight, K.toolMenu:
+            if pressed {
+                b.backgroundColor = t.funcPressed
+                b.setTitleColor(t.funcText, for: .normal)
+            } else {
+                b.backgroundColor = t.text.withAlphaComponent(0.08)
+                b.setTitleColor(t.funcText, for: .normal)
+            }
+            b.layer.borderWidth = 0
+            b.layer.borderColor = UIColor.clear.cgColor
         case K.shift:
             let active = capsLock || shifted
             if pressed {
@@ -230,6 +310,27 @@ final class KeyboardView: UIView {
         for key in keys {
             let b = key.button
             switch key.spec.code {
+            case K.toolMethod:
+                let mLabel: String
+                switch currentMethod {
+                case ImVni: mLabel = "VNI"
+                case ImViqr: mLabel = "VIQR"
+                default: mLabel = "TELEX"
+                }
+                b.setTitle(mLabel, for: .normal)
+                b.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
+            case K.toolNum:
+                b.setTitle("123", for: .normal)
+                b.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
+            case K.toolLeft:
+                b.setTitle("◀", for: .normal)
+                b.titleLabel?.font = .systemFont(ofSize: 12, weight: .regular)
+            case K.toolRight:
+                b.setTitle("▶", for: .normal)
+                b.titleLabel?.font = .systemFont(ofSize: 12, weight: .regular)
+            case K.toolMenu:
+                b.setTitle("⋯", for: .normal)
+                b.titleLabel?.font = .systemFont(ofSize: 14, weight: .bold)
             case K.shift:
                 b.setTitle(capsLock ? "⇪" : "⇧", for: .normal)
                 b.titleLabel?.font = .systemFont(ofSize: 20, weight: .medium)
@@ -274,18 +375,20 @@ final class KeyboardView: UIView {
         gradient.colors = [theme.bg.resolvedColor(with: traitCollection).cgColor, theme.bgEnd.resolvedColor(with: traitCollection).cgColor]
         var iter = keys.makeIterator()
         var y = padV
-        for rowSpec in rows {
+        for (idx, rowSpec) in rows.enumerated() {
+            let isTb = showToolbar && idx == 0
+            let rh = rowHeight(isToolbar: isTb)
             let total = rowSpec.reduce(CGFloat(0)) { $0 + $1.weight }
             let unitW = (bounds.width - 2 * padH - keyGap * CGFloat(rowSpec.count - 1)) / max(total, 1)
             var x = padH
             for spec in rowSpec {
                 let kw = unitW * spec.weight
                 if spec.code != K.spacer, let key = iter.next() {
-                    key.button.frame = CGRect(x: x, y: y, width: kw, height: keyHeight)
+                    key.button.frame = CGRect(x: x, y: y, width: kw, height: rh)
                 }
                 x += kw + keyGap
             }
-            y += keyHeight + rowGap
+            y += rh + (isTb ? rowGap * 0.75 : rowGap)
         }
     }
 
@@ -412,6 +515,16 @@ final class KeyboardView: UIView {
 
     private func dispatch(_ key: Key) {
         switch key.spec.code {
+        case K.toolMethod:
+            listener?.onQuickMethodToggle()
+        case K.toolNum:
+            listener?.onToggleNumberRow()
+        case K.toolLeft:
+            listener?.onCursorMove(-1)
+        case K.toolRight:
+            listener?.onCursorMove(1)
+        case K.toolMenu:
+            listener?.onSpaceMenu()
         case K.shift:
             let now = Date()
             if capsLock {

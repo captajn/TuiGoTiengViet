@@ -5,6 +5,7 @@
 # macos/Resources/ before project generation so they get bundled.
 set -eu
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+python3 -P "$repo/scripts/check-no-diagnostics.py"
 
 # engine unit tests (shared Swift package)
 cd "$repo/ios" && swift test

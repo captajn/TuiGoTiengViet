@@ -200,6 +200,11 @@ const (
 	cLangBtn
 	cUpdateBtn
 	cRememberAppMode
+	cThemeJade
+	cThemeIosPure
+	cThemeCyberNeon
+	cThemeMatchaLatte
+	cThemeMaterialTeal
 )
 
 var imList = []int{ImTelex, ImTelexSimple, ImVni, ImViqr, ImTelexVni, ImMsVi, ImUsrKeymap}
@@ -473,7 +478,7 @@ func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
 	drawWindowControls(dc, hwnd, winW)
 }
 
-// Sidebar navigation renderer with zero-aliased vector icons and liquid glass pills
+// Sidebar navigation renderer with zero-aliased vector icons, style-aware squircle badges, and liquid glass pills
 func drawNav(dc uintptr) {
 	gfx := NewGfx(dc)
 	defer func() {
@@ -482,38 +487,140 @@ func drawNav(dc uintptr) {
 		}
 	}()
 
+	dark := isDark()
+	iosBadgeCols := [5]uint32{0xFF007AFF, 0xFF34C759, 0xFFFF9500, 0xFFAF52DE, 0xFF5856D6}
+	matchaLightCols := [5]uint32{0xFFA8D5BA, 0xFFF7C59F, 0xFFFDE68A, 0xFFB7E4C7, 0xFFF4A261}
+
 	for i := 0; i < len(tabItems); i++ {
 		r := navRect(i)
 		active := (i == gActiveTab)
 		hover := (i == gHoveredTab)
 
 		x, y, w, h := float32(r.left), float32(r.top), float32(r.right-r.left), float32(r.bottom-r.top)
-		radius := float32(dp(8))
+		radius := float32(dp(9))
 
 		if active {
 			if gfx != nil {
-				gfx.DrawGlassPill(x, y, w, h, radius, isDark(), true, false)
-				// Left indicator bar in jade brand accent
-				barCol := uint32(0xFF197F64)
-				if isDark() {
-					barCol = 0xFF3ED3B8
-				}
-				gfx.FillRoundedRect(x+float32(dp(4)), y+float32(dp(8)), float32(dp(4)), h-float32(dp(16)), 1.8, barCol)
+				gfx.DrawGlassPill(x, y, w, h, radius, dark, true, false)
+				// Left indicator bar in active style accent
+				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(9)), float32(dp(4)), h-float32(dp(18)), 2.0, argbAccent)
 			}
 		} else if hover {
 			if gfx != nil {
-				gfx.DrawGlassPill(x, y, w, h, radius, isDark(), false, true)
+				gfx.DrawGlassPill(x, y, w, h, radius, dark, false, true)
 			}
 		}
 
+		// Style-aware icon squircle badge (28x28dp) matching the HTML demo
+		bx := float32(r.left + dp(11))
+		by := float32(r.top+(r.bottom-r.top)/2) - float32(dp(14))
+		bsz := float32(dp(28))
+		br := float32(dp(7))
 		iconCol := argbMuted
 		if active {
 			iconCol = argbAccent
 		}
-		ix := float32(r.left + dp(16))
-		iy := float32(r.top + (r.bottom-r.top)/2)
+
 		if gfx != nil {
-			drawSmoothVectorIcon(gfx, ix+float32(dp(8)), iy, float32(dp(18)), i, iconCol)
+			switch cfg.Style {
+			case styleIosPure:
+				// Apple iOS 18 Settings colorful filled squircles
+				bCol := iosBadgeCols[i%5]
+				if !active && !hover {
+					bCol = HexAlphaARGB(0xD8, bCol&0x00FFFFFF)
+				}
+				gfx.FillRoundedRect(bx, by, bsz, bsz, br, bCol)
+				gfx.DrawRoundedRect(bx, by, bsz, bsz, br, HexAlphaARGB(0x45, 0xFFFFFF), 1.0)
+				iconCol = 0xFFFFFFFF
+
+			case styleCyberNeon:
+				// Cyber Neon glowing frame badge
+				br = float32(dp(6))
+				fillCol := uint32(0xFF0B111E)
+				rimCol := uint32(0xFF0EA5E9)
+				if !dark {
+					fillCol = 0xFFE0F2FE
+					rimCol = 0xFF0284C7
+				}
+				if active {
+					if dark {
+						fillCol = 0xFF082F49
+						rimCol = 0xFF00F2FE
+						iconCol = 0xFF00F2FE
+					} else {
+						fillCol = 0xFF0284C7
+						rimCol = 0xFF0369A1
+						iconCol = 0xFFFFFFFF
+					}
+				} else if dark {
+					iconCol = 0xFF38BDF8
+				} else {
+					iconCol = 0xFF0284C7
+				}
+				gfx.FillRoundedRect(bx, by, bsz, bsz, br, fillCol)
+				gfx.DrawRoundedRect(bx, by, bsz, bsz, br, rimCol, 1.2)
+
+			case styleMatchaLatte:
+				// Warm Matcha / Peach / Caramel soft squircle badge
+				br = float32(dp(9))
+				if dark {
+					if active {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF40916C)
+						iconCol = 0xFFF4ECE1
+					} else {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF24352C)
+						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFF385446, 1.0)
+						iconCol = 0xFF74C69D
+					}
+				} else {
+					if active {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2D6A4F)
+						iconCol = 0xFFFFFDF9
+					} else {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, matchaLightCols[i%5])
+						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFFD5C3AE, 1.0)
+						iconCol = 0xFF3D2E24
+					}
+				}
+
+			case styleMaterialTeal:
+				// Material 3 Expressive circular/capsule tonal container
+				br = bsz / 2.0
+				if dark {
+					if active {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2DD4BF)
+						iconCol = 0xFF0E171D
+					} else {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF1E3545)
+						iconCol = 0xFF5EEAD4
+					}
+				} else {
+					if active {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF0D9488)
+						iconCol = 0xFFFFFFFF
+					} else {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFFCCFBF1)
+						iconCol = 0xFF0F766E
+					}
+				}
+
+			default:
+				// Default Ngọc Bích Liquid Glass squircle
+				if active {
+					gfx.FillRoundedRectGradient(bx, by, bsz, bsz, br, argbAccent, HexAlphaARGB(0xD8, argbSwitchOn&0x00FFFFFF))
+					if dark {
+						iconCol = 0xFF0F1115
+					} else {
+						iconCol = 0xFFFFFFFF
+					}
+				} else {
+					bgTint := HexAlphaARGB(0x18, argbAccent&0x00FFFFFF)
+					gfx.FillRoundedRect(bx, by, bsz, bsz, br, bgTint)
+					gfx.DrawRoundedRect(bx, by, bsz, bsz, br, HexAlphaARGB(0x40, argbAccent&0x00FFFFFF), 1.0)
+				}
+			}
+
+			drawSmoothVectorIcon(gfx, bx+bsz/2.0, by+bsz/2.0, float32(dp(15)), i, iconCol)
 		}
 
 		pSetBkMode.Call(dc, TRANSPARENT)
@@ -523,14 +630,14 @@ func drawNav(dc uintptr) {
 		}
 		pSetTextColor.Call(dc, titleColor)
 		oldF, _, _ := pSelectObject.Call(dc, fontBold)
-		trc := rect{r.left + dp(46), r.top + dp(6), r.right - dp(6), r.top + dp(24)}
+		trc := rect{r.left + dp(46), r.top + dp(6), r.right - dp(4), r.top + dp(24)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabItems[i].name))),
 			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 		pSetTextColor.Call(dc, colMuted)
 		pSelectObject.Call(dc, fontHint)
-		drc := rect{r.left + dp(46), r.top + dp(24), r.right - dp(6), r.bottom - dp(4)}
+		drc := rect{r.left + dp(46), r.top + dp(24), r.right - dp(4), r.bottom - dp(4)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabItems[i].desc))),
 			^uintptr(0), uintptr(unsafe.Pointer(&drc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -588,8 +695,8 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 			gfx.Destroy()
 		}
 	case 3: // Appearance, system, and app exclusions
-		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(258)})
-		drawSettingsCard(dc, rect{cx, ct + dp(264), cx + cw, ct + dp(398)})
+		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(294)})
+		drawSettingsCard(dc, rect{cx, ct + dp(300), cx + cw, ct + dp(424)})
 	}
 }
 
@@ -1218,12 +1325,20 @@ func buildControls(h uintptr) {
 	// ---- Tab 3: Giao diện & Hệ thống ----
 	curTab = 3
 	stSysSection = addSection("GIAO DIỆN & HỆ THỐNG")
-	btnIDs[cThemeAuto] = true
-	btnIDs[cThemeLight] = true
-	btnIDs[cThemeDark] = true
+	for _, tid := range []int{
+		cThemeAuto, cThemeLight, cThemeDark,
+		cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
+	} {
+		btnIDs[tid] = true
+	}
 	mkCtl(h, ctlDef{cThemeAuto, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Hệ thống", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeLight, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Sáng", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeDark, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Tối", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeJade, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Ngọc Bích", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeIosPure, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "iOS 18 Pro", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeCyberNeon, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Cyber Neon", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeMatchaLatte, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Matcha Latte", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeMaterialTeal, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Material 3", 0, 0, 10, 10})
 	addSw(cShowHud, "Hiện thanh trạng thái nổi")
 	addSw(cSound, "Âm thanh khi chuyển chế độ")
 	addSw(cSkipLayout, "Tự tắt khi bàn phím không phải kiểu US")
@@ -1269,7 +1384,7 @@ func layoutAll() {
 	var rc rect
 	pGetClientRect.Call(gSettingsHwnd, uintptr(unsafe.Pointer(&rc)))
 	winW, winH := rc.right, rc.bottom
-	railW = dp(216)
+	railW = dp(232)
 	cx := railW + dp(24)
 	cw := winW - cx - dp(24)
 	ct := dp(106)
@@ -1320,22 +1435,32 @@ func layoutAll() {
 	place(cF12, cx+dp(16), ct+dp(342), cw-dp(32), dp(26))
 
 	// Tab 3 — Giao diện & Hệ thống
-	place(stSysSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
+	place(stSysSection, cx+dp(16), ct+dp(8), cw-dp(32), dp(18))
 	btnW := (cw - dp(32) - dp(16)) / 3
-	place(cThemeAuto, cx+dp(16), ct+dp(38), btnW, dp(48))
-	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(38), btnW, dp(48))
+	place(cThemeAuto, cx+dp(16), ct+dp(28), btnW, dp(34))
+	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(28), btnW, dp(34))
 	themeX3 := cx + dp(16) + 2*(btnW+dp(8))
-	place(cThemeDark, themeX3, ct+dp(38), cx+cw-dp(16)-themeX3, dp(48))
+	place(cThemeDark, themeX3, ct+dp(28), cx+cw-dp(16)-themeX3, dp(34))
+
+	btn5W := (cw - dp(32) - 4*dp(6)) / 5
+	for i, tid := range []int{cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal} {
+		tx := cx + dp(16) + int32(i)*(btn5W+dp(6))
+		tw := btn5W
+		if i == 4 {
+			tw = cx + cw - dp(16) - tx
+		}
+		place(tid, tx, ct+dp(68), tw, dp(64))
+	}
 
 	sysSw := []int{cShowHud, cSound, cSkipLayout, cClipboard, cAdmin, cShowDlg}
 	for row, id := range sysSw {
-		place(id, cx+dp(16), ct+dp(98)+int32(row)*dp(25), cw-dp(32), dp(25))
+		place(id, cx+dp(16), ct+dp(140)+int32(row)*dp(24), cw-dp(32), dp(24))
 	}
-	place(stExcludeSection, cx+dp(16), ct+dp(268), cw-dp(32), dp(20))
-	place(cRememberAppMode, cx+dp(16), ct+dp(292), cw-dp(32), dp(26))
-	place(cExcludeBrowse, cx+dp(16), ct+dp(322), dp(120), dp(30))
-	place(cExcludeEdit, cx+dp(144), ct+dp(322), dp(170), dp(30))
-	place(stExcludeHint, cx+dp(16), ct+dp(358), cw-dp(32), dp(36))
+	place(stExcludeSection, cx+dp(16), ct+dp(306), cw-dp(32), dp(18))
+	place(cRememberAppMode, cx+dp(16), ct+dp(328), cw-dp(32), dp(24))
+	place(cExcludeBrowse, cx+dp(16), ct+dp(356), dp(120), dp(28))
+	place(cExcludeEdit, cx+dp(144), ct+dp(356), dp(170), dp(28))
+	place(stExcludeHint, cx+dp(16), ct+dp(388), cw-dp(32), dp(32))
 
 	// Tab 4 — Giới thiệu (button sits inside the second card)
 	place(cUpdateBtn, cx+cw-dp(20)-dp(170), ct+dp(317), dp(170), dp(32))
@@ -1439,7 +1564,10 @@ func syncControls() {
 	}
 	pSendMessage.Call(ctlHnd[cIMCombo], CB_SETCURSEL, uintptr(imIdx(gIM)), 0)
 	pSendMessage.Call(ctlHnd[cCharset], CB_SETCURSEL, uintptr(cfg.Charset), 0)
-	for _, tid := range []int{cThemeAuto, cThemeLight, cThemeDark} {
+	for _, tid := range []int{
+		cThemeAuto, cThemeLight, cThemeDark,
+		cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
+	} {
 		if ctlHnd[tid] != 0 {
 			pInvalidateRect.Call(ctlHnd[tid], 0, 1)
 		}
@@ -1632,7 +1760,7 @@ func launchUpdater(now bool) {
 	// 10-15s on AV/SmartScreen scans, and this thread owns the LL hooks.
 	go func() {
 		defer updaterRunning.Store(false)
-		defer func() { recoverCrash("updater", recover()) }()
+		defer func() { _ = recover() }()
 		c := exec.Command(up, args...)
 		c.Dir = exeDir()
 		if c.Start() == nil {
@@ -1761,6 +1889,25 @@ func settingsCommand(id int) {
 			pDestroyWindow.Call(gSettingsHwnd)
 			return
 		}
+	case cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal:
+		newStyle := styleJade
+		switch id {
+		case cThemeIosPure:
+			newStyle = styleIosPure
+		case cThemeCyberNeon:
+			newStyle = styleCyberNeon
+		case cThemeMatchaLatte:
+			newStyle = styleMatchaLatte
+		case cThemeMaterialTeal:
+			newStyle = styleMaterialTeal
+		}
+		if newStyle != cfg.Style {
+			cfg.Style = newStyle
+			saveSettings()
+			rethemed = true
+			pDestroyWindow.Call(gSettingsHwnd)
+			return
+		}
 	}
 	gEngine.SetOptions(o)
 	saveSettings()
@@ -1784,7 +1931,7 @@ type minmaxinfo struct {
 }
 
 func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
-	defer func() { recoverCrash("settings", recover()) }()
+	defer func() { _ = recover() }()
 	switch msg {
 	case WM_CREATE:
 		gHoveredTab = -1
@@ -2005,6 +2152,9 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			case id == cThemeAuto || id == cThemeLight || id == cThemeDark:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothThemeButton(di.hDC, di.rcItem, id, pressed)
+			case id == cThemeJade || id == cThemeIosPure || id == cThemeCyberNeon || id == cThemeMatchaLatte || id == cThemeMaterialTeal:
+				pressed := di.itemState&ODS_SELECTED != 0
+				drawSmoothStyleCard(di.hDC, di.rcItem, id, pressed)
 			case btnIDs[id]:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothButton(di.hDC, di.rcItem, id, pressed)
@@ -2014,7 +2164,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_CTLCOLORSTATIC, WM_CTLCOLORBTN:
 		col := uintptr(colText)
 		if goldCtls[lp] {
-			col = colText
+			col = colGold
 		} else if mutedCtls[lp] {
 			col = colMuted
 		}

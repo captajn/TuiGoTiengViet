@@ -27,6 +27,8 @@ var (
 
 // Icon handles are recreated only when theme or display scale changes.
 var trayDark bool
+var trayTheme = -1
+var trayStyle = -1
 var traySize int
 var trayLastViet bool
 var gTrayToggleApp inputAppContext // target captured before the deferred single click
@@ -38,13 +40,10 @@ func refreshTrayIcons() {
 	if size < 16 || size > 128 {
 		size = 16
 	}
-	if gIconVn != 0 && gIconEn != 0 && trayDark == dark && traySize == int(size) {
+	if gIconVn != 0 && gIconEn != 0 && trayDark == dark && trayTheme == cfg.Theme && trayStyle == cfg.Style && traySize == int(size) {
 		return
 	}
-	p := palDark
-	if !dark {
-		p = palLight
-	}
+	p := curPalette()
 	vn, en := makeTrayIcon(true, int(size), p), makeTrayIcon(false, int(size), p)
 	if vn == 0 || en == 0 {
 		pDestroyIcon.Call(vn)
@@ -53,7 +52,7 @@ func refreshTrayIcons() {
 	}
 	oldVn, oldEn := gIconVn, gIconEn
 	gIconVn, gIconEn = vn, en
-	trayDark, traySize = dark, int(size)
+	trayDark, trayTheme, trayStyle, traySize = dark, cfg.Theme, cfg.Style, int(size)
 	if gTrayAdded {
 		trayUpdate()
 	}
@@ -68,7 +67,7 @@ func refreshTrayIcons() {
 // Runs on the UI thread, including when focus changes without a keystroke.
 func syncTrayState() {
 	changed := effectiveViet() != trayLastViet
-	themeChanged := trayDark != isDark()
+	themeChanged := trayDark != isDark() || trayTheme != cfg.Theme || trayStyle != cfg.Style
 	refreshTrayIcons()
 	if changed || themeChanged {
 		trayUpdate()
@@ -201,12 +200,11 @@ func flipVietKeyForApp(app inputAppContext) bool {
 	return true
 }
 
-// toggleEffects is the heavyweight half of a toggle — log file, beep, tray
+// toggleEffects is the heavyweight half of a toggle — beep, tray
 // RPC, HUD flash, registry save. Posted onto the message loop so the hook
 // never pays for it.
-func toggleEffects(src string) {
+func toggleEffects(_ string) {
 	spec, _, _ := foregroundApp()
-	logLine("toggleVN via " + src)
 	if cfg.SoundOnToggle {
 		pMessageBeep.Call(0x00000040) // MB_ICONASTERISK
 	}

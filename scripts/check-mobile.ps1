@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $output = Join-Path $repo 'build/mobile-redesign'
 New-Item -ItemType Directory -Force $output | Out-Null
+& python -P (Join-Path $PSScriptRoot 'check-no-diagnostics.py')
+if ($LASTEXITCODE -ne 0) { throw 'Product diagnostics policy failed' }
 & python -P (Join-Path $PSScriptRoot 'check-palette.py')
 if ($LASTEXITCODE -ne 0) { throw 'Mobile palette differs from Windows' }
 Push-Location (Join-Path $repo 'android')

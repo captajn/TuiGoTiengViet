@@ -109,10 +109,273 @@ var palLight = palette{
 	aKeycap:    0xFFF1F5F9,
 }
 
+// 1A. Apple iOS 18 Pro (Light) — Crisp Silver-Gray & Pure White 3D Cards with Apple Blue (#007AFF) & iOS Green (#34C759)
+var palIosLight = palette{
+	bg:          0xF0E9E5, // #E5E9F0
+	card:        0xFFFFFF, // #FFFFFF
+	border:      0xD8CDC5, // #C5CDD8
+	text:        0x1E1C1C, // #1C1C1E
+	gold:        0xFF7A00, // #007AFF Apple Blue
+	amber:       0xD65658, // #5856D6 Apple Indigo
+	jade:        0xFF7A00, // #007AFF Apple Blue
+	vermilion:   0x303BFF, // #FF3B30 Apple Red
+	muted:       0x666363, // #636366
+	pill:        0xDBD5D1, // #D1D5DB
+	goldDim:     0xDBD5D1, // #D1D5DB
+	btnBg:       0xFFFFFF, // #FFFFFF
+	btnHover:    0xF8F4F2, // #F2F4F8
+	btnBorder:   0xD8CDC5, // #C5CDD8
+	btnText:     0x1E1C1C, // #1C1C1E
+	navActiveBg: 0xFFEBDC, // #DCEBFF
+	navActiveBd: 0xFF7A00, // #007AFF
+
+	aBg:        0xFFE5E9F0,
+	aCard:      0xFFFFFFFF,
+	aBorder:    0xFFC5CDD8,
+	aText:      0xFF1C1C1E,
+	aMuted:     0xFF636366,
+	aAccent:    0xFF007AFF,
+	aSwitchOn:  0xFF34C759,
+	aSwitchOff: 0xFFD1D5DB,
+	aKeycap:    0xFFFFFFFF,
+}
+
+// 1B. Apple iOS 18 Pro (Dark) — Pure OLED Black (#000000), Charcoal Elevated Card (#1C1C1E) & iOS Dark Blue (#0A84FF)
+var palIosDark = palette{
+	bg:          0x000000, // #000000
+	card:        0x1E1C1C, // #1C1C1E
+	border:      0x3A3838, // #38383A
+	text:        0xFFFFFF, // #FFFFFF
+	gold:        0xFF840A, // #0A84FF iOS Dark Blue
+	amber:       0xE65C5E, // #5E5CE6 iOS Dark Indigo
+	jade:        0xFF840A, // #0A84FF
+	vermilion:   0x3A45FF, // #FF453A
+	muted:       0x938E8E, // #8E8E93
+	pill:        0x3D3939, // #39393D
+	goldDim:     0x3A3838, // #38383A
+	btnBg:       0x2E2C2C, // #2C2C2E
+	btnHover:    0x3C3A3A, // #3A3A3C
+	btnBorder:   0x4A4848, // #48484A
+	btnText:     0xFFFFFF, // #FFFFFF
+	navActiveBg: 0x3D240A, // #0A243D
+	navActiveBd: 0xFF840A, // #0A84FF
+
+	aBg:        0xFF000000,
+	aCard:      0xFF1C1C1E,
+	aBorder:    0xFF38383A,
+	aText:      0xFFFFFFFF,
+	aMuted:     0xFF8E8E93,
+	aAccent:    0xFF0A84FF,
+	aSwitchOn:  0xFF30D158,
+	aSwitchOff: 0xFF39393D,
+	aKeycap:    0xFF2C2C2E,
+}
+
+// 2A. Cyber Neon (Dark AMOLED) — True Black (#04060A), Glowing Cyan (#00F2FE) & Neon Mint (#10B981)
+var palCyberDark = palette{
+	bg:          0x0A0604, // #04060A
+	card:        0x1E110B, // #0B111E
+	border:      0xE9A50E, // #0EA5E9
+	text:        0xFEF2E0, // #E0F2FE
+	gold:        0xFEF200, // #00F2FE Electric Cyan
+	amber:       0xF8BD38, // #38BDF8
+	jade:        0x81B910, // #10B981 Neon Mint
+	vermilion:   0x5E3FF4, // #F43F5E
+	muted:       0xFCD37D, // #7DD3FC
+	pill:        0x3B2216, // #16223B
+	goldDim:     0x6E4A0C, // #0C4A6E
+	btnBg:       0x2A170F, // #0F172A
+	btnHover:    0x3B291E, // #1E293B
+	btnBorder:   0xE9A50E, // #0EA5E9
+	btnText:     0xFEF2E0, // #E0F2FE
+	navActiveBg: 0x492F08, // #082F49
+	navActiveBd: 0xFEF200, // #00F2FE
+
+	aBg:        0xFF04060A,
+	aCard:      0xFF0B111E,
+	aBorder:    0xFF0EA5E9,
+	aText:      0xFFE0F2FE,
+	aMuted:     0xFF7DD3FC,
+	aAccent:    0xFF00F2FE,
+	aSwitchOn:  0xFF10B981,
+	aSwitchOff: 0xFF16223B,
+	aKeycap:    0xFF0F172A,
+}
+
+// 2B. Cyber Neon (Light Daylight) — Ice Cyan Lab (#E0F2FE), Crisp White & Electric Sky (#0284C7) + Neon Mint (#10B981)
+var palCyberLight = palette{
+	bg:          0xFEF2E0, // #E0F2FE
+	card:        0xFFFFFF, // #FFFFFF
+	border:      0xF8BD38, // #38BDF8
+	text:        0x492F08, // #082F49
+	gold:        0xC78402, // #0284C7 Electric Sky
+	amber:       0xD4B606, // #06B6D4 Cyan
+	jade:        0x699605, // #059669 Emerald
+	vermilion:   0x481DE1, // #E11D48
+	muted:       0xA16903, // #0369A1
+	pill:        0xFDE6BA, // #BAE6FD
+	goldDim:     0xFCDB7D, // #7DD3FC
+	btnBg:       0xFFF9F0, // #F0F9FF
+	btnHover:    0xFEEFE0, // #E0EFFE
+	btnBorder:   0xF8BD38, // #38BDF8
+	btnText:     0x492F08, // #082F49
+	navActiveBg: 0xFDE6BA, // #BAE6FD
+	navActiveBd: 0xC78402, // #0284C7
+
+	aBg:        0xFFE0F2FE,
+	aCard:      0xFFFFFFFF,
+	aBorder:    0xFF38BDF8,
+	aText:      0xFF082F49,
+	aMuted:     0xFF0369A1,
+	aAccent:    0xFF0284C7,
+	aSwitchOn:  0xFF10B981,
+	aSwitchOff: 0xFFBAE6FD,
+	aKeycap:    0xFFF0F9FF,
+}
+
+// 3A. Pastel Matcha Latte (Light) — Warm Butter Cream (#EDE4D8), Milk Foam (#FFFDF9) & Matcha (#2D6A4F) + Peach (#E07A5F)
+var palMatchaLight = palette{
+	bg:          0xD8E4ED, // #EDE4D8
+	card:        0xF9FDFF, // #FFFDF9
+	border:      0xAEC3D5, // #D5C3AE
+	text:        0x242E3D, // #3D2E24 Rich Espresso Brown
+	gold:        0x4F6A2D, // #2D6A4F Deep Matcha
+	amber:       0x5F7AE0, // #E07A5F Terra Peach
+	jade:        0x6C9140, // #40916C Matcha Leaf
+	vermilion:   0x5F7AE0, // #E07A5F Terra Peach
+	muted:       0x5D6B7D, // #7D6B5D Warm Mocha
+	pill:        0xB6C9DC, // #DCC9B6 Warm Biscuit
+	goldDim:     0xAEC3D5, // #D5C3AE
+	btnBg:       0xE0ECF5, // #F5ECE0
+	btnHover:    0xCBDCE8, // #E8DCCB
+	btnBorder:   0x96ADC2, // #C2AD96
+	btnText:     0x242E3D, // #3D2E24
+	navActiveBg: 0xDCF3D8, // #D8F3DC
+	navActiveBd: 0x4F6A2D, // #2D6A4F
+
+	aBg:        0xFFEDE4D8,
+	aCard:      0xFFFFFDF9,
+	aBorder:    0xFFD5C3AE,
+	aText:      0xFF3D2E24,
+	aMuted:     0xFF7D6B5D,
+	aAccent:    0xFF2D6A4F,
+	aSwitchOn:  0xFF40916C,
+	aSwitchOff: 0xFFDCC9B6,
+	aKeycap:    0xFFF5ECE0,
+}
+
+// 3B. Pastel Matcha Latte (Dark Espresso) — Roasted Forest (#121A16), Matcha Card (#1B2822) & Creamy Matcha (#74C69D)
+var palMatchaDark = palette{
+	bg:          0x161A12, // #121A16
+	card:        0x22281B, // #1B2822
+	border:      0x39442D, // #2D4439
+	text:        0xE1ECF4, // #F4ECE1 Warm Oat Cream
+	gold:        0x9DC674, // #74C69D Creamy Matcha
+	amber:       0x61A2F4, // #F4A261 Warm Peach
+	jade:        0x88B752, // #52B788 Matcha Leaf
+	vermilion:   0x61A2F4, // #F4A261
+	muted:       0xA6B895, // #95B8A6 Soft Sage
+	pill:        0x333D2A, // #2A3D33
+	goldDim:     0x39442D, // #2D4439
+	btnBg:       0x2C3524, // #24352C
+	btnHover:    0x39442D, // #2D4439
+	btnBorder:   0x4A593B, // #3B594A
+	btnText:     0xE1ECF4, // #F4ECE1
+	navActiveBg: 0x2E3F24, // #243F2E
+	navActiveBd: 0x9DC674, // #74C69D
+
+	aBg:        0xFF121A16,
+	aCard:      0xFF1B2822,
+	aBorder:    0xFF2D4439,
+	aText:      0xFFF4ECE1,
+	aMuted:     0xFF95B8A6,
+	aAccent:    0xFF74C69D,
+	aSwitchOn:  0xFF52B788,
+	aSwitchOff: 0xFF2A3D33,
+	aKeycap:    0xFF24352C,
+}
+
+// 4A. Material 3 Expressive (Dark) — Pixel Slate-Teal (#0E171D) & Expressive Aqua Pill (#2DD4BF)
+var palMaterialDark = palette{
+	bg:          0x1D170E, // #0E171D
+	card:        0x302517, // #172530
+	border:      0x56442A, // #2A4456
+	text:        0xF1F4E6, // #E6F4F1
+	gold:        0xBFD42D, // #2DD4BF Expressive Teal
+	amber:       0xD4EA5E, // #5EEAD4
+	jade:        0xBFD42D, // #2DD4BF
+	vermilion:   0x8571FB, // #FB7185
+	muted:       0xB8A888, // #88A8B8
+	pill:        0x4A3B24, // #243B4A
+	goldDim:     0x45351E, // #1E3545
+	btnBg:       0x3E311E, // #1E313E
+	btnHover:    0x524128, // #284152
+	btnBorder:   0x6D5636, // #36566D
+	btnText:     0xF1F4E6, // #E6F4F1
+	navActiveBg: 0x3E3C13, // #133C3E
+	navActiveBd: 0xBFD42D, // #2DD4BF
+
+	aBg:        0xFF0E171D,
+	aCard:      0xFF172530,
+	aBorder:    0xFF2A4456,
+	aText:      0xFFE6F4F1,
+	aMuted:     0xFF88A8B8,
+	aAccent:    0xFF2DD4BF,
+	aSwitchOn:  0xFF2DD4BF,
+	aSwitchOff: 0xFF243B4A,
+	aKeycap:    0xFF1E313E,
+}
+
+// 4B. Material 3 Expressive (Light) — Pixel Mint-Teal Daylight (#E6F7F5), Tonal Aqua (#CCFBF1) & Deep Teal (#0F766E)
+var palMaterialLight = palette{
+	bg:          0xF5F7E6, // #E6F7F5
+	card:        0xFFFFFF, // #FFFFFF
+	border:      0xD8E699, // #99E6D8
+	text:        0x282B0D, // #0D2B28
+	gold:        0x6E760F, // #0F766E Deep Teal
+	amber:       0xA6B814, // #14B8A6
+	jade:        0x88940D, // #0D9488 Teal Switch
+	vermilion:   0x481DE1, // #E11D48
+	muted:       0x666B3D, // #3D6B66
+	pill:        0xDFE8B2, // #B2E8DF
+	goldDim:     0xD8E699, // #99E6D8
+	btnBg:       0xF1FBCC, // #CCFBF1
+	btnHover:    0xE4F699, // #99F6E4
+	btnBorder:   0xC8DC80, // #80DCC8
+	btnText:     0x282B0D, // #0D2B28
+	navActiveBg: 0xF1FBCC, // #CCFBF1
+	navActiveBd: 0x6E760F, // #0F766E
+
+	aBg:        0xFFE6F7F5,
+	aCard:      0xFFFFFFFF,
+	aBorder:    0xFF99E6D8,
+	aText:      0xFF0D2B28,
+	aMuted:     0xFF3D6B66,
+	aAccent:    0xFF0F766E,
+	aSwitchOn:  0xFF0D9488,
+	aSwitchOff: 0xFFB2E8DF,
+	aKeycap:    0xFFCCFBF1,
+}
+
+var (
+	palIosPure      = palIosLight
+	palCyberNeon    = palCyberDark
+	palMatchaLatte  = palMatchaLight
+	palMaterialTeal = palMaterialDark
+)
+
 const (
 	themeAuto = iota
 	themeDark
 	themeLight
+)
+
+const (
+	styleJade = iota
+	styleIosPure
+	styleCyberNeon
+	styleMatchaLatte
+	styleMaterialTeal
 )
 
 func windowsDark() bool {
@@ -136,6 +399,36 @@ func isDark() bool {
 	return windowsDark()
 }
 
+func curPalette() palette {
+	dark := isDark()
+	switch cfg.Style {
+	case styleIosPure:
+		if dark {
+			return palIosDark
+		}
+		return palIosLight
+	case styleCyberNeon:
+		if dark {
+			return palCyberDark
+		}
+		return palCyberLight
+	case styleMatchaLatte:
+		if dark {
+			return palMatchaDark
+		}
+		return palMatchaLight
+	case styleMaterialTeal:
+		if dark {
+			return palMaterialDark
+		}
+		return palMaterialLight
+	}
+	if dark {
+		return palDark
+	}
+	return palLight
+}
+
 func deleteGdiObj(h *uintptr) {
 	if *h != 0 {
 		pDeleteObject.Call(*h)
@@ -149,10 +442,7 @@ var (
 )
 
 func applyTheme() {
-	p := palDark
-	if !isDark() {
-		p = palLight
-	}
+	p := curPalette()
 	colBg, colCard, colBorder = p.bg, p.card, p.border
 	colText, colMuted = p.text, p.muted
 	colGold, colAmber, colJade = p.gold, p.amber, p.jade
@@ -198,4 +488,7 @@ func applyTheme() {
 	penJade, _, _ = pCreatePen.Call(PS_SOLID, 1, colJade)
 	penMuted, _, _ = pCreatePen.Call(PS_SOLID, 1, colMuted)
 	penWhite2, _, _ = pCreatePen.Call(PS_SOLID, 2, 0xFFFFFF)
+
+	refreshTrayIcons()
+	hudUpdate()
 }

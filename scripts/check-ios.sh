@@ -2,6 +2,7 @@
 set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo/ios"
+python3 -P "$repo/scripts/check-no-diagnostics.py"
 python3 -P "$repo/scripts/check-palette.py"
 swift test
 command -v xcodegen >/dev/null

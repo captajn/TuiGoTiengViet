@@ -1,13 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
-	"strconv"
 	"time"
 	"unsafe"
 
@@ -16,42 +13,13 @@ import (
 
 var gHwnd uintptr
 var gMsgTaskbarCreated uint32 // broadcast when Explorer (re)creates the taskbar
-var stderrFile *os.File       // keeps the stderr handle alive for fatal dumps
 
 // appVersion is injected at release time via -ldflags "-X main.appVersion=…";
 // local builds keep this default.
 var appVersion = "0.0.9"
 
-// recoverCrash must be deferred as `defer func() { recoverCrash(tag, recover()) }()`
-// in every windows.NewCallback path — recover() only works when called directly
-// inside the deferred function, NOT inside a helper it calls.
-func recoverCrash(where string, r any) {
-	if r == nil {
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(exeDir(), "crash.log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, "=== %s panic in %s: %v\n%s\n",
-		time.Now().Format("2006-01-02 15:04:05"), where, r, debug.Stack())
-}
-
-// logLine appends one timestamped line to crash.log (lifecycle diagnostics).
-func logLine(s string) {
-	f, err := os.OpenFile(filepath.Join(exeDir(), "crash.log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), s)
-}
-
 func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
-	defer func() { recoverCrash("wndproc", recover()) }()
+	defer func() { _ = recover() }()
 	switch msg {
 	case WM_TOGGLE_VN:
 		src := "hotkey"
@@ -138,10 +106,6 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		if !gTrayAdded {
 			trayAdd() // Explorer wasn't ready at boot — retry
 		}
-		tickCount++
-		if tickCount%10 == 0 {
-			logLine("alive") // heartbeat — if the app dies, the gap shows when
-		}
 		return 0
 	case WM_WTSSESSION_CHANGE:
 		// Lock/unlock crosses to the secure desktop: Windows may silently
@@ -149,7 +113,6 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		// screen — reinstall on unlock instead of trusting the watchdog.
 		if wp == WTS_SESSION_UNLOCK {
 			reinstallHooks()
-			logLine("session unlock: hooks reinstalled")
 		}
 		return 0
 	case WM_DESTROY:
@@ -174,34 +137,16 @@ func exeDir() string {
 
 func main() {
 	runtime.LockOSThread() // hook + message loop must live on one thread
-	// Runtime fatals (stack corruption, missed-keyup races, engine bugs)
-	// bypass recover(); "crash" makes the runtime hand them to WER so a
-	// silent death leaves an Event Viewer entry + dump instead of nothing.
-	debug.SetTraceback("crash")
-	// Route stderr into crash.log: Go *fatal errors* (e.g. access violations
-	// inside Win32 calls) bypass recover() and write to stderr — invisible
-	// in a windowsgui build unless we give stderr a real handle.
-	// The file MUST be kept in a global: os.File has a GC finalizer that
-	// closes the underlying handle — a dead stderr swallows the traceback.
-	if f, err := os.OpenFile(filepath.Join(exeDir(), "crash.log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
-		windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd()))
-		stderrFile = f
-	}
-	defer func() { recoverCrash("main", recover()) }()
-	logLine("main: entered")
+	defer func() { _ = recover() }()
 
 	mtx, err := windows.CreateMutex(nil, true, utf16ptr("BoGoTiengViet.SingleInstance"))
-	logLine(fmt.Sprintf("main: CreateMutex err=%v lastErr=%v", err, windows.GetLastError()))
 	if err == nil && windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
-		logLine("main: already exists -> exit")
 		return
 	}
 	if err != nil {
 		// Access denied = another instance owns the mutex at a different
 		// integrity level (elevated vs normal). Running anyway would stack
 		// two keyboard hooks and double-process every key.
-		logLine(fmt.Sprintf("main: mutex failed err=%v -> exit", err))
 		return
 	}
 	_ = mtx
@@ -210,7 +155,6 @@ func main() {
 	gEngine = eng
 	gEngine.Setup()
 	gEngine.SetInputMethod(ImTelex)
-	logLine("main: after Setup")
 
 	dir := exeDir()
 	gEngine.LoadMacro(filepath.Join(dir, "macro.txt"))
@@ -219,8 +163,6 @@ func main() {
 	loadStartup()
 	settingsExisted := loadSettings()
 	gEngine.SetVietKey(gVietKey)
-	logLine("main: after loadSettings")
-	logLine(fmt.Sprintf("main: testMagic=%d", gTestMagic))
 
 	// hidden message-only window for tray callbacks
 	className := utf16ptr("BoGoTiengVietWnd")
@@ -234,18 +176,14 @@ func main() {
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))),
 		0, 0, 0, 0, 0, HWND_MESSAGE, 0, 0, 0)
-	logLine(fmt.Sprintf("main: gHwnd=%d", gHwnd))
 
 	applyTheme()
-	logLine("main: after applyTheme")
 	refreshTrayIcons()
 	tm, _, _ := pRegisterWindowMsg.Call(uintptr(unsafe.Pointer(utf16ptr("TaskbarCreated"))))
 	gMsgTaskbarCreated = uint32(tm)
 	trayAdd()
 	trayUpdate()
-	logLine("main: after trayAdd")
 	hudInit()
-	logLine("main: after hudInit")
 	// Session lock/unlock notifications: needed to reinstall LL hooks that
 	// Windows drops across the secure-desktop switch. Register on both —
 	// the message-only hwnd is a fallback if HUD creation failed.
@@ -260,21 +198,16 @@ func main() {
 	// user opted in. A manual relaunch opens quietly in the tray — double-click
 	// the tray icon for settings.
 	if !settingsExisted || (isStartupLaunch() && cfg.ShowOnLaunch) {
-		logLine("main: before openSettings")
 		openSettings()
-		logLine("main: after openSettings")
 	} else if !isStartupLaunch() {
 		hudFlash() // manual relaunch: flash HUD so the user sees it started
 	}
 
-	logLine("main: before installHook")
 	if !installHook() {
-		logLine("main: installHook failed!")
 		pMessageBox.Call(0, uintptr(unsafe.Pointer(utf16ptr("Không cài được keyboard hook."))),
 			uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))), 0x10)
 		os.Exit(1)
 	}
-	logLine("main: after installHook")
 	pSetTimer.Call(gHwnd, 1, 30000, 0)
 	pSetTimer.Call(gHwnd, 3, 500, 0) // tray follows the foreground app and theme
 
@@ -292,7 +225,7 @@ func main() {
 		if _, err := os.Stat(up); err != nil {
 			return
 		}
-		if c := exec.Command(up, "-watch", strconv.Itoa(os.Getpid())); c.Start() == nil {
+		if c := exec.Command(up); c.Start() == nil {
 			c.Process.Release()
 		}
 	}()
@@ -302,7 +235,6 @@ func main() {
 	for {
 		r, _, _ = pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if int32(r) <= 0 {
-			logLine(fmt.Sprintf("main: GetMessage <= 0: r=%d", int32(r)))
 			break
 		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
@@ -312,10 +244,7 @@ func main() {
 	pUnhookWindowsHook.Call(gHook)
 	pUnhookWindowsHook.Call(gMouseHook)
 	trayDelete()
-	// Distinguish a clean exit (WM_QUIT → r=0) from silent death: if the
-	// process vanishes without this line in crash.log, something external
-	// (AV/TerminateProcess) killed it.
-	logLine(fmt.Sprintf("exit clean: GetMessage=%d msg=0x%X", int32(r), uint32(m.message)))
+
 }
 
 var hookCb, mouseCb uintptr
@@ -351,7 +280,6 @@ var (
 	gPrevInputTick uint32
 	gPrevHookSeen  uint64
 	gPrevMouseSeen uint64
-	tickCount      int
 )
 
 type lastInputInfo struct {
@@ -376,7 +304,6 @@ func hookWatchdog() {
 	hooksMoved := gHookSeen != gPrevHookSeen || gMouseSeen != gPrevMouseSeen
 	if inputMoved && !hooksMoved {
 		reinstallHooks()
-		logLine("hook dead: reinstalled")
 	}
 	gPrevInputTick = lii.dwTime
 	gPrevHookSeen = gHookSeen

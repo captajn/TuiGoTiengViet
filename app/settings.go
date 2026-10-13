@@ -41,9 +41,7 @@ func readIni(path string) (map[string]string, error) {
 }
 
 func saveSettings() {
-	if err := saveSettingsTo(iniPath()); err != nil {
-		logLine("saveSettings: " + err.Error())
-	}
+	_ = saveSettingsTo(iniPath())
 }
 
 func saveSettingsTo(path string) error {
@@ -79,6 +77,7 @@ func saveSettingsTo(path string) error {
 	fmt.Fprintf(&b, "FKeys=%d\n", cfg.FKeys)
 	fmt.Fprintf(&b, "UseCtrlShift=%s\n", bv(cfg.UseCtrlShift))
 	fmt.Fprintf(&b, "Theme=%d\n", cfg.Theme)
+	fmt.Fprintf(&b, "Style=%d\n", cfg.Style)
 	fmt.Fprintf(&b, "HudX=%d\n", cfg.HudX)
 	fmt.Fprintf(&b, "HudY=%d\n", cfg.HudY)
 	names := make([]string, 0, len(gRememberedAppViet))
@@ -225,6 +224,19 @@ func loadSettings() bool {
 	cfg.UseCtrlShift = getB("UseCtrlShift", cfg.ToggleKey != 1)
 	if v, ok := getI("Theme"); ok {
 		cfg.Theme = v
+	}
+	if v, ok := getI("Style"); ok {
+		cfg.Style = v
+	}
+	if cfg.Theme >= 3 && cfg.Theme <= 6 {
+		cfg.Style = cfg.Theme - 2
+		cfg.Theme = 0
+	}
+	if cfg.Style < 0 || cfg.Style > 4 {
+		cfg.Style = 0
+	}
+	if cfg.Theme < 0 || cfg.Theme > 2 {
+		cfg.Theme = 0
 	}
 	if v, ok := getI("HudX"); ok {
 		cfg.HudX = v

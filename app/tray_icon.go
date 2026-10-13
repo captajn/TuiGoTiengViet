@@ -12,7 +12,8 @@ import (
 func trayBadgeColors(on bool, p palette) (fill, ink, border uintptr) {
 	if on {
 		ink = palDark.bg
-		if p.bg == palLight.bg {
+		if p.bg == palLight.bg || p.bg == palIosLight.bg || p.bg == palIosDark.bg ||
+			p.bg == palMatchaLight.bg || p.bg == palCyberLight.bg || p.bg == palMaterialLight.bg {
 			ink = palLight.card
 		}
 		return p.jade, ink, p.jade

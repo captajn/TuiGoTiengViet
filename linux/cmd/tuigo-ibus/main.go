@@ -10,7 +10,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -485,25 +484,20 @@ func component() *ibus.Component {
 
 func main() {
 	flag.Parse()
-	fmt.Fprintf(os.Stderr, "tuigo-ibus: starting (ibus=%v standalone=%v)\n",
-		*ibusMode, *standalone)
 
 	bus, err := ibus.NewBusE()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "tuigo-ibus:", err)
 		os.Exit(1)
 	}
 	defer bus.Close()
 
 	if err := bus.RequestNameChecked("org.freedesktop.IBus.TuiGo", 0); err != nil {
-		fmt.Fprintln(os.Stderr, "tuigo-ibus:", err)
 		os.Exit(1)
 	}
 
 	if *standalone {
 		call := bus.RegisterComponent(component())
 		if call.Err != nil {
-			fmt.Fprintln(os.Stderr, "tuigo-ibus: register component:", call.Err)
 			os.Exit(1)
 		}
 	}
@@ -513,10 +507,8 @@ func main() {
 		n := atomic.AddUint64(&engineCounter, 1)
 		path := dbus.ObjectPath("/org/freedesktop/IBus/Engine/" + strconv.FormatUint(n, 10))
 		ibus.PublishEngine(conn, path, newTuigoEngine(conn, path))
-		fmt.Fprintf(os.Stderr, "tuigo-ibus: created engine %s for %q\n", path, engineName)
 		return path
 	})
 
-	fmt.Fprintln(os.Stderr, "tuigo-ibus: factory ready")
 	<-bus.Done()
 }

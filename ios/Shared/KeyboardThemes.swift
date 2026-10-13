@@ -45,26 +45,26 @@ enum KeyboardThemes {
 
     private static let tuigoLight = KeyTheme(
         id: "tuigo", label: "Tui Gõ",
-        bg: rgb(0xF8FAFC), bgEnd: rgb(0xE2F0E7),
-        key: rgb(0xF1F5F9), keyPressed: rgb(0x197F64),
-        funcKey: rgb(0xEFF3F6), funcPressed: rgb(0x197F64),
+        bg: rgb(0xF8FAFC), bgEnd: rgb(0xF1F5F9),
+        key: rgb(0xFFFFFF), keyPressed: rgb(0xE2E8F0),
+        funcKey: rgb(0xEFF3F6), funcPressed: rgb(0xCBD5E1),
         border: rgb(0xE2E8F0), corner: 10,
         text: rgb(0x0F172A), funcText: rgb(0x0F172A),
         accent: rgb(0x197F64), onAccent: rgb(0xFFFFFF),
-        space: rgb(0xEFF3F6), spaceBorder: rgb(0xE2E8F0), spaceText: rgb(0x64748B),
-        blueGlyphs: false, enterAccentFill: true, pressAccent: true,
-        popup: rgb(0xF1F5F9), popupText: rgb(0x0F172A), popupBorder: rgb(0xE2E8F0))
+        space: rgb(0xFFFFFF), spaceBorder: rgb(0xE2E8F0), spaceText: rgb(0x64748B),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0xFFFFFF), popupText: rgb(0x0F172A), popupBorder: rgb(0xE2E8F0))
     private static let tuigoDark = KeyTheme(
         id: "tuigo", label: "Tui Gõ",
-        bg: rgb(0x0F1115), bgEnd: rgb(0x243D3B),
-        key: rgb(0x222630), keyPressed: rgb(0x3ED3B8),
-        funcKey: rgb(0x1C2027), funcPressed: rgb(0x3ED3B8),
-        border: rgb(0x272B35), corner: 10,
+        bg: rgb(0x0F1115), bgEnd: rgb(0x161922),
+        key: rgb(0x232834), keyPressed: rgb(0x353C4D),
+        funcKey: rgb(0x1A1E27), funcPressed: rgb(0x2B3241),
+        border: rgb(0x2E3545), corner: 10,
         text: rgb(0xF8FAFC), funcText: rgb(0xF8FAFC),
         accent: rgb(0x3ED3B8), onAccent: rgb(0x0F1115),
-        space: rgb(0x1C2027), spaceBorder: rgb(0x272B35), spaceText: rgb(0x94A3B8),
-        blueGlyphs: false, enterAccentFill: true, pressAccent: true,
-        popup: rgb(0x222630), popupText: rgb(0xF8FAFC), popupBorder: rgb(0x272B35))
+        space: rgb(0x232834), spaceBorder: rgb(0x2E3545), spaceText: rgb(0x94A3B8),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0x232834), popupText: rgb(0xF8FAFC), popupBorder: rgb(0x2E3545))
 
     private static let laban = KeyTheme(
         id: "laban", label: "Laban",
@@ -221,16 +221,141 @@ enum KeyboardThemes {
         blueGlyphs: false, enterAccentFill: true, pressAccent: false,
         popup: rgb(0x3D484D), popupText: rgb(0xECEFF1), popupBorder: rgb(0x3D484D))
 
-    static let ids = ["tuigo", "adaptive", "laban", "white", "black", "gray", "blue",
-                      "ios", "ios_old", "ics", "kitkat", "silver", "wood", "dark", "n_light", "n_dark"]
+    private static let iosPureLight = KeyTheme(
+        id: "ios_pure", label: "iOS Hiện đại",
+        bg: rgb(0xD1D5DB), bgEnd: rgb(0xCBD0D8),
+        key: rgb(0xFFFFFF), keyPressed: rgb(0xE2E6EB),
+        funcKey: rgb(0xAEB5BF), funcPressed: rgb(0x98A0AC),
+        border: clear, corner: 9,
+        text: rgb(0x000000), funcText: rgb(0x1F2937),
+        accent: rgb(0x007AFF), onAccent: rgb(0xFFFFFF),
+        space: rgb(0xFFFFFF), spaceBorder: clear, spaceText: rgb(0x4B5563),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0xFFFFFF), popupText: rgb(0x000000), popupBorder: rgb(0xC5C9D0))
+
+    private static let iosPureDark = KeyTheme(
+        id: "ios_pure", label: "iOS Hiện đại",
+        bg: rgb(0x1C1C1E), bgEnd: rgb(0x121214),
+        key: rgb(0x3A3A3C), keyPressed: rgb(0x545458),
+        funcKey: rgb(0x2C2C2E), funcPressed: rgb(0x48484A),
+        border: clear, corner: 9,
+        text: rgb(0xFFFFFF), funcText: rgb(0xEBEBF5),
+        accent: rgb(0x0A84FF), onAccent: rgb(0xFFFFFF),
+        space: rgb(0x3A3A3C), spaceBorder: clear, spaceText: rgb(0xAEAEB2),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0x3A3A3C), popupText: rgb(0xFFFFFF), popupBorder: rgb(0x545458))
+
+    private static let cyberNeonDark = KeyTheme(
+        id: "cyber_neon", label: "Cyber Neon",
+        bg: rgb(0x04060A), bgEnd: rgb(0x0B101E),
+        key: rgb(0x0B111E), keyPressed: rgb(0x16223B),
+        funcKey: rgb(0x080D18), funcPressed: rgb(0x142038),
+        border: rgb(0x0EA5E9), corner: 8,
+        text: rgb(0x38BDF8), funcText: rgb(0x7DD3FC),
+        accent: rgb(0x10B981), onAccent: rgb(0x04060A),
+        space: rgb(0x0B111E), spaceBorder: rgb(0x0EA5E9), spaceText: rgb(0x38BDF8),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0x0B111E), popupText: rgb(0x38BDF8), popupBorder: rgb(0x0EA5E9))
+
+    private static let cyberNeonLight = KeyTheme(
+        id: "cyber_neon", label: "Cyber Neon",
+        bg: rgb(0xE0F2FE), bgEnd: rgb(0xBAE6FD),
+        key: rgb(0xFFFFFF), keyPressed: rgb(0xE0F2FE),
+        funcKey: rgb(0xBAE6FD), funcPressed: rgb(0x7DD3FC),
+        border: rgb(0x0284C7), corner: 8,
+        text: rgb(0x082F49), funcText: rgb(0x0369A1),
+        accent: rgb(0x10B981), onAccent: rgb(0xFFFFFF),
+        space: rgb(0xFFFFFF), spaceBorder: rgb(0x0284C7), spaceText: rgb(0x0369A1),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0xFFFFFF), popupText: rgb(0x082F49), popupBorder: rgb(0x0284C7))
+
+    private static let matchaLatteLight = KeyTheme(
+        id: "matcha_latte", label: "Matcha Latte",
+        bg: rgb(0xEDE4D8), bgEnd: rgb(0xF5ECE0),
+        key: rgb(0xFFFDF9), keyPressed: rgb(0xEFE8DD),
+        funcKey: rgb(0xA8D5BA), funcPressed: rgb(0x8FC4A3),
+        border: rgb(0xD8C7B5), corner: 12,
+        text: rgb(0x4A3B32), funcText: rgb(0x1B432C),
+        accent: rgb(0xF7C59F), onAccent: rgb(0x542E13),
+        space: rgb(0xFFFDF9), spaceBorder: rgb(0xD8C7B5), spaceText: rgb(0x4A3B32),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0xFFFDF9), popupText: rgb(0x4A3B32), popupBorder: rgb(0xD8C7B5))
+
+    private static let matchaLatteDark = KeyTheme(
+        id: "matcha_latte", label: "Matcha Latte",
+        bg: rgb(0x121A16), bgEnd: rgb(0x1B2822),
+        key: rgb(0x24352C), keyPressed: rgb(0x334C3F),
+        funcKey: rgb(0x1B2822), funcPressed: rgb(0x2D4439),
+        border: rgb(0x385446), corner: 12,
+        text: rgb(0xF4ECE1), funcText: rgb(0x95B8A6),
+        accent: rgb(0x74C69D), onAccent: rgb(0x121A16),
+        space: rgb(0x24352C), spaceBorder: rgb(0x385446), spaceText: rgb(0xF4ECE1),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0x24352C), popupText: rgb(0xF4ECE1), popupBorder: rgb(0x52B788))
+
+    private static let modernJadeLight = KeyTheme(
+        id: "modern_jade", label: "Modern Jade",
+        bg: rgb(0xE6F7F5), bgEnd: rgb(0xCCFBF1),
+        key: rgb(0xFFFFFF), keyPressed: rgb(0xCCFBF1),
+        funcKey: rgb(0xCCFBF1), funcPressed: rgb(0x99F6E4),
+        border: rgb(0x99E6D8), corner: 12,
+        text: rgb(0x0D2B28), funcText: rgb(0x0F766E),
+        accent: rgb(0x0D9488), onAccent: rgb(0xFFFFFF),
+        space: rgb(0xFFFFFF), spaceBorder: rgb(0x99E6D8), spaceText: rgb(0x0F766E),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0xFFFFFF), popupText: rgb(0x0D2B28), popupBorder: rgb(0x99E6D8))
+
+    private static let modernJadeDark = KeyTheme(
+        id: "modern_jade", label: "Modern Jade",
+        bg: rgb(0x0D1614), bgEnd: rgb(0x142420),
+        key: rgb(0x1B2E29), keyPressed: rgb(0x26403A),
+        funcKey: rgb(0x14221E), funcPressed: rgb(0x1D332D),
+        border: rgb(0x254039), corner: 12,
+        text: rgb(0xF0FDF4), funcText: rgb(0xD1FAE5),
+        accent: rgb(0x10B981), onAccent: rgb(0x064E3B),
+        space: rgb(0x1B2E29), spaceBorder: rgb(0x254039), spaceText: rgb(0xD1FAE5),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0x1B2E29), popupText: rgb(0xF0FDF4), popupBorder: rgb(0x254039))
+
+    private static let obsidian = KeyTheme(
+        id: "obsidian", label: "Obsidian",
+        bg: rgb(0x000000), bgEnd: rgb(0x090A0D),
+        key: rgb(0x16181F), keyPressed: rgb(0x262A36),
+        funcKey: rgb(0x0E0F14), funcPressed: rgb(0x1E212B),
+        border: rgb(0x222633), corner: 10,
+        text: rgb(0xF8FAFC), funcText: rgb(0x94A3B8),
+        accent: rgb(0x3ED3B8), onAccent: rgb(0x000000),
+        space: rgb(0x16181F), spaceBorder: rgb(0x222633), spaceText: rgb(0x94A3B8),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0x16181F), popupText: rgb(0xF8FAFC), popupBorder: rgb(0x222633))
+
+    private static let pastelMint = KeyTheme(
+        id: "pastel_mint", label: "Pastel Mint",
+        bg: rgb(0xF0FDF4), bgEnd: rgb(0xDCFCE7),
+        key: rgb(0xFFFFFF), keyPressed: rgb(0xD1FAE5),
+        funcKey: rgb(0xE1F8EC), funcPressed: rgb(0xC6F2DD),
+        border: rgb(0xC1EBD6), corner: 10,
+        text: rgb(0x064E3B), funcText: rgb(0x065F46),
+        accent: rgb(0x059669), onAccent: rgb(0xFFFFFF),
+        space: rgb(0xFFFFFF), spaceBorder: rgb(0xC1EBD6), spaceText: rgb(0x065F46),
+        blueGlyphs: false, enterAccentFill: true, pressAccent: false,
+        popup: rgb(0xFFFFFF), popupText: rgb(0x064E3B), popupBorder: rgb(0xC1EBD6))
+
+    static let ids = ["tuigo", "adaptive", "ios_pure", "cyber_neon", "matcha_latte", "modern_jade", "obsidian", "pastel_mint",
+                      "laban", "white", "black", "gray", "blue", "ios", "ios_old", "ics", "kitkat", "silver", "wood", "dark", "n_light", "n_dark"]
 
     static func label(_ id: String) -> String {
         id == "adaptive" ? "Theo hệ thống" : (all(dark: false).first { $0.id == id }?.label ?? id)
     }
 
     static func all(dark: Bool) -> [KeyTheme] {
-        [(dark ? tuigoDark : tuigoLight), laban, white, ios, iosOld, silver, wood,
-         nLight, ics, kitkat, KeyboardThemes.dark, black, gray, blue, nDark]
+        [(dark ? tuigoDark : tuigoLight),
+         (dark ? iosPureDark : iosPureLight),
+         (dark ? cyberNeonDark : cyberNeonLight),
+         (dark ? matchaLatteDark : matchaLatteLight),
+         (dark ? modernJadeDark : modernJadeLight),
+         obsidian, pastelMint,
+         laban, white, ios, iosOld, silver, wood, nLight, ics, kitkat, KeyboardThemes.dark, black, gray, blue, nDark]
     }
 
     static func get(_ id: String, dark: Bool) -> KeyTheme {

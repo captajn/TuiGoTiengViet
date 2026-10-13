@@ -13,6 +13,8 @@ import com.tuigo.engine.*
 class MainActivity : Activity() {
     private lateinit var ui: MobileUi
     private lateinit var status: TextView
+    private lateinit var step1Btn: View
+    private lateinit var step2Btn: View
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ui = MobileUi(this)
@@ -21,39 +23,62 @@ class MainActivity : Activity() {
         root.addView(ui.text("GÕ THEO CÁCH CỦA BẠN", 11f, ui.pal.accent, true))
         root.addView(ui.brandHeader("Tui Gõ", "Tiếng Việt, thật tự nhiên."))
         root.addView(ui.card("Bắt đầu", "Hai bước để dùng bàn phím của bạn").apply {
-            status = ui.text("", 13f, ui.pal.accent, true)
+            status = ui.text("", 13.5f, ui.pal.accent, true)
             addView(status)
-            addView(ui.button("1. Bật Tui Gõ trong cài đặt", true) {
+            step1Btn = ui.button("1. Bật Tui Gõ trong cài đặt", true) {
                 startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            })
-            addView(ui.button("2. Chọn bàn phím Tui Gõ") {
+            }
+            step2Btn = ui.button("2. Chọn bàn phím Tui Gõ") {
                 getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
-            })
+            }
+            addView(step1Btn)
+            addView(step2Btn)
         })
         root.addView(ui.card("Kiểu gõ", "Chọn một kiểu phù hợp với thói quen của bạn").apply {
             val methods = listOf(
-                Triple(ImTelex, "Telex", "s f r x j · aa, ee, oo, w, dd"),
-                Triple(ImVni, "VNI", "Dùng số 1–9 để thêm dấu"),
-                Triple(ImViqr, "VIQR", "Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu"))
-            val group = RadioGroup(this@MainActivity).apply { tag = "input-methods" }
+                Triple(ImTelex, "Telex", "Telex · s, f, r, x, j để thêm dấu; aa, ee, oo, w, dd"),
+                Triple(ImVni, "VNI", "VNI · Dùng hàng phím số 1–9 để thêm dấu"),
+                Triple(ImViqr, "VIQR", "VIQR · Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu"))
+            val group = RadioGroup(this@MainActivity).apply {
+                tag = "input-methods"
+                orientation = LinearLayout.HORIZONTAL
+                background = ui.surface(ui.pal.raised, 14)
+                setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4))
+                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(6) }
+            }
             val ids = mutableMapOf<Int, Int>()
+            val hints = mutableMapOf<Int, String>()
             val current = Prefs.inputMethod(this@MainActivity)
             methods.forEach { (im, name, hint) ->
                 val radio = RadioButton(this@MainActivity).apply {
                     id = View.generateViewId(); tag = "method-$im"
-                    text = ui.twoLines(name, hint); textSize = 15f; setTextColor(ui.pal.text)
-                    buttonTintList = ColorStateList.valueOf(ui.pal.accent)
-                    setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10)); minHeight = ui.dp(64)
-                    layoutParams = RadioGroup.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(6) }
+                    text = name; textSize = 14.5f
+                    gravity = android.view.Gravity.CENTER
+                    buttonDrawable = null // modern segmented pill
+                    setPadding(ui.dp(8), ui.dp(10), ui.dp(8), ui.dp(10))
+                    layoutParams = RadioGroup.LayoutParams(0, ui.dp(44), 1f)
                 }
                 ids[radio.id] = im
+                hints[radio.id] = hint
                 group.addView(radio)
+            }
+            val hintText = ui.text("", 12.5f, ui.pal.muted).apply {
+                setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(4))
             }
             group.check(ids.entries.first { it.value == current }.key)
             fun renderSelection() {
                 for (i in 0 until group.childCount) {
                     val radio = group.getChildAt(i) as RadioButton
-                    radio.background = if (radio.isChecked) ui.glassCard(active = true, 16) else null
+                    if (radio.isChecked) {
+                        radio.background = ui.glassCard(active = true, 12)
+                        radio.setTextColor(ui.pal.accent)
+                        radio.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        hintText.text = hints[radio.id] ?: ""
+                    } else {
+                        radio.background = null
+                        radio.setTextColor(ui.pal.muted)
+                        radio.typeface = android.graphics.Typeface.DEFAULT
+                    }
                 }
             }
             renderSelection()
@@ -62,6 +87,7 @@ class MainActivity : Activity() {
                 renderSelection()
             }
             addView(group)
+            addView(hintText)
         })
         root.addView(ui.card("Cách gõ", "Tinh chỉnh cách Tui Gõ xử lý từ và dấu").apply {
             addView(toggle("Mặc định gõ tiếng Việt", "App chưa dùng Tui Gõ sẽ mở ở chế độ này", Prefs.KEY_VIET_ON))
@@ -78,6 +104,7 @@ class MainActivity : Activity() {
         root.addView(ui.card("Bàn phím", "Không gian gõ vừa tay bạn").apply {
             addView(ui.text("Giao diện", 14f, ui.pal.text, true))
             addView(themePicker())
+            addView(toggle("Thanh công cụ nhanh", "Hiện phím tắt kiểu gõ, số nhanh và di chuyển con trỏ", Prefs.KEY_TOOLBAR, true))
             addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
             addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
             addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
@@ -102,7 +129,15 @@ class MainActivity : Activity() {
         val manager = getSystemService(InputMethodManager::class.java)
         val enabled = manager?.enabledInputMethodList?.any { it.packageName == packageName } == true
         val selected = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.startsWith("$packageName/") == true
-        status.text = when { selected -> "Sẵn sàng · Tui Gõ đang được chọn"; enabled -> "Đã bật · Chọn Tui Gõ để bắt đầu"; else -> "Chưa bật bàn phím" }
+        if (selected) {
+            status.text = "✓ Sẵn sàng · Tui Gõ đang được chọn"
+            if (::step1Btn.isInitialized) step1Btn.visibility = View.GONE
+            if (::step2Btn.isInitialized) step2Btn.visibility = View.GONE
+        } else {
+            status.text = if (enabled) "Đã bật trong cài đặt · Chọn Tui Gõ để bắt đầu" else "Chưa bật bàn phím"
+            if (::step1Btn.isInitialized) step1Btn.visibility = if (enabled) View.GONE else View.VISIBLE
+            if (::step2Btn.isInitialized) step2Btn.visibility = View.VISIBLE
+        }
     }
     private fun toggle(title: String, hint: String, key: String, default: Boolean = true): View {
         val p = Prefs.get(this)
@@ -139,7 +174,7 @@ class MainActivity : Activity() {
                 background = ui.surface(ui.pal.raised, 14)
                 addView(ImageView(this@MainActivity).apply {
                     setImageDrawable(swatch(t))
-                    layoutParams = LinearLayout.LayoutParams(ui.dp(48), ui.dp(18))
+                    layoutParams = LinearLayout.LayoutParams(ui.dp(52), ui.dp(20))
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = KeyboardThemes.label(id); textSize = 11f; setTextColor(ui.pal.text)
@@ -158,27 +193,33 @@ class MainActivity : Activity() {
             addView(row)
         }
     }
-    /** Horizontal strip [bg | key | accent] ~48x18dp used as theme preview. */
+    /** Mini keyboard preview used as theme card swatch. */
     private fun swatch(t: KeyTheme): android.graphics.drawable.Drawable {
-        val d = ui.dp(4); val w = ui.dp(48); val h = ui.dp(18)
-        return android.graphics.drawable.LayerDrawable(arrayOf(
-            android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = d * 2f; setColor(t.bg)
-            },
-            android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = d * 2f; setColor(t.key); setStroke(1, t.border)
-            },
-            android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = d * 2f; setColor(t.accent)
-            },
-        )).apply {
-            setLayerInset(0, 0, 0, 0, 0)
-            setLayerInset(1, w / 3, 0, w / 3, 0)
-            setLayerInset(2, w * 2 / 3, 0, 0, 0)
-            setBounds(0, 0, w, h)
+        val w = ui.dp(52); val h = ui.dp(20); val r = ui.dp(4).toFloat()
+        return object : android.graphics.drawable.Drawable() {
+            private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            override fun draw(canvas: android.graphics.Canvas) {
+                p.color = t.bg; p.style = android.graphics.Paint.Style.FILL
+                canvas.drawRoundRect(0f, 0f, w.toFloat(), h.toFloat(), r, r, p)
+                p.color = t.key
+                val kw = w / 4.9f; val kh = h / 3.4f
+                for (i in 0..3) {
+                    val kx = 2.5f + i * (kw + 1.2f)
+                    canvas.drawRoundRect(kx, 2f, kx + kw, 2f + kh, 2f, 2f, p)
+                }
+                val spaceW = w * 0.52f; val sy = h - kh - 2.5f
+                p.color = t.space
+                canvas.drawRoundRect(2.5f, sy, 2.5f + spaceW, sy + kh, 2f, 2f, p)
+                p.color = t.accent
+                canvas.drawRoundRect(w - kw - 2.5f, sy, w - 2.5f, sy + kh, 2f, 2f, p)
+            }
+            override fun setAlpha(alpha: Int) { p.alpha = alpha }
+            override fun setColorFilter(filter: android.graphics.ColorFilter?) { p.colorFilter = filter }
+            @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+            @Deprecated("Deprecated in Java")
+            override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+            override fun getIntrinsicWidth(): Int = w
+            override fun getIntrinsicHeight(): Int = h
         }
     }
     private fun slider(title: String, key: String, min: Int, max: Int, default: Int): View {

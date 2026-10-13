@@ -28,23 +28,32 @@ func drawSmoothSwitch(dc uintptr, rc rect, id int, on bool) {
 
 	// Track styling with Liquid Glass gradient
 	if on {
-		// Active track: vibrant jade accent with specular top
-		topCol := HexAlphaARGB(0xF5, argbSwitchOn&0x00FFFFFF)
-		bottomCol := HexAlphaARGB(0xD0, argbSwitchOn&0x00FFFFFF)
+		// Active track: vibrant style accent with specular top
+		swRGB := argbSwitchOn & 0x00FFFFFF
+		topCol := HexAlphaARGB(0xFA, swRGB)
+		bottomCol := HexAlphaARGB(0xDC, swRGB)
 		gfx.FillRoundedRectGradient(px, py, pillW, pillH, radius, topCol, bottomCol)
-		gfx.DrawRoundedRect(px, py, pillW, pillH, radius, HexAlphaARGB(0x90, 0xFFFFFF), 1.0)
-		// Specular top highlight
-		gfx.DrawLine(px+radius, py+1.0, px+pillW-radius, py+1.0, HexAlphaARGB(0x80, 0xFFFFFF), 1.0)
-	} else {
-		// Inactive track: frosted translucent slate
-		topCol := HexAlphaARGB(0x60, 0x333846)
-		bottomCol := HexAlphaARGB(0x40, 0x222630)
-		if !isDark() {
-			topCol = HexAlphaARGB(0xF0, 0xCBD5E1)
-			bottomCol = HexAlphaARGB(0xD0, 0xB8C5D4)
+		borderCol := HexAlphaARGB(0x90, 0xFFFFFF)
+		if cfg.Style == styleCyberNeon {
+			borderCol = argbAccent
 		}
+		gfx.DrawRoundedRect(px, py, pillW, pillH, radius, borderCol, 1.1)
+		// Specular top highlight
+		gfx.DrawLine(px+radius, py+1.0, px+pillW-radius, py+1.0, HexAlphaARGB(0x75, 0xFFFFFF), 1.0)
+	} else {
+		// Inactive track: use active palette's switchOff and border tokens (warm biscuit on Matcha, cyber navy on Cyber, etc.)
+		offRGB := argbSwitchOff & 0x00FFFFFF
+		bdRGB := argbBorder & 0x00FFFFFF
+		topAlpha := byte(0xE8)
+		botAlpha := byte(0xD0)
+		if isDark() {
+			topAlpha = 0xB0
+			botAlpha = 0x90
+		}
+		topCol := HexAlphaARGB(topAlpha, offRGB)
+		bottomCol := HexAlphaARGB(botAlpha, offRGB)
 		gfx.FillRoundedRectGradient(px, py, pillW, pillH, radius, topCol, bottomCol)
-		gfx.DrawRoundedRect(px, py, pillW, pillH, radius, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+		gfx.DrawRoundedRect(px, py, pillW, pillH, radius, HexAlphaARGB(0xC0, bdRGB), 1.1)
 	}
 
 	// Thumb (circular knob)
@@ -58,9 +67,13 @@ func drawSmoothSwitch(dc uintptr, rc rect, id int, on bool) {
 
 	// Soft tactile drop shadow under knob
 	gfx.FillCircle(kx+knobR, ky+knobR+1.0, knobR, HexAlphaARGB(0x40, 0x000000))
-	// Pure white thumb with subtle sheen
-	gfx.FillCircle(kx+knobR, ky+knobR, knobR, 0xFFFFFFFF)
-	gfx.DrawCircle(kx+knobR, ky+knobR, knobR, HexAlphaARGB(0x40, 0x000000), 0.5)
+	// Crisp thumb with subtle border
+	thumbCol := uint32(0xFFFFFFFF)
+	if cfg.Style == styleCyberNeon && isDark() && !on {
+		thumbCol = 0xFF7DD3FC
+	}
+	gfx.FillCircle(kx+knobR, ky+knobR, knobR, thumbCol)
+	gfx.DrawCircle(kx+knobR, ky+knobR, knobR, HexAlphaARGB(0x35, 0x000000), 0.6)
 
 	// Draw label text
 	pSetBkMode.Call(dc, TRANSPARENT)
@@ -292,31 +305,80 @@ func drawSmoothVectorIcon(gfx *Gfx, cx, cy, size float32, kind int, color uint32
 	}
 }
 
-// drawMinimalBrandMark draws a sleek typographic keycap logo [ V ] for the header.
+// drawMinimalBrandMark draws a rich 3D typographic keycap logo [ V ] for the header.
 func drawMinimalBrandMark(gfx *Gfx, x, y, size float32) {
 	if gfx == nil {
 		return
 	}
-	r := float32(dp(7))
-	// Frosted keycap background
-	bgTop := HexAlphaARGB(0x40, argbAccent&0x00FFFFFF)
-	bgBottom := HexAlphaARGB(0x15, argbAccent&0x00FFFFFF)
+	r := float32(dp(8))
+	// Soft drop shadow
+	gfx.FillRoundedRect(x, y+1.5, size, size, r, HexAlphaARGB(0x35, 0x000000))
+
+	// Rich solid gradient badge so the [V] mark pops crisply in both Light and Dark modes
+	accRGB := argbAccent & 0x00FFFFFF
+	swRGB := argbSwitchOn & 0x00FFFFFF
+	bgTop := HexAlphaARGB(0xFF, accRGB)
+	bgBottom := HexAlphaARGB(0xE8, swRGB)
+	glyphCol := uint32(0xFFFFFFFF)
+
+	switch cfg.Style {
+	case styleCyberNeon:
+		if isDark() {
+			bgTop = 0xFF0B111E
+			bgBottom = 0xFF04060A
+			glyphCol = 0xFF00F2FE
+		} else {
+			bgTop = 0xFF0284C7
+			bgBottom = 0xFF0369A1
+		}
+	case styleMatchaLatte:
+		if isDark() {
+			bgTop = 0xFF40916C
+			bgBottom = 0xFF2D6A4F
+			glyphCol = 0xFFF4ECE1
+		} else {
+			bgTop = 0xFF40916C
+			bgBottom = 0xFF2D6A4F
+			glyphCol = 0xFFFFFDF9
+		}
+	case styleMaterialTeal:
+		if isDark() {
+			bgTop = 0xFF2DD4BF
+			bgBottom = 0xFF14B8A6
+			glyphCol = 0xFF0E171D
+		} else {
+			bgTop = 0xFF0D9488
+			bgBottom = 0xFF0F766E
+			glyphCol = 0xFFFFFFFF
+		}
+	default:
+		if isDark() && cfg.Style == styleJade {
+			bgTop = 0xFF3ED3B8
+			bgBottom = 0xFF197F64
+			glyphCol = 0xFF0F1115
+		}
+	}
+
 	gfx.FillRoundedRectGradient(x, y, size, size, r, bgTop, bgBottom)
-	gfx.DrawRoundedRect(x, y, size, size, r, argbAccent, 1.2)
+	borderCol := HexAlphaARGB(0x90, 0xFFFFFF)
+	if cfg.Style == styleCyberNeon && isDark() {
+		borderCol = 0xFF00F2FE
+	}
+	gfx.DrawRoundedRect(x, y, size, size, r, borderCol, 1.3)
 	// Top specular highlight
-	gfx.DrawLine(x+r, y+1, x+size-r, y+1, HexAlphaARGB(0x70, 0xFFFFFF), 1.0)
+	gfx.DrawLine(x+r, y+1.2, x+size-r, y+1.2, HexAlphaARGB(0x80, 0xFFFFFF), 1.0)
 
 	// Minimal geometric "V" symbol
-	thk := float32(max(int32(2), dp(2)))
+	thk := float32(max(int32(2), dp(2))) + 0.4
 	cx := x + size/2.0
 	cy := y + size/2.0
 	armW := size * 0.24
 	armH := size * 0.22
-	gfx.DrawLine(cx-armW, cy-armH, cx, cy+armH, 0xFFFFFFFF, thk)
-	gfx.DrawLine(cx, cy+armH, cx+armW, cy-armH, 0xFFFFFFFF, thk)
+	gfx.DrawLine(cx-armW, cy-armH, cx, cy+armH, glyphCol, thk)
+	gfx.DrawLine(cx, cy+armH, cx+armW, cy-armH, glyphCol, thk)
 }
 
-// drawSmoothThemeButton renders a modern segmented theme option with icon and label.
+// drawSmoothThemeButton renders the Light / Dark / System mode segmented button.
 func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	fillParentBg(dc, rc, ctlHnd[id])
 
@@ -339,18 +401,7 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
 	r := float32(dp(8))
 
-	if selected {
-		// Active option: jade green tinted liquid glass card
-		bgTop := HexAlphaARGB(0x35, argbAccent&0x00FFFFFF)
-		bgBottom := HexAlphaARGB(0x18, argbAccent&0x00FFFFFF)
-		gfx.FillRoundedRectGradient(x, y, w, h, r, bgTop, bgBottom)
-		gfx.DrawRoundedRect(x, y, w, h, r, argbAccent, 1.4)
-		// Specular top highlight line
-		gfx.DrawLine(x+r, y+1, x+w-r, y+1, HexAlphaARGB(0x60, 0xFFFFFF), 1.0)
-	} else {
-		// Inactive option: frosted glass surface
-		gfx.DrawGlassCard(x, y, w, h, r, isDark(), pressed)
-	}
+	gfx.DrawGlassCardExt(x, y, w, h, r, isDark(), pressed, selected)
 
 	// Draw Icon
 	iconCol := argbMuted
@@ -359,7 +410,7 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	}
 	iconX := x + float32(dp(18))
 	iconY := y + h/2.0
-	iconSz := float32(dp(18))
+	iconSz := float32(dp(16))
 	thk := float32(max(int32(1), dp(2)))
 
 	switch themeMode {
@@ -369,21 +420,19 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 		sx := iconX - sw/2.0
 		sy := iconY - sh/2.0 - float32(dp(2))
 		gfx.DrawRoundedRect(sx, sy, sw, sh, float32(dp(2)), iconCol, thk)
-		// Stand
-		gfx.DrawLine(iconX, sy+sh, iconX, sy+sh+float32(dp(4)), iconCol, thk)
-		gfx.DrawLine(iconX-float32(dp(5)), sy+sh+float32(dp(4)), iconX+float32(dp(5)), sy+sh+float32(dp(4)), iconCol, thk)
+		gfx.DrawLine(iconX, sy+sh, iconX, sy+sh+float32(dp(3)), iconCol, thk)
+		gfx.DrawLine(iconX-float32(dp(4)), sy+sh+float32(dp(3)), iconX+float32(dp(4)), sy+sh+float32(dp(3)), iconCol, thk)
 
 	case themeLight: // Sun icon (circle + rays)
 		sr := iconSz * 0.28
 		gfx.DrawCircle(iconX, iconY, sr, iconCol, thk)
-		// 8 rays
-		rayLen := float32(dp(3))
+		rayLen := float32(dp(2))
 		rayDist := sr + float32(dp(2))
 		gfx.DrawLine(iconX, iconY-rayDist-rayLen, iconX, iconY-rayDist, iconCol, thk)
 		gfx.DrawLine(iconX, iconY+rayDist, iconX, iconY+rayDist+rayLen, iconCol, thk)
 		gfx.DrawLine(iconX-rayDist-rayLen, iconY, iconX-rayDist, iconY, iconCol, thk)
 		gfx.DrawLine(iconX+rayDist, iconY, iconX+rayDist+rayLen, iconY, iconCol, thk)
-		d := (rayDist) * 0.707
+		d := rayDist * 0.707
 		dl := (rayDist + rayLen) * 0.707
 		gfx.DrawLine(iconX-dl, iconY-dl, iconX-d, iconY-d, iconCol, thk)
 		gfx.DrawLine(iconX+d, iconY+d, iconX+dl, iconY+dl, iconCol, thk)
@@ -391,12 +440,11 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 		gfx.DrawLine(iconX+d, iconY-d, iconX+dl, iconY-dl, iconCol, thk)
 
 	case themeDark: // Moon crescent icon
-		mr := iconSz * 0.42
+		mr := iconSz * 0.40
 		gfx.DrawCircle(iconX, iconY, mr, iconCol, thk)
-		gfx.DrawCircle(iconX+float32(dp(3)), iconY-float32(dp(1)), mr*0.82, argbCard, thk+0.5)
+		gfx.FillCircle(iconX+float32(dp(3)), iconY-float32(dp(2)), mr*0.75, argbCard)
 	}
 
-	// Text: Title & Subtitle
 	pSetBkMode.Call(dc, TRANSPARENT)
 	titleCol := colText
 	if selected {
@@ -405,18 +453,16 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	pSetTextColor.Call(dc, titleCol)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
 
-	title := "Hệ thống"
-	sub := "Theo Windows"
-	if themeMode == themeLight {
-		title = "Sáng"
-		sub = "Bạch Ngọc"
-	} else if themeMode == themeDark {
-		title = "Tối"
-		sub = "Thanh Đại"
+	title := "Hệ thống (Tự động)"
+	switch themeMode {
+	case themeLight:
+		title = "Chế độ Sáng (Light)"
+	case themeDark:
+		title = "Chế độ Tối (Dark)"
 	}
 
-	textLeft := int32(iconX + iconSz/2.0 + float32(dp(10)))
-	trc := rect{textLeft, rc.top + dp(6), rc.right - dp(4), rc.top + dp(24)}
+	textLeft := int32(iconX + iconSz/2.0 + float32(dp(8)))
+	trc := rect{textLeft, rc.top, rc.right - dp(6), rc.bottom}
 	if pressed {
 		trc.top += dp(1)
 	}
@@ -424,15 +470,165 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
+	pSelectObject.Call(dc, oldF)
+}
+
+// drawSmoothStyleCard renders a visual theme style card with a live miniature keyboard/UI preview swatch.
+func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
+	fillParentBg(dc, rc, ctlHnd[id])
+
+	gfx := NewGfx(dc)
+	if gfx == nil {
+		return
+	}
+	defer gfx.Destroy()
+
+	styleID := styleJade
+	switch id {
+	case cThemeIosPure:
+		styleID = styleIosPure
+	case cThemeCyberNeon:
+		styleID = styleCyberNeon
+	case cThemeMatchaLatte:
+		styleID = styleMatchaLatte
+	case cThemeMaterialTeal:
+		styleID = styleMaterialTeal
+	}
+
+	selected := (cfg.Style == styleID)
+	dark := isDark()
+
+	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
+	r := float32(dp(10))
+
+	gfx.DrawGlassCardExt(x, y, w, h, r, dark, pressed, selected)
+
+	// Mini preview colors for this style in the current Light/Dark mode
+	var pvBg, pvKey, pvFunc, pvBorder, pvAccent uint32
+	title := "Ngọc Bích"
+	sub := "Mặc định"
+
+	switch styleID {
+	case styleJade:
+		title = "Ngọc Bích"
+		sub = "Liquid Glass"
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF0F1115, 0xFF232834, 0xFF1A1E27, 0xFF3ED3B8, 0xFF3ED3B8
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFE8F0F6, 0xFFFFFFFF, 0xFFDCE6F0, 0xFF197F64, 0xFF197F64
+		}
+	case styleIosPure:
+		title = "iOS 18 Pro"
+		sub = "Apple Blue"
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF000000, 0xFF3A3A3C, 0xFF2C2C2E, 0xFF0A84FF, 0xFF0A84FF
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFD1D5DB, 0xFFFFFFFF, 0xFFAEB5BF, 0xFF007AFF, 0xFF007AFF
+		}
+	case styleCyberNeon:
+		title = "Cyber Neon"
+		sub = "Cyan & Mint"
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF04060A, 0xFF0B111E, 0xFF16223B, 0xFF00F2FE, 0xFF10B981
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFE0F2FE, 0xFFFFFFFF, 0xFFBAE6FD, 0xFF0284C7, 0xFF10B981
+		}
+	case styleMatchaLatte:
+		title = "Matcha"
+		sub = "Kem Trà Xanh"
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF121A16, 0xFF24352C, 0xFF2D4439, 0xFF74C69D, 0xFFF4A261
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFEDE4D8, 0xFFFFFDF9, 0xFFA8D5BA, 0xFF2D6A4F, 0xFFE07A5F
+		}
+	case styleMaterialTeal:
+		title = "Material 3"
+		sub = "Pixel Teal"
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF0E171D, 0xFF1E313E, 0xFF284152, 0xFF2DD4BF, 0xFF2DD4BF
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFE0F7F4, 0xFFFFFFFF, 0xFFCCFBF1, 0xFF0D9488, 0xFF0D9488
+		}
+	}
+
+	// Draw Miniature Keyboard/UI Swatch at top of card
+	padX := float32(dp(8))
+	swX := x + padX
+	swY := y + float32(dp(6))
+	swW := w - padX*2
+	swH := float32(dp(24))
+	swR := float32(dp(5))
+
+	gfx.FillRoundedRect(swX, swY, swW, swH, swR, pvBg)
+	bdThk := float32(1.0)
+	if selected {
+		bdThk = 1.5
+	}
+	gfx.DrawRoundedRect(swX, swY, swW, swH, swR, pvBorder, bdThk)
+
+	// Top row of 4 mini keycaps inside swatch
+	kGap := float32(dp(2))
+	kPad := float32(dp(3))
+	kw := (swW - kPad*2 - kGap*3) / 4.0
+	kh := (swH - kPad*2 - kGap) / 2.0
+	kr := float32(dp(2))
+	if styleID == styleMaterialTeal {
+		kr = kh / 2.0
+	}
+	for k := 0; k < 4; k++ {
+		kx := swX + kPad + float32(k)*(kw+kGap)
+		gfx.FillRoundedRect(kx, swY+kPad, kw, kh, kr, pvKey)
+		if styleID == styleCyberNeon {
+			gfx.DrawRoundedRect(kx, swY+kPad, kw, kh, kr, pvBorder, 0.7)
+		}
+	}
+	// Bottom row: func key + spacebar + glowing accent Enter pill
+	by := swY + kPad + kh + kGap
+	gfx.FillRoundedRect(swX+kPad, by, kw*0.85, kh, kr, pvFunc)
+	spX := swX + kPad + kw*0.85 + kGap
+	spW := swW - kPad*2 - kw*1.95 - kGap*2
+	gfx.FillRoundedRect(spX, by, spW, kh, kr, pvKey)
+	enX := spX + spW + kGap
+	enW := swW - kPad - (enX - swX)
+	gfx.FillRoundedRect(enX, by, enW, kh, kr, pvAccent)
+
+	// Active checkmark badge in top-right of swatch
+	if selected {
+		 badgeR := float32(dp(6))
+		 bx := swX + swW - badgeR + float32(dp(1))
+		 byc := swY + badgeR - float32(dp(1))
+		 gfx.FillCircle(bx, byc, badgeR, pvBorder)
+		 gfx.DrawLine(bx-float32(dp(3)), byc, bx-float32(dp(1)), byc+float32(dp(2)), 0xFFFFFFFF, 1.5)
+		 gfx.DrawLine(bx-float32(dp(1)), byc+float32(dp(2)), bx+float32(dp(3)), byc-float32(dp(2)), 0xFFFFFFFF, 1.5)
+	}
+
+	// Title & Subtitle below swatch
+	pSetBkMode.Call(dc, TRANSPARENT)
+	titleCol := colText
+	if selected {
+		titleCol = colGold
+	}
+	pSetTextColor.Call(dc, titleCol)
+	oldF, _, _ := pSelectObject.Call(dc, fontBold)
+
+	trc := rect{rc.left + dp(2), rc.top + dp(31), rc.right - dp(2), rc.top + dp(47)}
+	if pressed {
+		trc.top += dp(1)
+	}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(title))),
+		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	drc := rect{textLeft, rc.top + dp(24), rc.right - dp(4), rc.bottom - dp(4)}
+	drc := rect{rc.left + dp(2), rc.top + dp(46), rc.right - dp(2), rc.bottom - dp(3)}
 	if pressed {
 		drc.top += dp(1)
 	}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(sub))),
 		^uintptr(0), uintptr(unsafe.Pointer(&drc)),
-		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSelectObject.Call(dc, oldF)
 }
+

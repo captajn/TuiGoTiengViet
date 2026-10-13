@@ -5,181 +5,203 @@
 <h1 align="center">Tui Gõ</h1>
 
 <p align="center">
-  Bộ gõ tiếng Việt cho Windows — thuần Go, một file exe duy nhất, không DLL, không phụ thuộc.
+  Bộ gõ tiếng Việt cho Windows, Android, iOS, macOS và Linux.<br>
+  Xử lý trên thiết bị · Không lưu lịch sử gõ · Không telemetry.
 </p>
 
 <p align="center">
+  <a href="#nền-tảng">Nền tảng</a> ·
   <a href="#tính-năng">Tính năng</a> ·
-  <a href="#cài-đặt--build">Cài đặt</a> ·
-  <a href="#cách-dùng">Cách dùng</a> ·
-  <a href="#cấu-hình-riêng-theo-ứng-dụng">Per-app</a>
+  <a href="#quyền-riêng-tư-và-dữ-liệu">Quyền riêng tư</a> ·
+  <a href="#cài-đặt-và-build">Cài đặt / Build</a> ·
+  <a href="#kiểm-chứng">Kiểm chứng</a>
 </p>
-
----
 
 ## Giới thiệu
 
-**Tui Gõ** là bộ gõ tiếng Việt độc lập cho Windows, viết hoàn toàn bằng Go — engine gõ được port từ UniKey/x-unikey sang Go thuần, build ra **một file `.exe` duy nhất**, không cần `ukengine.dll`, không cần cài đặt, không phụ thuộc runtime ngoài.
+**Tui Gõ** xử lý tiếng Việt ngay trên máy hoặc điện thoại của bạn. Engine được port từ UniKey/x-unikey sang Go, Kotlin và Swift; mỗi nền tảng dùng giao diện và cơ chế bàn phím native.
 
-Engine tách riêng khỏi shell Windows (`app/engine/`) nên có thể tái sử dụng cho macOS / Android / iOS sau này.
+Windows có app portable; Android và iOS có app cài đặt cùng bàn phím; macOS tích hợp InputMethodKit; Linux tích hợp IBus. Không cần tài khoản để gõ.
+
+## Nền tảng
+
+| Nền tảng | Thành phần | Yêu cầu từ source |
+| --- | --- | --- |
+| Windows | App portable, khay hệ thống, HUD và cài đặt | Windows x64 / ARM64; Go 1.23+ khi build |
+| Android | App cài đặt + InputMethodService | Android 8.0+; JDK 17, Android SDK khi build |
+| iOS / iPadOS | App cài đặt + Keyboard Extension | iOS 15+; macOS, Xcode và XcodeGen khi build |
+| macOS | InputMethodKit + cài đặt SwiftUI | macOS 12+; Xcode và XcodeGen khi build |
+| Linux | Engine IBus + cài đặt Fyne | IBus; Go 1.23+ và thư viện GL/X11 khi build GUI |
+
+[Bản phát hành](https://github.com/captajn/TuiGoTiengViet/releases) · [Build trên GitHub Actions](https://github.com/captajn/TuiGoTiengViet/actions)
+
+Source có đủ năm nền tảng. Bản tải sẵn, chữ ký và kết quả kiểm thử phụ thuộc từng release/run; có source hoặc build thành công không đồng nghĩa đã kiểm tra giao diện trên mọi thiết bị.
 
 ## Tính năng
 
-### Kiểu gõ — 7 chế độ
+- **Telex, VNI, VIQR**; hỗ trợ đặt dấu tự do, kiểu dấu mới/cũ, kiểm tra chính tả và khôi phục từ ngoại ngữ.
+- **Gõ tắt (macro)** lưu cục bộ; Backspace hoàn tác theo engine.
+- **Windows:** thêm Telex đơn giản, Telex + VNI, MS-VI và keymap tùy chỉnh; Unicode/TCVN3, SendInput/Clipboard, ứng dụng loại trừ, phím tắt, khay hệ thống, HUD và giao diện sáng/tối.
+- **Android/iOS:** ba kiểu gõ Telex/VNI/VIQR, theme, hàng số, điều chỉnh kích thước/khoảng cách phím, toolbar và màn hình quản lý macro. Giữ Space để mở menu ngôn ngữ/kiểu gõ/chuyển bàn phím.
+- **macOS/Linux:** chọn kiểu gõ trong cài đặt, bật/tắt tiếng Việt bằng menu hoặc phím tắt. Từ đang soạn được giữ trong marked text/preedit cho đến ranh giới từ.
 
-| Kiểu gõ | Ví dụ | Ghi chú |
-|---|---|---|
-| **Telex** | `oonr` → ổn | s f r x j · mũ: aa ee oo · w · dd |
-| **Telex đơn giản** | | `w` chỉ thêm móc (ư ơ) |
-| **VNI** | `on63` → ổn | dấu: 1-5 · mũ: 6 · móc: 7 · trăng: 8 · đ: 9 |
-| **VIQR** | | dấu: ' ` ? ~ . · mũ: ^ · móc: + |
-| **Telex + VNI** | `oonr` hoặc `on63` đều → ổn | hybrid, gõ lẫn hai kiểu |
-| **MS-VI** | | tương thích Microsoft |
-| **Tự định nghĩa** | | chỉnh `keymap.txt` |
+### Gõ tắt
 
-### Bảng mã
+File UTF-8 dùng định dạng **từ-tắt:nội-dung**, mỗi mục một dòng:
 
-- **Unicode** (mặc định)
-- **TCVN3** — cho phần mềm legacy (CAD, …)
+~~~text
+ko:không
+dc:được
+vn:Việt Nam
+~~~
 
-### Cốt lõi
+Bật gõ tắt, gõ từ tắt rồi Space để bung nội dung. Android/iOS có trình quản lý trong app; desktop dùng macro.txt tại thư mục dữ liệu bên dưới.
 
-- Bỏ dấu kiểu mới / kiểu cũ, đặt dấu tự do, kiểm tra chính tả + tự khôi phục
-- **Gõ tắt (macro)** qua `macro.txt` — `btw` → `by the way`
-- Backspace thông minh — hoàn tác đúng từng bước biến đổi
-- Chuyển V/E: phím tắt tùy chỉnh (mặc định `Alt+Z`, `Ctrl+Shift`), click tray, hoặc F1/F2
-- Phím nhanh: **F5** mở cài đặt · **F9** bật/tắt gõ tắt · **F12** reset bộ đệm
-- HUD trạng thái nổi + icon khay V nền ngọc bích / E viền trung tính theo giao diện sáng, tối; trạng thái theo ứng dụng đang mở
-- Giao diện sáng / tối, cửa sổ cài đặt dạng tab
-- Chạy cùng Windows, tùy chọn quyền Admin (gõ được vào app elevated)
-- Đường gửi phím: **SendInput** mặc định, **Clipboard** cho app khó tính (Metro/UWP, game)
+### Windows: nhớ ngôn ngữ và loại trừ theo app
 
-### Cấu hình riêng theo ứng dụng
+Trong **Cài đặt → Giao diện & Hệ thống → Ứng dụng loại trừ**, bật **Tự nhớ bật/tắt tiếng Việt theo ứng dụng** nếu muốn lưu VI/EN theo tên .exe. Mặc định tùy chọn này tắt; việc lưu trạng thái không lưu nội dung đã gõ.
 
-Trong **Cài đặt → Giao diện → Ứng dụng loại trừ**, bật **Tự nhớ bật/tắt tiếng Việt theo ứng dụng**. Khi chuyển V/E bằng phím tắt hoặc icon khay trong một ứng dụng, Tui Gõ lưu lựa chọn riêng cho tên `.exe` đó. Chuyển sang app khác không làm đổi lựa chọn vừa lưu; quay lại app hoặc khởi động lại Tui Gõ vẫn giữ trạng thái. Các cửa sổ cùng tên `.exe` dùng chung lựa chọn.
+File exclude.txt cạnh exe hỗ trợ:
 
-Tùy chọn này mặc định tắt. Khi bật, ứng dụng đang gõ giữ chế độ hiện tại; app chưa có lựa chọn riêng mặc định gõ tiếng Việt (trừ app loại trừ thủ công). Bấm icon khay hoặc menu khay sẽ đổi chế độ của app đang gõ trước khi mở khay, kể cả khi Explorer đã nhận focus. Trạng thái được lưu trong `tuigo.ini` cạnh exe; tắt tùy chọn sẽ dùng lại chế độ chung nhưng vẫn giữ các lựa chọn đã nhớ để dùng khi bật lại. App có `|lock` luôn tắt tiếng Việt.
+~~~text
+notepad.exe
+game.exe|lock
+metro.exe|clip
+acad.exe|tcvn,vni
+~~~
 
-File `exclude.txt` (cạnh exe) — mỗi dòng một app, kết hợp flag bằng dấu phẩy:
+Các flag gồm lock, clip, safedel, tcvn và kiểu gõ telex/stelex/vni/viqr/msvi/tvni. Alt+Z hoặc Ctrl+Shift chuyển VI/EN; F5 mở cài đặt, F9 bật/tắt macro, F12 reset bộ đệm.
 
-```text
-notepad.exe            tắt gõ trong app này — Alt+Z vẫn bật tạm cho riêng app đó
-game.exe|lock          tắt hẳn, phím chuyển không tác dụng
-metro.exe|clip         gõ được, gửi chữ qua Clipboard
-acad.exe|tcvn,vni      trong CAD: kiểu gõ VNI, bảng mã TCVN3 — app khác vẫn Telex + Unicode
-```
+## Quyền riêng tư và dữ liệu
 
-Flag kiểu gõ: `telex` `stelex` `vni` `viqr` `msvi` `tvni` · Flag bảng mã: `tcvn` · Flag chế độ: `lock` `clip`
+### Nội dung gõ và chẩn đoán
 
-## Cài đặt / Build
+- App xử lý chuỗi đang soạn trong bộ nhớ để biến đổi tiếng Việt, không lưu lịch sử gõ và không gửi nội dung gõ tới server.
+- Source hiện tại không chủ động ghi file log chẩn đoán, heartbeat, thông số sửa chữ hay theo dõi mã thoát app. Không có công tắc debug-log.
+- Không tích hợp SDK analytics/telemetry/crash-upload trong source sản phẩm.
+- Bản Windows cũ có thể còn ghi crash.log. Cần dùng binary được build từ source mới để áp dụng thay đổi; app không tự xóa file log cũ của bạn.
+- Báo cáo lỗi do hệ điều hành, runtime hoặc framework tạo ra thuộc cơ chế của nền tảng; đây không phải cam kết tắt mọi log của hệ điều hành.
 
-Yêu cầu: **Go 1.21+**, Windows (x64 hoặc ARM64).
+### Dữ liệu nào được lưu?
 
-```bat
+| Nền tảng | Vị trí | Dữ liệu |
+| --- | --- | --- |
+| Windows | Cạnh tuigo.exe | tuigo.ini, macro.txt, keymap.txt, exclude.txt; version.txt và update-stamp.txt là trạng thái phiên bản/cập nhật |
+| Android | Bộ nhớ riêng của app | SharedPreferences, macro.txt, lựa chọn giao diện/kiểu gõ và VI/EN theo package ứng dụng |
+| iOS / iPadOS | App Group group.com.tuigo và preferences của extension | Tùy chọn, macro.txt; VI/EN theo documentIdentifier khi extension có quyền ghi |
+| macOS | ~/Library/Application Support/TuiGo/ | tuigo.ini, macro.txt, keymap.txt |
+| Linux | $XDG_CONFIG_HOME/tuigo/, mặc định ~/.config/tuigo/ | tuigo.ini, macro.txt, keymap.txt |
+
+Macro do bạn nhập được lưu dưới dạng văn bản cục bộ, không phải lịch sử gõ. Các file này không được app mã hóa riêng. Android đặt allowBackup=false; phạm vi sao lưu của hệ điều hành trên các nền tảng khác tùy cấu hình thiết bị.
+
+Windows chỉ tạo Run key/task khởi động khi bạn bật chức năng tương ứng. macOS có thể tạo LaunchAgent khi bạn chọn khởi động cùng hệ thống.
+
+### Quyền truy cập và clipboard
+
+- **Windows:** hook bàn phím/chuột phục vụ xử lý gõ, con trỏ và phím tắt. Chế độ Clipboard và nhánh tương thích lựa chọn có thể đọc/thay tạm clipboard để gửi/sửa chữ, với cơ chế khôi phục; dữ liệu này không được ghi thành log hoặc tải lên.
+- **Android:** đăng ký dịch vụ bàn phím với quyền BIND_INPUT_METHOD. Manifest không xin INTERNET; bạn tự bật/chọn bàn phím trong Cài đặt hệ thống.
+- **iOS:** extension không yêu cầu Full Access để gõ. Ghi lựa chọn VI/EN vào App Group từ extension chỉ thực hiện khi có quyền ghi; thiếu quyền thì vẫn đổi được trong phiên. App không dùng Full Access để kết nối mạng.
+- **macOS/Linux:** dùng API input method của hệ điều hành. Source xử lý việc gõ không có HTTP client hay chức năng đồng bộ cloud.
+
+### Kết nối mạng và cập nhật
+
+Chỉ **tuigo-updater.exe**, companion tùy chọn trên Windows, có HTTP client. Khi đặt nó cạnh app, app khởi chạy updater; kiểm tra tự động được giới hạn khoảng 20 giờ/lần. Nút **Kiểm tra cập nhật** chạy kiểm tra thủ công.
+
+Updater truy vấn GitHub Releases của repo này và tải asset qua URL do GitHub trả về; GitHub có thể nhận IP, thời điểm và User-Agent của request. Updater không gửi macro, cấu hình hay nội dung gõ. Nó hỏi trước khi thay bản đang dùng.
+
+Không đặt updater cạnh app nếu muốn tắt cơ chế này. Android, iOS, macOS và Linux hiện không có updater mạng tích hợp. Công cụ build có thể tải dependencies; điều đó khác với kết nối mạng lúc dùng bàn phím.
+
+## Cài đặt và build
+
+Các lệnh dưới đây chạy từ thư mục repo, trừ khi có cd riêng.
+
+### Windows
+
+Không cần cài đặt: đặt tuigo.exe trong một thư mục có quyền ghi để lưu tùy chọn/macro.
+
+~~~powershell
 cd app
-go build -ldflags "-H windowsgui -s -w" -o tuigo.exe .
-```
+go build -ldflags "-H windowsgui -s -w" -o ../tuigo.exe .
+go build -ldflags "-H windowsgui -s -w" -o ../tuigo-updater.exe ./updater
+~~~
 
-hoặc dùng `build.bat`. Build ARM64:
-
-```bat
-set GOARCH=arm64
-go build -ldflags "-H windowsgui -s -w" -o tuigo-arm64.exe .
-```
-
-Không cần cài đặt — copy `tuigo.exe` đi đâu chạy cũng được. Lần đầu chạy app tự tạo `macro.txt`, `exclude.txt` cạnh exe.
-
-### Cập nhật tự động (tuỳ chọn)
-
-`tuigo.exe` **không chứa code mạng** — hoàn toàn offline. Nếu muốn auto-update, để file **`tuigo-updater.exe`** (có sẵn trong bản zip/release) nằm cạnh `tuigo.exe`:
-
-- Có file → app tự chạy updater khi khởi động (tự giới hạn 20h/lần), có bản mới sẽ hỏi rồi tự tải + thay exe + khởi động lại
-- Xoá file → tắt hoàn toàn tính năng, không còn kết nối nào
-- Nút **"Kiểm tra cập nhật"** trong tab Giới thiệu để check thủ công bất cứ lúc nào
-
-## Cách dùng
-
-| Phím | Tác dụng |
-|---|---|
-| `Alt+Z` (tùy chỉnh được) | Chuyển Tiếng Việt ↔ English |
-| `Ctrl+Shift` | Chuyển V/E (phím phụ) |
-| Click icon khay | Mở cài đặt · Chuột phải: menu có mục chuyển V/E |
-| `F1` / `F2` | Bật TV / tắt TV |
-| `F5` | Mở cài đặt |
-| `F9` | Bật/tắt gõ tắt |
-| `F12` | Reset bộ đệm gõ |
-
-### Gõ tắt — `macro.txt`
-
-```text
-btw=by the way
-ko=không
-dc=được
-```
-
-## Cấu trúc project
-
-```text
-app/
-  engine/        engine gõ thuần Go (port từ UniKey) — platform-independent
-  *.go           shell Windows: keyboard hook, tray, HUD, settings UI
-  app.ico        icon app · rsrc.syso — resource embed
-  build.bat      script build (gui/console/arm64/res)
-android/
-  engine/        port Kotlin thuần của engine (test JVM, không cần emulator)
-  app/           InputMethodService + keyboard view + app cài đặt
-ios/
-  Sources/TuiGoEngine/  port Swift thuần của engine (SwiftPM, swift test)
-  Keyboard/      Custom Keyboard Extension (UIInputViewController + UIKit)
-  App/           app cài đặt SwiftUI (kiểu gõ, tuỳ chọn, sửa macro)
-  Shared/        Prefs qua App Group (group.com.tuigo)
-  project.yml    XcodeGen — sinh TuiGo.xcodeproj
-assets/          logo + UI concept tham khảo
-```
-
-## Mobile
+Updater là tùy chọn. Binary app chuẩn nằm ở root repo, tránh tạo thêm app/tuigo.exe.
 
 ### Android
 
-```bat
+~~~powershell
 cd android
-gradlew.bat :engine:test :app:assembleDebug
-```
+./gradlew.bat :engine:test :app:assembleDebug
+~~~
 
-APK ra ở `android/app/build/outputs/apk/debug/`. Cài lên máy: `adb install app-debug.apk` → Cài đặt → bật Tui Gõ làm bàn phím. JDK toolchain 17 tự tải qua Foojay resolver, không cần cài JDK riêng.
+APK debug nằm ở android/app/build/outputs/apk/debug/app-debug.apk. Cài APK rồi mở **Tui Gõ → Bật bàn phím → Chọn bàn phím**. APK release cần khóa ký phù hợp; debug APK không thay được app release có chữ ký khác.
 
-App mobile và bàn phím dùng giao diện sáng/tối theo thiết bị, card kính nhẹ và nút Space hiển thị **Tiếng Việt** hoặc **English**. Chạm **VN/EN** để đổi chế độ; trên Android, giữ Space để mở danh sách bàn phím. Vùng điều hướng dưới cùng do hệ thống quản lý.
+### iOS / iPadOS
 
-Màu mobile đồng bộ bản Windows: xanh ngọc #197F64 ở light mode và mint #3ED3B8 ở dark mode. Bộ chọn kiểu gõ có đúng **Telex, VNI, VIQR**; các tùy chọn simple/hybrid từ bản mobile cũ chuyển về Telex. Với VIQR, trang **?123 → #+=** có các phím `^`, dấu huyền và `~`.
+Trên macOS, chuẩn bị Xcode và XcodeGen:
 
-**Gõ tắt trên mobile:** bật Gõ tắt → Quản lý từ gõ tắt → nhập mỗi mục trên một dòng theo định dạng `key:text`, ví dụ `ko:không` và `vn:Việt Nam` → Lưu. Khi dùng chế độ Tiếng Việt, gõ `ko` rồi chạm Space để nhận `không`. Sửa dòng để đổi nội dung, xóa dòng để xóa mục; mở lại bàn phím để nạp danh sách mới. Từ tắt phân biệt chữ hoa/thường và tối đa 15 ký tự. Dữ liệu lưu UTF-8 trên thiết bị; trình sửa báo lỗi định dạng/lưu thay vì ghi đè dữ liệu cũ khi thất bại.
-
-Kiểm tra Android từ thư mục gốc: `powershell -File scripts/check-mobile.ps1`. Với emulator dành cho kiểm thử đã khởi động: thêm `-Device -Serial emulator-5554` để cài APK debug và chạy kiểm tra lựa chọn kiểu gõ, prefs và lưu/xóa macro. Script không tự xóa ứng dụng có chữ ký khác trên thiết bị.
-
-### iOS
-
-Cần macOS + Xcode + [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`):
-
-```sh
+~~~sh
 cd ios
-xcodegen          # sinh TuiGo.xcodeproj (đã gitignore)
+xcodegen
 open TuiGo.xcodeproj
-```
+~~~
 
-Chọn scheme **TuiGo** → chạy trên simulator hoặc máy thật (máy thật cần chọn Development Team trong Signing — App Group `group.com.tuigo` dùng được với free provisioning). Test engine không cần Xcode: `swift test`.
+Chọn scheme TuiGo; simulator không cần ký cho kiểm thử. Cài trên iPhone/iPad cần ký/provisioning phù hợp cho app và keyboard extension.
 
-Kiểm tra engine, app và keyboard extension trên macOS: `sh scripts/check-ios.sh`. App cài đặt iOS cũng có quản lý macro, hàng số và điều chỉnh kích thước phím; Space và palette bàn phím đồng bộ với chế độ gõ/theme. Build hoặc kiểm tra code trên Windows không xác nhận giao diện iOS đã chạy đúng; cần Xcode/simulator hoặc thiết bị thật để QA.
+Thêm Tui Gõ trong **Cài đặt → Tổng quát → Bàn phím → Thêm bàn phím mới**, rồi dùng nút đổi bàn phím của hệ thống.
 
-## Nguyên tắc thiết kế
+Mobile artifact dùng tên tuigo-vX.Y.Z.apk / tuigo-vX.Y.Z.ipa và tag mobile-vX.Y.Z theo scripts/mobile-release.py. IPA unsigned cần được ký trước khi cài; đọc mô tả release thay vì mặc định cho rằng mọi IPA đã cài được.
 
-- **Một file exe** — copy là chạy, không installer
-- **Không DLL** — engine thuần Go, gọi Win32 trực tiếp qua syscall
-- **Riêng tư tuyệt đối** — `tuigo.exe` hoàn toàn offline: không network, không telemetry, không log, keystroke chỉ nằm trong RAM (auto-update nằm ở file `tuigo-updater.exe` riêng, xoá là hết)
-- **Đồng bộ** — inject phím ngay trong hook callback, không race thứ tự chữ
-- **Per-app trước** — mỗi ứng dụng một profile riêng nếu cần
+### macOS
 
-### Mobile release artifacts
+~~~sh
+sh scripts/check-macos.sh
+~~~
 
-GitHub Actions builds `tuigo-v0.0.1.apk` and `tuigo-v0.0.1.ipa`. The mobile Git tag is `mobile-v0.0.1`; the release title is **Tui Gõ Mobile v0.0.1**. Metadata and artifact checks live in `scripts/mobile-release.py`. Android uses the configured release signing key (debug fallback without secrets). The IPA is unsigned and needs Apple signing/provisioning before installation. Both engine tests and native simulator/device builds run before IPA publication.
+App được build ở build/macos/Build/Products/Release/Tui Go.app. Copy vào ~/Library/Input Methods/, rồi thêm **Tui Gõ** trong cài đặt nguồn nhập; có thể cần đăng xuất/đăng nhập để macOS nhận nguồn mới.
 
-The symbol key at the Shift position cycles through common symbols, the expanded math/currency set, and additional existing symbols. `/` and `*` are on the first page. Before publishing a mobile tag, use `powershell -File scripts/publish-mobile-tag.ps1 -Tag mobile-v0.0.1 -Commit <verified-sha> -CheckOnly` to reject stale local/remote refs.
+Bật/tắt VI/EN trong input menu hoặc bằng Ctrl+Shift / Alt+Z theo tùy chọn. Cài đặt và macro editor nằm trong cùng app.
+
+### Linux
+
+Trên Ubuntu/Debian, cần IBus; khi build GUI cần thêm thư viện GL/X11, pkg-config. scripts/check-linux.sh liệt kê dependencies cho build và kiểm thử.
+
+~~~sh
+cd linux
+./install.sh
+ibus restart
+~~~
+
+Mặc định cài cho user vào ~/.local/lib/tuigo/; sau đó thêm Tui Gõ trong nguồn nhập của hệ thống. ./install.sh --system là cài toàn hệ thống, cần quyền quản trị. ./uninstall.sh gỡ phần cài đặt.
+
+## Kiểm chứng
+
+~~~powershell
+python -P scripts/check-no-diagnostics.py
+powershell -File scripts/check-diagnostics.ps1
+powershell -File scripts/check-mobile.ps1
+~~~
+
+Trên host tương ứng:
+
+~~~sh
+sh scripts/check-ios.sh
+sh scripts/check-macos.sh
+sh scripts/check-linux.sh
+~~~
+
+Source guard kiểm tra năm nền tảng: không có đường log chẩn đoán/debug-log, telemetry SDK hoặc HTTP client trong app xử lý gõ; kiểm tra manifest Android và yêu cầu quyền của keyboard iOS.
+
+Build/test engine không chứng minh bàn phím đã render hoặc tương tác đúng trên mọi thiết bị. iOS/macOS cần kiểm chứng native trên macOS; Linux cần IBus thực; Android cần emulator/thiết bị phù hợp cho kiểm thử tương tác.
+
+## Cấu trúc project
+
+~~~text
+app/          Windows app + engine Go + updater tùy chọn
+android/      App cài đặt, bàn phím Android và engine Kotlin
+ios/          App iOS, Keyboard Extension, engine Swift và shared preferences
+macos/        InputMethodKit, cài đặt và macro editor
+linux/        IBus engine, cài đặt Fyne và script cài/gỡ
+scripts/      Kiểm tra, metadata và đóng gói
+assets/       Logo và hình tham khảo
+~~~

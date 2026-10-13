@@ -83,12 +83,17 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         keyboard.theme = KeyboardThemes.current(dark: traitCollection.userInterfaceStyle == .dark)
         doubleSpace = Prefs.doubleSpacePeriod()
         keyboard.vietnameseOn = vietOn
+        keyboard.currentMethod = Prefs.inputMethod()
+        keyboard.showToolbar = Prefs.toolbar()
         engine.setVietKey(vietOn)
         keyboard.showNumberRow = Prefs.numberRow()
         // Read-only access to the containing app's shared container is sufficient.
         if let url = Prefs.macroURL {
             if !FileManager.default.fileExists(atPath: url.path) { engine.loadMacroText("") }
             else if let text = try? String(contentsOf: url, encoding: .utf8) { engine.loadMacroText(text) }
+        }
+        if heightConstraint != nil {
+            heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
         }
         view.setNeedsLayout()
     }
@@ -188,9 +193,18 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         func check(_ on: Bool) -> String { on ? "✓ " : "" }
         alert.addAction(UIAlertAction(title: check(vietOn) + "Tiếng Việt", style: .default) { [weak self] _ in self?.setViet(true) })
         alert.addAction(UIAlertAction(title: check(!vietOn) + "English", style: .default) { [weak self] _ in self?.setViet(false) })
-        alert.addAction(UIAlertAction(title: check(im == ImTelex) + "Telex", style: .default) { _ in Prefs.defaults.set(ImTelex, forKey: Prefs.keyIM) })
-        alert.addAction(UIAlertAction(title: check(im == ImVni) + "VNI", style: .default) { _ in Prefs.defaults.set(ImVni, forKey: Prefs.keyIM) })
-        alert.addAction(UIAlertAction(title: check(im == ImViqr) + "VIQR", style: .default) { _ in Prefs.defaults.set(ImViqr, forKey: Prefs.keyIM) })
+        alert.addAction(UIAlertAction(title: check(im == ImTelex) + "Telex", style: .default) { [weak self] _ in
+            Prefs.defaults.set(ImTelex, forKey: Prefs.keyIM)
+            self?.applyPrefs()
+        })
+        alert.addAction(UIAlertAction(title: check(im == ImVni) + "VNI", style: .default) { [weak self] _ in
+            Prefs.defaults.set(ImVni, forKey: Prefs.keyIM)
+            self?.applyPrefs()
+        })
+        alert.addAction(UIAlertAction(title: check(im == ImViqr) + "VIQR", style: .default) { [weak self] _ in
+            Prefs.defaults.set(ImViqr, forKey: Prefs.keyIM)
+            self?.applyPrefs()
+        })
         alert.addAction(UIAlertAction(title: "Bàn phím khác…", style: .default) { [weak self] _ in self?.advanceToNextInputMode() })
         alert.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
         if let pop = alert.popoverPresentationController {
@@ -207,6 +221,33 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
 
     func onInputModeMenu(_ sender: UIButton, event: UIEvent) {
         handleInputModeList(from: sender, with: event)
+    }
+
+    func onQuickMethodToggle() {
+        let current = Prefs.inputMethod()
+        let next: Int
+        switch current {
+        case ImTelex: next = ImVni
+        case ImVni: next = ImViqr
+        default: next = ImTelex
+        }
+        Prefs.defaults.set(next, forKey: Prefs.keyIM)
+        applyPrefs()
+    }
+
+    func onToggleNumberRow() {
+        let next = !keyboard.showNumberRow
+        Prefs.defaults.set(next, forKey: Prefs.keyNumberRow)
+        keyboard.showNumberRow = next
+        if heightConstraint != nil {
+            heightConstraint.constant = keyboard.intrinsicContentSize.height + view.safeAreaInsets.bottom
+        }
+        view.setNeedsLayout()
+    }
+
+    func onCursorMove(_ delta: Int) {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: delta)
+        rememberTail()
     }
 
     // ---- output -------------------------------------------------------------------

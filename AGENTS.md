@@ -24,3 +24,14 @@
 - IME shells can't delete committed text (IBus/IMK have no backchannel backspace): keep the word in preedit/marked text until a word boundary. `Session` (linux/internal/session, macos/Sources/Session.swift) handles this — swallow unconsumed mid-word chars into the model instead of forwarding.
 - Engine returns Consumed=false with Backs>0 for plain backspace — consume it yourself when the deleted char lives in preedit.
 - Shared config: tuigo.ini (same key names as Windows) + macro.txt + keymap.txt. Linux: ~/.config/tuigo/, macOS: ~/Library/Application Support/TuiGo/.
+
+# Contributor metadata
+
+- Do not add the removed Devin bot co-author trailer to new commits. For this cleanup, run `powershell -File scripts/check-contributors.ps1` to verify the isolated candidate against its commit map. Preserve release tags and use an explicit force-with-lease for any approved history rewrite; align local branch refs only after proving identical trees and preserving working file hashes.
+
+# Privacy and diagnostics
+
+- User requires no app-owned diagnostic logging on Windows, Linux, macOS, Android or iOS, and no debug-log setting. Do not reintroduce crash.log writers, hook/heartbeat output, stderr redirection or updater exit monitoring. Keep Win32 callback panic containment and input-hook recovery independent of logging.
+- Run `python -P scripts/check-no-diagnostics.py` after product changes; native platform check scripts also run it. It rejects diagnostic/telemetry sinks and input-app HTTP clients, and verifies Android has no INTERNET permission/backup and iOS does not request Full Access. Only the separate optional Windows updater may access the network.
+- Run `powershell -File scripts/check-diagnostics.ps1` after Windows/updater changes. Preserve existing logs and local user edits; do not remove user files as part of disabling logging. OS/framework crash reporting is separate from app-owned diagnostics and must not be disabled or described as controlled by this source guard.
+- README must describe all five platforms and actual local config/macro/per-app data, optional updater traffic, clipboard behavior and iOS access limitations. Do not claim absolute privacy, signed iOS artifacts or native/runtime verification without evidence.

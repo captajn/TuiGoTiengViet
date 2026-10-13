@@ -148,8 +148,8 @@ func hudPaint(hwnd uintptr) {
 			gfx.FillRoundedRectGradient(swX, swY, swTrackW, swTrackH, swR, argbSwitchOn, HexAlphaARGB(0xD0, argbSwitchOn&0x00FFFFFF))
 			gfx.DrawRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0x80, 0xFFFFFF), 1.0)
 		} else {
-			gfx.FillRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0x50, 0x333846))
-			gfx.DrawRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+			gfx.FillRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0xC0, argbSwitchOff&0x00FFFFFF))
+			gfx.DrawRoundedRect(swX, swY, swTrackW, swTrackH, swR, HexAlphaARGB(0xA0, argbBorder&0x00FFFFFF), 1.0)
 		}
 		// Knob with sheen
 		gfx.FillCircle(knobX+6.0, swY+swR+0.5, 5.5, HexAlphaARGB(0x35, 0x000000))
@@ -188,7 +188,7 @@ func hudPaint(hwnd uintptr) {
 }
 
 func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
-	defer func() { recoverCrash("hud", recover()) }()
+	defer func() { _ = recover() }()
 	switch msg {
 	case WM_PAINT:
 		hudPaint(hwnd)
@@ -268,23 +268,18 @@ func hudProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		showTrayMenu()
 		return 0
 	case WM_ENDSESSION:
-		if wp != 0 { // session is ending (logoff/shutdown) — record it
-			logLine("exit: session end")
+		if wp != 0 { // session is ending (logoff/shutdown) — save preferences
 			saveSettings()
 		}
 		return 0
 	case WM_POWERBROADCAST:
-		if wp == PBT_APMSUSPEND {
-			logLine("power: suspend")
-		} else if wp == PBT_APMRESUME || wp == PBT_RESUMESUSPEND {
-			logLine("power: resume")
+		if wp == PBT_APMRESUME || wp == PBT_RESUMESUSPEND {
 			reinstallHooks() // sleep/hibernate can silently drop LL hooks
 		}
 		return 1
 	case WM_WTSSESSION_CHANGE:
 		if wp == WTS_SESSION_UNLOCK {
 			reinstallHooks()
-			logLine("session unlock: hooks reinstalled")
 		}
 		return 0
 	case WM_ERASEBKGND:

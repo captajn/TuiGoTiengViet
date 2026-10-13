@@ -22,6 +22,9 @@ import android.view.WindowInsets
 import com.tuigo.KeyTheme
 import com.tuigo.KeyboardThemes
 import com.tuigo.Prefs
+import com.tuigo.engine.ImTelex
+import com.tuigo.engine.ImVni
+import com.tuigo.engine.ImViqr
 import kotlin.math.roundToInt
 
 /**
@@ -44,6 +47,9 @@ class KeyboardView @JvmOverloads constructor(
         fun onSwitchIme() {}
         fun onSpaceMenu() {}
         fun onHideKeyboard() {}
+        fun onQuickMethodToggle() {}
+        fun onToggleNumberRow() {}
+        fun onCursorMove(delta: Int) {}
     }
 
     var listener: Listener? = null
@@ -59,6 +65,17 @@ class KeyboardView @JvmOverloads constructor(
     /** VN mode state shown on the space bar. */
     var vietnameseOn: Boolean = true
         set(v) { field = v; invalidate() }
+
+    var currentMethod: Int = Prefs.inputMethod(context)
+        set(v) { field = v; invalidate() }
+
+    var showToolbar: Boolean = Prefs.toolbar(context)
+        set(v) {
+            if (field == v) return
+            field = v
+            relayout()
+            requestLayout()
+        }
 
     var symbolsPage = false
         private set
@@ -97,6 +114,11 @@ class KeyboardView @JvmOverloads constructor(
     // ---- layout model ------------------------------------------------------
 
     private object K {
+        const val TOOL_METHOD = -20
+        const val TOOL_NUM = -21
+        const val TOOL_LEFT = -22
+        const val TOOL_RIGHT = -23
+        const val TOOL_MENU = -24
         const val NUM_SPACE = -11
         const val MORE = -10
         const val IME = -9
@@ -360,13 +382,17 @@ class KeyboardView @JvmOverloads constructor(
         invalidate()
     }
 
+    private val toolbarHeight get() = 34 * dp
+    private val toolbarGap get() = 4 * dp
+
     // ---- sizing -------------------------------------------------------------
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val n = rows.size
+        val tbH = if (showToolbar && numericLayout == NumericLayout.NONE) toolbarHeight + toolbarGap else 0f
         val h = (padTop + padBottom + navInset +
-            n * keyHeight + (n - 1) * rowGap).roundToInt()
+            n * keyHeight + (n - 1) * rowGap + tbH).roundToInt()
         setMeasuredDimension(w, h)
     }
 
@@ -378,6 +404,26 @@ class KeyboardView @JvmOverloads constructor(
         keys.clear()
         val contentW = width - 2 * padH
         var y = padTop
+        if (showToolbar && numericLayout == NumericLayout.NONE) {
+            val mLabel = when (currentMethod) { ImVni -> "VNI"; ImViqr -> "VIQR"; else -> "TELEX" }
+            val tbSpecs = arrayOf(
+                KeySpec(K.TOOL_METHOD, mLabel, 1.8f),
+                KeySpec(K.TOOL_NUM, "123", 1.2f),
+                KeySpec(K.SPACER, "", 3.4f),
+                KeySpec(K.TOOL_LEFT, "◀", 1.2f),
+                KeySpec(K.TOOL_RIGHT, "▶", 1.2f),
+                KeySpec(K.TOOL_MENU, "⋯", 1.2f)
+            )
+            val totalWeight = tbSpecs.sumOf { it.weight.toDouble() }.toFloat()
+            val unitW = (contentW - keyGap * (tbSpecs.size - 1)) / totalWeight
+            var x = padH
+            for (spec in tbSpecs) {
+                val kw = unitW * spec.weight
+                keys += Key(spec, RectF(x, y, x + kw, y + toolbarHeight))
+                x += kw + keyGap
+            }
+            y += toolbarHeight + toolbarGap
+        }
         for (rowSpec in rows) {
             var x = padH
             val totalWeight = rowSpec.sumOf { it.weight.toDouble() }.toFloat()
@@ -408,28 +454,52 @@ class KeyboardView @JvmOverloads constructor(
         val isPressed = pressed === key
         val t = theme
 
-        fun cap(fill: Int, stroke: Int = t.border) {
-            shadowRect.set(r.left, r.top + 1.2f * dp, r.right, r.bottom + 1.2f * dp)
-            canvas.drawRoundRect(shadowRect, corner, corner, shadowPaint)
+        fun cap(fill: Int, stroke: Int = t.border, keyCorner: Float = corner) {
+            shadowRect.set(r.left, r.top + 1.5f * dp, r.right, r.bottom + 2.0f * dp)
+            shadowPaint.color = if (t.bg ushr 24 != 0 && (t.bg and 0xFF) > 128) 0x1F000000.toInt() else 0x3D000000.toInt()
+            canvas.drawRoundRect(shadowRect, keyCorner, keyCorner, shadowPaint)
 
             keyPaint.color = fill
-            canvas.drawRoundRect(r, corner, corner, keyPaint)
+            canvas.drawRoundRect(r, keyCorner, keyCorner, keyPaint)
             if (stroke ushr 24 != 0) {
                 borderPaint.color = stroke
-                canvas.drawRoundRect(r, corner, corner, borderPaint)
+                canvas.drawRoundRect(r, keyCorner, keyCorner, borderPaint)
             }
-            canvas.drawLine(r.left + corner * 0.7f, r.top + 1f, r.right - corner * 0.7f, r.top + 1f, sheenPaint)
+            val sheenAlpha = if ((t.key and 0xFF) > 128) 0x55FFFFFF.toInt() else 0x1AFFFFFF.toInt()
+            sheenPaint.color = sheenAlpha
+            canvas.drawLine(r.left + keyCorner * 0.8f, r.top + 1f, r.right - keyCorner * 0.8f, r.top + 1f, sheenPaint)
             if (isPressed) {
                 val bloomColor = (0x35 shl 24) or (t.accent and 0x00FFFFFF)
                 borderPaint.color = bloomColor
                 borderPaint.strokeWidth = 2f * dp
-                canvas.drawRoundRect(r, corner, corner, borderPaint)
+                canvas.drawRoundRect(r, keyCorner, keyCorner, borderPaint)
                 borderPaint.strokeWidth = 1f
             }
         }
         fun pressedGlyph(normal: Int) = if (t.pressAccent) t.onAccent else normal
 
         when (spec.code) {
+            K.TOOL_METHOD, K.TOOL_NUM, K.TOOL_LEFT, K.TOOL_RIGHT, K.TOOL_MENU -> {
+                val pillCorner = r.height() / 2f
+                if (spec.code == K.TOOL_METHOD) {
+                    keyPaint.color = if (isPressed) t.funcPressed else ((0x28 shl 24) or (t.accent and 0x00FFFFFF))
+                    canvas.drawRoundRect(r, pillCorner, pillCorner, keyPaint)
+                    borderPaint.color = t.accent
+                    borderPaint.strokeWidth = 1f * dp
+                    canvas.drawRoundRect(r, pillCorner, pillCorner, borderPaint)
+                    borderPaint.strokeWidth = 1f
+                    textPaint.color = t.accent
+                    textPaint.textSize = 11.5f * dp
+                    val mLabel = when (currentMethod) { ImVni -> "VNI"; ImViqr -> "VIQR"; else -> "TELEX" }
+                    drawCentered(canvas, mLabel, r)
+                } else {
+                    keyPaint.color = if (isPressed) t.funcPressed else ((0x18 shl 24) or (t.text and 0x00FFFFFF))
+                    canvas.drawRoundRect(r, pillCorner, pillCorner, keyPaint)
+                    textPaint.color = if (isPressed) pressedGlyph(t.funcText) else t.funcText
+                    textPaint.textSize = 12 * dp
+                    drawCentered(canvas, spec.label, r)
+                }
+            }
             K.SHIFT -> {
                 val active = capsLock || shifted
                 cap(when {
@@ -445,11 +515,12 @@ class KeyboardView @JvmOverloads constructor(
                 drawShiftIcon(canvas, r, active, capsLock)
             }
             K.ENTER -> {
+                val enterCorner = if (t.enterAccentFill) r.height() / 2f else corner
                 cap(when {
                     isPressed -> if (t.pressAccent) t.accent else t.funcPressed
                     t.enterAccentFill -> t.accent
                     else -> t.func
-                })
+                }, t.border, enterCorner)
                 iconPaint.color = when {
                     isPressed -> pressedGlyph(t.funcText)
                     t.enterAccentFill -> t.onAccent
@@ -460,7 +531,8 @@ class KeyboardView @JvmOverloads constructor(
                 else drawEnterIcon(canvas, r)
             }
             K.SPACE -> {
-                cap(if (isPressed && !t.pressAccent) t.funcPressed else t.space, t.spaceBorder)
+                val spaceCorner = r.height() / 2f
+                cap(if (isPressed && !t.pressAccent) t.funcPressed else t.space, t.spaceBorder, spaceCorner)
                 textPaint.color = if (isPressed) pressedGlyph(t.spaceText) else t.spaceText
                 textPaint.textSize = 13 * dp
                 val spaceLabel = if (vietnameseOn) "Tiếng Việt" else "English"
@@ -712,6 +784,11 @@ class KeyboardView @JvmOverloads constructor(
                 rows = currentRows()
                 relayout()
             }
+            K.TOOL_METHOD -> listener?.onQuickMethodToggle()
+            K.TOOL_NUM -> listener?.onToggleNumberRow()
+            K.TOOL_LEFT -> listener?.onCursorMove(-1)
+            K.TOOL_RIGHT -> listener?.onCursorMove(1)
+            K.TOOL_MENU -> listener?.onSpaceMenu()
             K.ENTER -> listener?.onEnter()
             K.SPACE, K.NUM_SPACE -> listener?.onChar(' ')
             K.HIDE -> listener?.onHideKeyboard()

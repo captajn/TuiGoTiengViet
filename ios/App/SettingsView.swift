@@ -14,9 +14,10 @@ struct SettingsView: View {
     @AppStorage(Prefs.keyKeyHeight, store: Prefs.defaults) private var keyHeight = 52.0
     @AppStorage(Prefs.keyKeyGap, store: Prefs.defaults) private var keyGap = 4.0
     @AppStorage(Prefs.keyTheme, store: Prefs.defaults) private var keyTheme = KeyboardThemes.defaultId
+    @AppStorage(Prefs.keyToolbar, store: Prefs.defaults) private var quickToolbar = true
     @State private var preview = ""
     @Environment(\.colorScheme) private var colorScheme
-    private let methods = [(ImTelex, "Telex", "s f r x j · aa, ee, oo, w, dd"), (ImVni, "VNI", "Dùng số 1–9 để thêm dấu"), (ImViqr, "VIQR", "Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu")]
+    private let methods = [(ImTelex, "Telex", "Telex · s, f, r, x, j để thêm dấu; aa, ee, oo, w, dd"), (ImVni, "VNI", "VNI · Dùng hàng phím số 1–9 để thêm dấu"), (ImViqr, "VIQR", "VIQR · Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu")]
 
     var body: some View {
         NavigationView {
@@ -37,24 +38,13 @@ struct SettingsView: View {
                             Label("Khi gõ, giữ nút quả địa cầu để chọn Tui Gõ.", systemImage: "2.circle").font(.subheadline)
                         }
                         GlassCard("Kiểu gõ", subtitle: "Chọn một kiểu phù hợp với thói quen của bạn") {
-                            ForEach(methods, id: \.0) { item in
-                                Button { inputMethod = item.0 } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: inputMethod == item.0 ? "checkmark.circle.fill" : "circle")
-                                            .font(.title3).foregroundColor(inputMethod == item.0 ? GlassTheme.accent : GlassTheme.muted)
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(item.1).fontWeight(.medium).foregroundColor(GlassTheme.text)
-                                            Text(item.2).font(.caption).foregroundColor(GlassTheme.muted)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }.frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                                        .padding(10)
-                                        .background(inputMethod == item.0 ? GlassTheme.glow : Color.clear, in: RoundedRectangle(cornerRadius: 14))
-                                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(inputMethod == item.0 ? GlassTheme.accent : Color.clear, lineWidth: 1))
-                                        .contentShape(Rectangle())
-                                }.buttonStyle(.plain)
-                                    .accessibilityAddTraits(inputMethod == item.0 ? .isSelected : [])
-                            }
+                            Picker("Kiểu gõ", selection: $inputMethod) {
+                                ForEach(methods, id: \.0) { item in
+                                    Text(item.1).tag(item.0)
+                                }
+                            }.pickerStyle(.segmented)
+                            Text(methods.first { $0.0 == inputMethod }?.2 ?? "")
+                                .font(.caption).foregroundColor(GlassTheme.muted).padding(.top, 4)
                         }
                         GlassCard("Cách gõ", subtitle: "Tinh chỉnh cách Tui Gõ xử lý từ và dấu") {
                             Toggle("Mặc định gõ tiếng Việt", isOn: $vietOnDefault)
@@ -96,6 +86,8 @@ struct SettingsView: View {
                                     }
                                 }
                             }
+                            Toggle("Thanh công cụ nhanh", isOn: $quickToolbar)
+                            Text("Hiện phím tắt kiểu gõ, số nhanh và di chuyển con trỏ.").font(.caption).foregroundColor(GlassTheme.muted)
                             Toggle("Hiện hàng số", isOn: $numberRow)
                             Text("VNI luôn có hàng số để gõ dấu.").font(.caption).foregroundColor(GlassTheme.muted)
                             Text("Chiều cao phím · \(Int(keyHeight)) pt").font(.subheadline)
@@ -118,13 +110,21 @@ struct SettingsView: View {
         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
     }
 
-    /// Horizontal strip [bg | key | accent] used as theme preview.
+    /// Mini keyboard preview swatch.
     private func swatch(_ t: KeyTheme) -> some View {
-        HStack(spacing: 0) {
-            Rectangle().fill(Color(uiColor: t.bg))
-            Rectangle().fill(Color(uiColor: t.key))
-                .overlay(Rectangle().stroke(Color(uiColor: t.border), lineWidth: 0.5))
-            Rectangle().fill(Color(uiColor: t.accent))
-        }.frame(width: 48, height: 18).clipShape(RoundedRectangle(cornerRadius: 4))
+        ZStack {
+            RoundedRectangle(cornerRadius: 3).fill(Color(uiColor: t.bg))
+            VStack(spacing: 2) {
+                HStack(spacing: 1.5) {
+                    ForEach(0..<4) { _ in
+                        RoundedRectangle(cornerRadius: 1.5).fill(Color(uiColor: t.key))
+                    }
+                }.frame(height: 6)
+                HStack(spacing: 1.5) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(Color(uiColor: t.space)).frame(width: 28)
+                    RoundedRectangle(cornerRadius: 1.5).fill(Color(uiColor: t.accent))
+                }.frame(height: 6)
+            }.padding(2)
+        }.frame(width: 52, height: 20)
     }
 }
