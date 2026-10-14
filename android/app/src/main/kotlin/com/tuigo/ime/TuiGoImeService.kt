@@ -1044,23 +1044,29 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderedClipKey = clipKey
         renderedHistoryOn = showHistory
         renderedTheme = keyboard.theme
-        scroll.visibility = View.VISIBLE
         scroll.setBackgroundColor(keyboard.theme.bg)
         val gap = (6 * resources.displayMetrics.density).toInt()
         fun lp(moreAfter: Boolean) = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { if (moreAfter) marginEnd = gap }
-        // Stage chips off-screen and swap them in only once every async inline
-        // view has arrived — the strip never shows a half-built frame.
+        // Stage chips off-screen and swap them in once the async inline views
+        // arrive — the strip never shows a half-built frame. A provider may
+        // drop an inflate callback entirely, so a timeout swaps whatever is
+        // ready rather than leaving the strip empty forever.
         val stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val seq = ++inlineSeq
+        var swapped = false
         fun swapIn() {
+            if (swapped || seq != inlineSeq) return
+            swapped = true
             strip.removeAllViews()
             while (stage.childCount > 0) {
                 val v = stage.getChildAt(0)
                 stage.removeViewAt(0)
                 strip.addView(v)
             }
+            scroll.visibility = if (strip.childCount > 0) View.VISIBLE else View.GONE
         }
         if (showHistory) {
             stage.addView(buildHistoryChip().apply {
@@ -1072,11 +1078,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 layoutParams = lp(suggestions.isNotEmpty())
             })
         }
+        // Owned chips can show right away; inline-only renders wait for the
+        // first swap so we never flash an empty bar.
+        if (suggestions.isEmpty() || stage.childCount > 0) scroll.visibility = View.VISIBLE
         if (Build.VERSION.SDK_INT >= 30 && suggestions.isNotEmpty()) {
-            val seq = ++inlineSeq
             var pending = suggestions.size
+            keyboard.postDelayed({ swapIn() }, 800)
             fun commit() {
-                if (--pending > 0 || seq != inlineSeq) return
+                if (--pending > 0) return
                 swapIn()
             }
             for (suggestion in suggestions) {
@@ -1087,7 +1096,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                     suggestion.inflate(this,
                         Size(ViewGroup.LayoutParams.WRAP_CONTENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
-                        if (seq == inlineSeq && view != null) {
+                        if (seq == inlineSeq && view != null && !swapped) {
                             view.layoutParams = lp(false)
                             stage.addView(view)
                         }
