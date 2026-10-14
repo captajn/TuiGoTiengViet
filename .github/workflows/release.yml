@@ -23,8 +23,11 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.check.outputs.ref }}
     steps:
       - name: Check tag matches selected platform
+        id: check
         run: |
           tag='${{ github.event.inputs.tag }}'
           platform='${{ github.event.inputs.platform }}'
@@ -35,8 +38,8 @@ jobs:
                 exit 1
               fi ;;
             mobile)
-              if [[ "$tag" != mobile-v* ]]; then
-                echo "::error::Android+iOS release needs a mobile-vX.Y.Z tag (got '${tag:-<empty>}')."
+              if [ -n "$tag" ] && [[ "$tag" != mobile-v* ]]; then
+                echo "::error::Android+iOS release takes a mobile-vX.Y.Z tag, or an empty tag to auto-derive mobile-v<version> (got '$tag')."
                 exit 1
               fi ;;
             android)
@@ -45,7 +48,12 @@ jobs:
                 exit 1
               fi ;;
           esac
-          echo "OK: platform=$platform tag=${tag:-<auto>}"
+          ref='${{ github.ref_name }}'
+          if [ -n "$tag" ] && git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" "refs/tags/$tag" >/dev/null 2>&1; then
+            ref="$tag"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "OK: platform=$platform tag=${tag:-<auto>} checkout_ref=$ref"
 
   build:
     needs: validate
@@ -121,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ needs.validate.outputs.ref }}
       - name: Mobile metadata and palette
         id: meta
         run: |
@@ -184,14 +192,18 @@ jobs:
     if: ${{ github.event.inputs.platform == 'mobile' }}
     runs-on: macos-latest
     env:
-      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ needs.validate.outputs.ref }}
       - name: Mobile metadata
         id: meta
-        run: python3 -P scripts/mobile-release.py metadata --tag "$RELEASE_TAG"
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          echo "TAGARG=$args" >> "$GITHUB_ENV"
+          python3 -P scripts/mobile-release.py metadata $args
       - name: Verify palette, engine and simulator build
         run: |
           brew install xcodegen
@@ -205,7 +217,7 @@ jobs:
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
       - name: Package and inspect unsigned IPA
         run: >-
-          python3 -P scripts/mobile-release.py ipa --tag "$RELEASE_TAG"
+          python3 -P scripts/mobile-release.py ipa $TAGARG
           --source ios/build/Build/Products/Release-iphoneos --output dist
       - uses: actions/upload-artifact@v4
         with:
@@ -218,14 +230,18 @@ jobs:
     if: ${{ github.event.inputs.platform == 'mobile' }}
     runs-on: ubuntu-latest
     env:
-      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ needs.validate.outputs.ref }}
       - name: Mobile metadata
         id: meta
-        run: python3 -P scripts/mobile-release.py metadata --tag "$RELEASE_TAG"
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          echo "TAGARG=$args" >> "$GITHUB_ENV"
+          python3 -P scripts/mobile-release.py metadata $args
       - uses: actions/download-artifact@v4
         with:
           pattern: mobile-*
@@ -234,10 +250,13 @@ jobs:
       - name: Verify release assets
         run: |
           test -s "dist/${{ steps.meta.outputs.apk_name }}"
-          python3 -P scripts/mobile-release.py check-ipa --tag "$RELEASE_TAG" --source "dist/${{ steps.meta.outputs.ipa_name }}"
+          python3 -P scripts/mobile-release.py check-ipa $TAGARG --source "dist/${{ steps.meta.outputs.ipa_name }}"
+          tag="$RELEASE_TAG"
+          [ -z "$tag" ] && tag="mobile-v${{ steps.meta.outputs.version }}"
+          echo "REL_TAG=$tag" >> "$GITHUB_ENV"
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ env.REL_TAG }}
           name: ${{ steps.meta.outputs.release_name }}
           make_latest: false
           generate_release_notes: true
@@ -258,7 +277,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ needs.validate.outputs.ref }}
       - name: Mobile metadata
         id: meta
         run: |
