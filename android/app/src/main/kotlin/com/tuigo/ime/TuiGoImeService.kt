@@ -27,6 +27,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.InlineSuggestion
 import android.view.inputmethod.InlineSuggestionsRequest
 import android.view.inputmethod.InlineSuggestionsResponse
 import android.widget.HorizontalScrollView
@@ -94,8 +95,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var renderedInline: InlineSuggestionsResponse? = null
     private var renderedClipKey: String? = null
     private var renderedHistoryOn = false
+    private var renderedReadyCount = 0
     private var renderedTheme: com.tuigo.KeyTheme? = null
-    private var inlineSeq = 0
+    // InlineSuggestion.inflate() throws IllegalStateException when called
+    // twice on the same suggestion — provider views are cached per response
+    // and re-parented on each rebuild, never re-inflated.
+    private var inlineOwner: InlineSuggestionsResponse? = null
+    private val inlineViews = HashMap<InlineSuggestion, View>()
+    private val inlineInflating = HashSet<InlineSuggestion>()
     private var editorKey: String? = null
 
     private var clipboardManager: ClipboardManager? = null
@@ -602,7 +609,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private fun clearInlineSuggestions() {
         pendingInline = null
-        inlineSeq++
         renderSuggestionStrip()
     }
 
@@ -1014,35 +1020,69 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderSuggestionStrip()
     }
 
+    /** Kick off the one allowed inflate() per suggestion; the provider view is
+     *  cached on arrival and the strip re-renders to pick it up. */
+    @SuppressLint("NewApi")
+    private fun kickInlineInflate(suggestion: InlineSuggestion) {
+        if (inlineViews.containsKey(suggestion) || !inlineInflating.add(suggestion)) return
+        try {
+            // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a size
+            // fully inside the spec's min/max — a mixed wrap/fixed size
+            // throws IllegalArgumentException.
+            suggestion.inflate(this,
+                Size(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
+                if (inlineInflating.remove(suggestion) && view != null) {
+                    inlineViews[suggestion] = view
+                }
+                renderSuggestionStrip()
+            }
+        } catch (_: Exception) {
+            inlineInflating.remove(suggestion)
+        }
+    }
+
     @SuppressLint("NewApi")
     private fun renderSuggestionStrip() {
         val scroll = suggestionScroll ?: return
         val strip = suggestionStrip ?: return
-        val suggestions = if (Build.VERSION.SDK_INT >= 30) pendingInline?.inlineSuggestions.orEmpty() else emptyList()
+        val response = pendingInline
+        if (response !== inlineOwner) {
+            // Provider views die with their response — drop the whole cache so
+            // a fresh response gets fresh inflate() calls.
+            inlineViews.clear()
+            inlineInflating.clear()
+            inlineOwner = response
+        }
+        val suggestions =
+            if (Build.VERSION.SDK_INT >= 30) response?.inlineSuggestions.orEmpty() else emptyList()
+        for (suggestion in suggestions) kickInlineInflate(suggestion)
+        val ready = suggestions.mapNotNull { inlineViews[it] }
         val clipCand = currentClipCandidate()
         activeClipCandidate = clipCand
         val showHistory = Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)
-        if (suggestions.isEmpty() && clipCand == null && !showHistory) {
+        if (ready.isEmpty() && clipCand == null && !showHistory) {
             renderedInline = null
             renderedClipKey = null
             renderedHistoryOn = false
-            inlineSeq++ // drop callbacks still in flight from a previous response
+            renderedReadyCount = 0
             strip.removeAllViews()
             scroll.visibility = View.GONE
             return
         }
-        // Same inputs as the visible strip? Keep it — inline chips inflate
-        // remotely, so a pointless rebuild would flash them away and back.
+        // Same inputs as the visible strip? Keep it — reparenting a provider
+        // view for no reason can flash it away and back for a frame.
         val clipKey = clipCand?.key
-        if (pendingInline === renderedInline && clipKey == renderedClipKey &&
-                showHistory == renderedHistoryOn && keyboard.theme === renderedTheme &&
-                strip.childCount > 0) {
+        if (response === renderedInline && clipKey == renderedClipKey &&
+                showHistory == renderedHistoryOn && ready.size == renderedReadyCount &&
+                keyboard.theme == renderedTheme && strip.childCount > 0) {
             scroll.visibility = View.VISIBLE
             return
         }
-        renderedInline = pendingInline
+        renderedInline = response
         renderedClipKey = clipKey
         renderedHistoryOn = showHistory
+        renderedReadyCount = ready.size
         renderedTheme = keyboard.theme
         scroll.setBackgroundColor(keyboard.theme.bg)
         val gap = (6 * resources.displayMetrics.density).toInt()
@@ -1050,63 +1090,26 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { if (moreAfter) marginEnd = gap }
-        // Stage chips off-screen and swap them in once the async inline views
-        // arrive — the strip never shows a half-built frame. A provider may
-        // drop an inflate callback entirely, so a timeout swaps whatever is
-        // ready rather than leaving the strip empty forever.
-        val stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val seq = ++inlineSeq
-        var swapped = false
-        fun swapIn() {
-            if (swapped || seq != inlineSeq) return
-            swapped = true
-            strip.removeAllViews()
-            while (stage.childCount > 0) {
-                val v = stage.getChildAt(0)
-                stage.removeViewAt(0)
-                strip.addView(v)
-            }
-            scroll.visibility = if (strip.childCount > 0) View.VISIBLE else View.GONE
-        }
+        // Provider views that were cached are already inflated — a rebuild is
+        // synchronous, so the strip is rewritten within the same frame and
+        // never shows a half-built state.
+        strip.removeAllViews()
         if (showHistory) {
-            stage.addView(buildHistoryChip().apply {
-                layoutParams = lp(clipCand != null || suggestions.isNotEmpty())
+            strip.addView(buildHistoryChip().apply {
+                layoutParams = lp(clipCand != null || ready.isNotEmpty())
             })
         }
         if (clipCand != null) {
-            stage.addView(buildClipboardChip(clipCand).apply {
-                layoutParams = lp(suggestions.isNotEmpty())
+            strip.addView(buildClipboardChip(clipCand).apply {
+                layoutParams = lp(ready.isNotEmpty())
             })
         }
-        // Owned chips can show right away; inline-only renders wait for the
-        // first swap so we never flash an empty bar.
-        if (suggestions.isEmpty() || stage.childCount > 0) scroll.visibility = View.VISIBLE
-        if (Build.VERSION.SDK_INT >= 30 && suggestions.isNotEmpty()) {
-            var pending = suggestions.size
-            keyboard.postDelayed({ swapIn() }, 800)
-            fun commit() {
-                if (--pending > 0) return
-                swapIn()
-            }
-            for (suggestion in suggestions) {
-                try {
-                    // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a
-                    // size fully inside the spec's min/max — a mixed
-                    // wrap/fixed size throws IllegalArgumentException.
-                    suggestion.inflate(this,
-                        Size(ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
-                        if (seq == inlineSeq && view != null && !swapped) {
-                            view.layoutParams = lp(false)
-                            stage.addView(view)
-                        }
-                        commit()
-                    }
-                } catch (_: Exception) { commit() }
-            }
-        } else {
-            swapIn()
+        for (chip in ready) {
+            (chip.parent as? ViewGroup)?.removeView(chip)
+            chip.layoutParams = lp(false)
+            strip.addView(chip)
         }
+        scroll.visibility = View.VISIBLE
     }
 
     override fun onHideKeyboard() {
