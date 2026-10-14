@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -21,6 +23,9 @@ var appVersion = "0.0.9"
 func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	defer func() { _ = recover() }()
 	switch msg {
+	case WM_MOUSE_DOWN:
+		flushPendingMouseClick()
+		return 0
 	case WM_TOGGLE_VN:
 		src := "hotkey"
 		switch wp {
@@ -242,22 +247,70 @@ func main() {
 	}
 
 	pUnhookWindowsHook.Call(gHook)
-	pUnhookWindowsHook.Call(gMouseHook)
+	if tid := atomic.LoadUint32(&gMouseThreadID); tid != 0 {
+		pPostThreadMessage.Call(uintptr(tid), WM_UNHOOK_MOUSE, 0, 0)
+	}
 	trayDelete()
 
 }
 
-var hookCb, mouseCb uintptr
+var (
+	hookCb, mouseCb uintptr
+	gMouseThreadID  uint32
+	mouseHookOnce   sync.Once
+)
+
+func runMouseHookLoop(ready chan<- struct{}) {
+	runtime.LockOSThread()
+	defer func() { _ = recover() }()
+	tid, _, _ := pGetCurrentThreadId.Call()
+	atomic.StoreUint32(&gMouseThreadID, uint32(tid))
+	if mouseCb == 0 {
+		mouseCb = windows.NewCallback(lowLevelMouseProc)
+	}
+	mh, _, _ := pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCb, 0, 0)
+	atomic.StoreUintptr(&gMouseHook, mh)
+	close(ready)
+
+	var m msg
+	for {
+		r, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		if int32(r) <= 0 {
+			break
+		}
+		switch m.message {
+		case WM_REINSTALL_MOUSE_HOOK:
+			if h := atomic.SwapUintptr(&gMouseHook, 0); h != 0 {
+				pUnhookWindowsHook.Call(h)
+			}
+			nh, _, _ := pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCb, 0, 0)
+			atomic.StoreUintptr(&gMouseHook, nh)
+		case WM_UNHOOK_MOUSE:
+			if h := atomic.SwapUintptr(&gMouseHook, 0); h != 0 {
+				pUnhookWindowsHook.Call(h)
+			}
+			return
+		}
+	}
+}
 
 func installHook() bool {
 	if hookCb == 0 {
 		hookCb = windows.NewCallback(lowLevelKbProc)
 	}
-	if mouseCb == 0 {
-		mouseCb = windows.NewCallback(lowLevelMouseProc)
-	}
 	gHook, _, _ = pSetWindowsHookEx.Call(WH_KEYBOARD_LL, hookCb, 0, 0)
-	gMouseHook, _, _ = pSetWindowsHookEx.Call(WH_MOUSE_LL, mouseCb, 0, 0)
+	started := false
+	mouseHookOnce.Do(func() {
+		started = true
+		ready := make(chan struct{})
+		go runMouseHookLoop(ready)
+		<-ready
+	})
+	if !started {
+		if tid := atomic.LoadUint32(&gMouseThreadID); tid != 0 {
+			pPostThreadMessage.Call(uintptr(tid), WM_REINSTALL_MOUSE_HOOK, 0, 0)
+		}
+	}
 	return gHook != 0
 }
 
@@ -268,10 +321,6 @@ func reinstallHooks() {
 	if gHook != 0 {
 		pUnhookWindowsHook.Call(gHook)
 		gHook = 0
-	}
-	if gMouseHook != 0 {
-		pUnhookWindowsHook.Call(gMouseHook)
-		gMouseHook = 0
 	}
 	installHook()
 }
@@ -300,12 +349,13 @@ func hookWatchdog() {
 	if r, _, _ := pGetLastInputInfo.Call(uintptr(unsafe.Pointer(&lii))); r == 0 {
 		return
 	}
+	mouseSeen := atomic.LoadUint64(&gMouseSeen)
 	inputMoved := lii.dwTime != gPrevInputTick
-	hooksMoved := gHookSeen != gPrevHookSeen || gMouseSeen != gPrevMouseSeen
+	hooksMoved := gHookSeen != gPrevHookSeen || mouseSeen != gPrevMouseSeen
 	if inputMoved && !hooksMoved {
 		reinstallHooks()
 	}
 	gPrevInputTick = lii.dwTime
 	gPrevHookSeen = gHookSeen
-	gPrevMouseSeen = gMouseSeen
+	gPrevMouseSeen = mouseSeen
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -281,3 +282,90 @@ func TestModsMatchTrackedState(t *testing.T) {
 		}
 	}
 }
+
+func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
+	oldDpi, oldRailW := gDpi, railW
+	oldActive, oldHovered := gActiveTab, gHoveredTab
+	defer func() {
+		releaseBgCache()
+		deleteGdiObj(&fontNormal)
+		deleteGdiObj(&fontBold)
+		deleteGdiObj(&fontTitle)
+		deleteGdiObj(&fontSection)
+		deleteGdiObj(&fontHint)
+		deleteGdiObj(&fontTagline)
+		gDpi, railW = oldDpi, oldRailW
+		gActiveTab, gHoveredTab = oldActive, oldHovered
+	}()
+
+	gDpi = 96
+	railW = dp(232)
+	applyTheme()
+	applySettingsFont()
+
+	// Verify continuous vertical sweep across all 5 tabs has no -1 dead-zone in the 6dp gaps
+	firstR := navRect(0)
+	lastR := navRect(len(tabItems) - 1)
+	midX := (firstR.left + firstR.right) / 2
+	prevIdx := 0
+	for y := firstR.top; y < lastR.bottom; y++ {
+		idx := navHitAt(midX, y)
+		if idx < 0 || idx >= len(tabItems) {
+			t.Fatalf("navHitAt(%d, %d) returned %d inside sidebar list", midX, y, idx)
+		}
+		if idx < prevIdx || idx > prevIdx+1 {
+			t.Fatalf("non-monotonic tab transition at y=%d: %d -> %d", y, prevIdx, idx)
+		}
+		prevIdx = idx
+	}
+	if got := navHitAt(midX, firstR.top-1); got != -1 {
+		t.Fatalf("above first tab: got %d, want -1", got)
+	}
+	if got := navHitAt(midX, lastR.bottom); got != -1 {
+		t.Fatalf("below last tab: got %d, want -1", got)
+	}
+
+	// Benchmark cached hover repaint on Tab 4 (About tab with 1024x1024 mascot)
+	winW, winH := dp(840), dp(560)
+	screen, _, _ := pGetDC.Call(0)
+	if screen == 0 {
+		t.Skip("no screen DC available")
+	}
+	defer pReleaseDC.Call(0, screen)
+	dc, bmp, old := allocOffscreenDC(screen, winW, winH)
+	if dc == 0 {
+		t.Fatal("failed to allocate test DC")
+	}
+	defer func() {
+		pSelectObject.Call(dc, old)
+		pDeleteDC.Call(dc)
+		pDeleteObject.Call(bmp)
+	}()
+
+	gActiveTab = 4
+	gHoveredTab = -1
+	paintSettingsCached(dc, 0, winW, winH, rect{0, 0, winW, winH})
+
+	// Sweep hover up and down 20 times across all 5 tabs
+	start := time.Now()
+	steps := 0
+	for pass := 0; pass < 4; pass++ {
+		for i := 0; i < len(tabItems); i++ {
+			oldH := gHoveredTab
+			gHoveredTab = i
+			dirty := navDirtyRect(i)
+			if oldH >= 0 {
+				dirty = rectUnion(dirty, navDirtyRect(oldH))
+			}
+			paintSettingsCached(dc, 0, winW, winH, dirty)
+			steps++
+		}
+	}
+	elapsed := time.Since(start)
+	avg := elapsed / time.Duration(steps)
+	t.Logf("20 sidebar hover repaints took %v (avg %v/step)", elapsed, avg)
+	if avg > 5*time.Millisecond {
+		t.Fatalf("sidebar hover repaint too slow: avg %v/step (want < 5ms)", avg)
+	}
+}
+

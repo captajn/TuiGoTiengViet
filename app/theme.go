@@ -4,6 +4,8 @@ package main
 // or Bạch Ngọc / 宣纸 (light). 0=auto (follow Windows), 1=dark, 2=light.
 
 import (
+	"time"
+
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -378,15 +380,26 @@ const (
 	styleMaterialTeal
 )
 
+var (
+	winDarkCached bool
+	winDarkAt     time.Time
+)
+
 func windowsDark() bool {
+	if !winDarkAt.IsZero() && time.Since(winDarkAt) < 2*time.Second {
+		return winDarkCached
+	}
+	winDarkAt = time.Now()
 	k, err := registry.OpenKey(registry.CURRENT_USER,
 		`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.READ)
 	if err != nil {
+		winDarkCached = true
 		return true
 	}
 	defer k.Close()
 	v, _, err := k.GetIntegerValue("AppsUseLightTheme")
-	return err == nil && v == 0
+	winDarkCached = err == nil && v == 0
+	return winDarkCached
 }
 
 func isDark() bool {
@@ -442,6 +455,7 @@ var (
 )
 
 func applyTheme() {
+	winDarkAt = time.Time{}
 	p := curPalette()
 	colBg, colCard, colBorder = p.bg, p.card, p.border
 	colText, colMuted = p.text, p.muted

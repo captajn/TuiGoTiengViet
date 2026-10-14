@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -393,6 +394,7 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 	defer func() { _ = recover() }()
 	gHookSeen++
 	if nCode == 0 && !gSending { // HC_ACTION
+		flushPendingMouseClick()
 		p := (*kbdLLHookStruct)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam)))
 		injected := p.flags&(LLKHF_INJECTED|LLKHF_LOWER_IL_INJECTED) != 0
 		if !injected || (gTestMagic != 0 && p.dwExtraInfo == gTestMagic) {
@@ -443,44 +445,72 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 	return r
 }
 
-// lowLevelMouseProc handles two jobs on any button press:
+// lowLevelMouseProc runs on its own dedicated OS thread so UI painting in
+// BoGoSettingsWnd can never delay WH_MOUSE_LL and stutter the system cursor.
+// It handles two jobs on any button press:
 //   - dirty a pending Ctrl+Shift chord — Ctrl+Shift+Click (open link in new
 //     tab, multi-select, Explorer shortcut-drag) must not toggle Vietnamese
 //   - reset the engine — a click can move the caret, select a word, or
 //     switch focus, so the tracked word no longer matches the edit field.
 //     Without this, Backspace/typing "corrects" text at the wrong offset
 //     (click before "xóa" + retype x → "õa", omnibox → "àáá").
-var gMouseSeen uint64 // liveness counter, mirrors gHookSeen
+var (
+	gMouseSeen         uint64 // liveness counter, mirrors gHookSeen (atomic)
+	gPendingMouseClick uint32
+	gPendingClickHwnd  uintptr
+	gPendingClickFg    uintptr
+)
+
+func flushPendingMouseClick() {
+	if atomic.SwapUint32(&gPendingMouseClick, 0) == 0 {
+		return
+	}
+	clicked := atomic.LoadUintptr(&gPendingClickHwnd)
+	fg := atomic.LoadUintptr(&gPendingClickFg)
+	gEngine.Reset()
+	gAutoCapNext = false
+	// A click inside the window already receiving keys may land the
+	// caret mid-text — forward-Delete there would erase a real
+	// character. A click on another window refocuses it; the field
+	// then typically selects all text or sits at end-of-text.
+	if shellInputSurface(rootClassName(clicked)) || clicked == gSettingsHwnd {
+		// Mouse-down ran before Explorer/settings took foreground.
+		// Capture the typing app even if the user never typed a key in it.
+		captureInputAppAt(fg)
+	}
+	gCaretAtEnd = clicked != gLastKeyHwnd
+	if gChordPending {
+		gChordClean = false
+	}
+}
 
 func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
 	defer func() { _ = recover() }()
-	gMouseSeen++
+	atomic.AddUint64(&gMouseSeen, 1)
 	if nCode == 0 {
 		switch wParam {
 		case WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN, WM_XBUTTONDOWN,
 			WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NCMBUTTONDOWN, WM_NCXBUTTONDOWN:
-			gEngine.Reset()
-			gAutoCapNext = false
-			// A click inside the window already receiving keys may land the
-			// caret mid-text — forward-Delete there would erase a real
-			// character. A click on another window refocuses it; the field
-			// then typically selects all text or sits at end-of-text.
 			var pt point
-			pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+			if lParam != 0 {
+				pt = (*msLLHookStruct)(*(*unsafe.Pointer)(unsafe.Pointer(&lParam))).pt
+			} else {
+				pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+			}
 			w, _, _ := pWindowFromPoint.Call(
 				uintptr(uint32(pt.x)) | uintptr(uint32(pt.y))<<32)
 			clicked, _, _ := pGetAncestor.Call(w, GA_ROOT)
-			if shellInputSurface(rootClassName(clicked)) || clicked == gSettingsHwnd {
-				// Mouse-down runs before Explorer/settings takes foreground.
-				// Capture the typing app even if the user never typed a key in it.
-				currentInputApp()
-			}
-			gCaretAtEnd = clicked != gLastKeyHwnd
-			if gChordPending {
-				gChordClean = false
+			fg, _, _ := pGetForegroundWindow.Call()
+			atomic.StoreUintptr(&gPendingClickHwnd, clicked)
+			atomic.StoreUintptr(&gPendingClickFg, fg)
+			atomic.StoreUint32(&gPendingMouseClick, 1)
+			if gHwnd != 0 {
+				pPostMessage.Call(gHwnd, WM_MOUSE_DOWN, clicked, fg)
+			} else {
+				flushPendingMouseClick()
 			}
 		}
 	}
-	r, _, _ := pCallNextHookEx.Call(gMouseHook, uintptr(nCode), wParam, lParam)
+	r, _, _ := pCallNextHookEx.Call(atomic.LoadUintptr(&gMouseHook), uintptr(nCode), wParam, lParam)
 	return r
 }

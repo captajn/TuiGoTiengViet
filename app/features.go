@@ -199,10 +199,23 @@ func currentInputApp() inputAppContext {
 	return resolveInputApp(inputAppContext{spec, exe, hwnd}, rootClassName(hwnd), own)
 }
 
+func captureInputAppAt(fg uintptr) inputAppContext {
+	if fg == 0 {
+		return currentInputApp()
+	}
+	spec, exe, hwnd := foregroundAppAt(fg)
+	own := hwnd != 0 && (hwnd == gHwnd || hwnd == gSettingsHwnd || hwnd == gHudHwnd)
+	return resolveInputApp(inputAppContext{spec, exe, hwnd}, rootClassName(hwnd), own)
+}
+
 // foregroundApp returns the per-app spec, exe name and HWND of the active
 // window.
 func foregroundApp() (appSpec, string, uintptr) {
 	hwnd, _, _ := pGetForegroundWindow.Call()
+	return foregroundAppAt(hwnd)
+}
+
+func foregroundAppAt(hwnd uintptr) (appSpec, string, uintptr) {
 	if hwnd == lastFgHwnd {
 		return lastFgSpec, lastFgExe, hwnd
 	}

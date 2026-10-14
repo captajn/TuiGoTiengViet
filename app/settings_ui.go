@@ -447,8 +447,8 @@ func updateSettingsRegion(hwnd uintptr) {
 	applyWindowChrome(hwnd)
 }
 
-// Top titlebar: minimalist brand, subtitle, and system-style window controls.
-func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
+// Top titlebar static branding (gradient bar, brand mark, title, and subtitle).
+func drawTopHeaderBase(dc uintptr, winW int32) {
 	gfx := NewGfx(dc)
 	if gfx != nil {
 		// Subtle translucent specular bar along top edge
@@ -474,13 +474,21 @@ func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSelectObject.Call(dc, oldF)
+}
 
+// Top titlebar: minimalist brand, subtitle, and system-style window controls.
+func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
+	drawTopHeaderBase(dc, winW)
 	drawWindowControls(dc, hwnd, winW)
 }
 
 // Sidebar navigation renderer with zero-aliased vector icons, style-aware squircle badges, and liquid glass pills
 func drawNav(dc uintptr) {
-	gfx := NewGfx(dc)
+	drawNavClipped(dc, rect{0, 0, railW, dp(400)})
+}
+
+func drawNavClipped(dc uintptr, clip rect) {
+	var gfx *Gfx
 	defer func() {
 		if gfx != nil {
 			gfx.Destroy()
@@ -492,6 +500,12 @@ func drawNav(dc uintptr) {
 	matchaLightCols := [5]uint32{0xFFA8D5BA, 0xFFF7C59F, 0xFFFDE68A, 0xFFB7E4C7, 0xFFF4A261}
 
 	for i := 0; i < len(tabItems); i++ {
+		if !rectsIntersect(clip, navDirtyRect(i)) {
+			continue
+		}
+		if gfx == nil {
+			gfx = NewGfx(dc)
+		}
 		r := navRect(i)
 		active := (i == gActiveTab)
 		hover := (i == gHoveredTab)
@@ -1474,15 +1488,75 @@ func navRect(i int) rect {
 	return rect{dp(10), y, railW - dp(10), y + dp(46)}
 }
 
+func navDirtyRect(i int) rect {
+	r := navRect(i)
+	pad := dp(3)
+	return rect{r.left - pad, r.top - pad, r.right + pad, r.bottom + pad}
+}
+
+// navHitAt maps a sidebar point to a tab index, splitting the 6dp gap
+// between adjacent pills at its midpoint so vertical cursor sweeps transition
+// smoothly from tab to tab without flashing an unhovered (-1) intermediate frame.
+func navHitAt(x, y int32) int {
+	if x < dp(10) || x >= railW-dp(10) {
+		return -1
+	}
+	firstTop := dp(56)
+	pitch := dp(52)
+	totalEnd := firstTop + int32(len(tabItems))*pitch - dp(6)
+	if y < firstTop || y >= totalEnd {
+		return -1
+	}
+	idx := int((y - firstTop + dp(3)) / pitch)
+	if idx < 0 || idx >= len(tabItems) {
+		return -1
+	}
+	return idx
+}
+
+func rectsIntersect(a, b rect) bool {
+	return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+func rectUnion(a, b rect) rect {
+	if a.right <= a.left || a.bottom <= a.top {
+		return b
+	}
+	if b.right <= b.left || b.bottom <= b.top {
+		return a
+	}
+	if b.left < a.left {
+		a.left = b.left
+	}
+	if b.top < a.top {
+		a.top = b.top
+	}
+	if b.right > a.right {
+		a.right = b.right
+	}
+	if b.bottom > a.bottom {
+		a.bottom = b.bottom
+	}
+	return a
+}
+
+const (
+	SWP_NOREDRAW   = 0x0008
+	SWP_SHOWWINDOW = 0x0040
+	SWP_HIDEWINDOW = 0x0080
+)
+
 func setTab(i int) {
 	gActiveTab = i
+	gStaticValid = false
 	for _, hctl := range allCtls {
 		t := ctlTab[hctl]
-		vis := uintptr(SW_HIDE)
+		flag := uintptr(SWP_HIDEWINDOW)
 		if t < 0 || t == i {
-			vis = SW_SHOW
+			flag = SWP_SHOWWINDOW
 		}
-		pShowWindow.Call(hctl, vis)
+		pSetWindowPos.Call(hctl, 0, 0, 0, 0, 0,
+			SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW|flag)
 	}
 	redrawSettings()
 }
@@ -1490,16 +1564,34 @@ func setTab(i int) {
 // redrawSettings repaints the parent first, then every child, so children
 // copy a background that already belongs to the current tab.
 func redrawSettings() {
+	gStaticValid = false
 	if gSettingsHwnd != 0 {
 		pRedrawWindow.Call(gSettingsHwnd, 0, 0, RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW)
 	}
 }
 
-// Last full parent paint, kept so translucent cards and the gradient show
-// through child controls instead of a solid brush block.
+// Three-stage offscreen cache:
+//   - gBackdropDC: full-window atmospheric gradient + color blooms + top header base + divider
+//                  (depends only on window size, style, and dark mode)
+//   - gStaticDC:   gBackdropDC + active tab's static content cards/text/mascot
+//                  (depends on window size, style, dark mode, active tab, and effectiveViet)
+//   - gBgDC:       complete composite frame (gStaticDC + window controls + sidebar nav pills)
+//                  kept so child controls copy their slice via fillParentBg, and hover changes
+//                  only BitBlt + redraw the 1-2 affected sidebar pills or caption buttons.
 var (
+	gBackdropDC, gBackdropBmp, gBackdropOld uintptr
+	gBackdropW, gBackdropH                  int32
+	gBackdropStyle                          int
+	gBackdropDark, gBackdropValid           bool
+
+	gStaticDC, gStaticBmp, gStaticOld         uintptr
+	gStaticW, gStaticH                        int32
+	gStaticTab, gStaticStyle                  int
+	gStaticDark, gStaticViet, gStaticValid    bool
+
 	gBgDC, gBgBmp, gBgOld uintptr
 	gBgW, gBgH            int32
+	gMouseTracking        bool
 )
 
 func releaseBgCache() {
@@ -1511,6 +1603,28 @@ func releaseBgCache() {
 		pDeleteObject.Call(gBgBmp)
 	}
 	gBgDC, gBgBmp, gBgOld, gBgW, gBgH = 0, 0, 0, 0, 0
+
+	if gStaticDC != 0 {
+		pSelectObject.Call(gStaticDC, gStaticOld)
+		pDeleteDC.Call(gStaticDC)
+	}
+	if gStaticBmp != 0 {
+		pDeleteObject.Call(gStaticBmp)
+	}
+	gStaticDC, gStaticBmp, gStaticOld, gStaticW, gStaticH = 0, 0, 0, 0, 0
+	gStaticValid = false
+
+	if gBackdropDC != 0 {
+		pSelectObject.Call(gBackdropDC, gBackdropOld)
+		pDeleteDC.Call(gBackdropDC)
+	}
+	if gBackdropBmp != 0 {
+		pDeleteObject.Call(gBackdropBmp)
+	}
+	gBackdropDC, gBackdropBmp, gBackdropOld, gBackdropW, gBackdropH = 0, 0, 0, 0, 0
+	gBackdropValid = false
+
+	releaseMascotCache()
 }
 
 // fillParentBg paints rc (child client coords) with the parent pixels
@@ -1936,36 +2050,46 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_CREATE:
 		gHoveredTab = -1
 		gCaptionHover, gCaptionDown = -1, -1
+		gMouseTracking = false
 		buildControls(hwnd)
 		return 0
 	case WM_MOUSEMOVE:
 		x, y := int32(int16(lp&0xFFFF)), int32(int16((lp>>16)&0xFFFF))
-		var client rect
-		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
-		caption := captionAt(client.right, x, y)
+		winW := gBgW
+		if winW <= 0 {
+			var client rect
+			pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+			winW = client.right
+		}
+		caption := captionAt(winW, x, y)
 		if caption != gCaptionHover {
 			gCaptionHover = caption
-			r := captionBarRect(client.right)
+			r := captionBarRect(winW)
 			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
 		}
-		hovered := -1
-		for i := range tabItems {
-			r := navRect(i)
-			if x >= r.left && x < r.right && y >= r.top && y < r.bottom {
-				hovered = i
-				break
+		hovered := navHitAt(x, y)
+		if hovered != gHoveredTab {
+			oldHover := gHoveredTab
+			gHoveredTab = hovered
+			if oldHover >= 0 && oldHover < len(tabItems) {
+				r := navDirtyRect(oldHover)
+				pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
+			}
+			if hovered >= 0 && hovered < len(tabItems) {
+				r := navDirtyRect(hovered)
+				pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
 			}
 		}
-		if hovered != gHoveredTab {
-			gHoveredTab = hovered
-			r := rect{0, dp(50), railW, dp(320)}
-			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 1)
+		if !gMouseTracking {
+			track := navMouseTrack{flags: 2 /* TME_LEAVE */, hwnd: hwnd}
+			track.size = uint32(unsafe.Sizeof(track))
+			if r, _, _ := pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track))); r != 0 {
+				gMouseTracking = true
+			}
 		}
-		track := navMouseTrack{flags: 2 /* TME_LEAVE */, hwnd: hwnd}
-		track.size = uint32(unsafe.Sizeof(track))
-		pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track)))
 		return 0
 	case 0x02A3: // WM_MOUSELEAVE
+		gMouseTracking = false
 		if gCaptionHover != -1 {
 			gCaptionHover = -1
 			var client rect
@@ -1974,14 +2098,16 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
 		}
 		if gHoveredTab != -1 {
+			oldHover := gHoveredTab
 			gHoveredTab = -1
-			r := rect{0, dp(50), railW, dp(320)}
-			pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 1)
+			if oldHover >= 0 && oldHover < len(tabItems) {
+				r := navDirtyRect(oldHover)
+				pInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&r)), 0)
+			}
 		}
 		return 0
 	case WM_SIZE:
 		if wp != 1 {
-			updateSettingsRegion(hwnd)
 			layoutAll()
 			redrawSettings()
 		}
@@ -2077,12 +2203,11 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 
 		// Sidebar tabs
 		if x < railW {
-			for i := range tabItems {
-				r := navRect(i)
-				if x >= r.left && x < r.right && y >= r.top && y < r.bottom {
-					setTab(i)
-					return 0
+			if idx := navHitAt(x, y); idx >= 0 {
+				if idx != gActiveTab {
+					setTab(idx)
 				}
+				return 0
 			}
 		}
 	case WM_LBUTTONUP:
@@ -2198,32 +2323,8 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		var rc rect
 		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 		winW, winH := rc.right, rc.bottom
-		// Paint into a back buffer, then blit once: drawing straight onto the
-		// window DC lets DWM present the bare background mid-paint (the white
-		// flash on open/tab switch).
-		// The buffer is kept: child controls copy their slice of it as
-		// their background (see fillParentBg).
-		if gBgDC == 0 || gBgW != winW || gBgH != winH {
-			releaseBgCache()
-			mem, _, _ := pCreateCompatibleDC.Call(dc)
-			bmp, _, _ := pCreateCompatibleBitmap.Call(dc, uintptr(winW), uintptr(winH))
-			if mem != 0 && bmp != 0 {
-				gBgOld, _, _ = pSelectObject.Call(mem, bmp)
-				gBgDC, gBgBmp, gBgW, gBgH = mem, bmp, winW, winH
-			} else {
-				if bmp != 0 {
-					pDeleteObject.Call(bmp)
-				}
-				if mem != 0 {
-					pDeleteDC.Call(mem)
-				}
-			}
-		}
-		if gBgDC != 0 {
-			paintSettings(gBgDC, hwnd)
-			pBitBlt.Call(dc, 0, 0, uintptr(winW), uintptr(winH), gBgDC, 0, 0, SRCCOPY)
-		} else {
-			paintSettings(dc, hwnd)
+		if winW > 0 && winH > 0 {
+			paintSettingsCached(dc, hwnd, winW, winH, ps.rcPaint)
 		}
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
@@ -2236,6 +2337,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_DESTROY:
 		gSettingsHwnd = 0
 		gCaptionHover, gCaptionDown = -1, -1
+		gMouseTracking = false
 		releaseBgCache()
 		deleteGdiObj(&fontNormal)
 		deleteGdiObj(&fontBold)
@@ -2266,46 +2368,158 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	return r
 }
 
-// paintSettings renders the full client area into dc (back buffer or screen).
-func paintSettings(dc, hwnd uintptr) {
-	var rc rect
-	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
-	winW, winH := rc.right, rc.bottom
+func allocOffscreenDC(refDC uintptr, w, h int32) (mem, bmp, old uintptr) {
+	mem, _, _ = pCreateCompatibleDC.Call(refDC)
+	bmp, _, _ = pCreateCompatibleBitmap.Call(refDC, uintptr(w), uintptr(h))
+	if mem != 0 && bmp != 0 {
+		old, _, _ = pSelectObject.Call(mem, bmp)
+		return mem, bmp, old
+	}
+	if bmp != 0 {
+		pDeleteObject.Call(bmp)
+	}
+	if mem != 0 {
+		pDeleteDC.Call(mem)
+	}
+	return 0, 0, 0
+}
 
-	// 1. Fill entire window background with atmospheric Liquid Glass gradient & jade bloom
+func paintSettingsBackdrop(dc uintptr, winW, winH int32, dark bool) {
 	gfx := NewGfx(dc)
 	if gfx != nil {
-		gfx.FillAtmosphericGlassBg(float32(winW), float32(winH), isDark())
+		gfx.FillAtmosphericGlassBg(float32(winW), float32(winH), dark)
 		gfx.DrawRoundedRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, float32(dp(8)), argbBorder, 1.0)
 		gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
 		gfx.Destroy()
 	} else {
+		rc := rect{0, 0, winW, winH}
 		pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
 	}
-
-	// 3. Top bar: brand title, subtitle, and window controls
-	drawTopHeader(dc, hwnd, winW)
-
-	// 4. Sidebar vertical divider
+	drawTopHeaderBase(dc, winW)
 	divLine := rect{railW, dp(50), railW + 1, winH - dp(14)}
 	pFillRect.Call(dc, uintptr(unsafe.Pointer(&divLine)), brBorder)
+}
 
-	// 5. Sidebar tabs
-	drawNav(dc)
-
-	// 6. Right Content Pane depending on tab
+func paintSettingsTabContent(dc uintptr, tab int, winW, winH int32) {
 	cx := railW + dp(24)
 	cw := winW - cx - dp(24)
 	ct := dp(106)
-
-	switch gActiveTab {
+	switch tab {
 	case 0:
 		drawOverviewTab(dc, cx, ct, cw, winH)
 	case 4:
 		drawAboutTab(dc, cx, ct, cw, winH)
 	default:
-		drawSettingsTab(dc, gActiveTab, cx, ct, cw)
+		drawSettingsTab(dc, tab, cx, ct, cw)
 	}
+}
+
+func paintSettingsCached(dc, hwnd uintptr, winW, winH int32, dirty rect) {
+	if gBgDC == 0 || gBgW != winW || gBgH != winH {
+		releaseBgCache()
+		gBgDC, gBgBmp, gBgOld = allocOffscreenDC(dc, winW, winH)
+		if gBgDC != 0 {
+			gBgW, gBgH = winW, winH
+		}
+		gStaticDC, gStaticBmp, gStaticOld = allocOffscreenDC(dc, winW, winH)
+		if gStaticDC != 0 {
+			gStaticW, gStaticH = winW, winH
+		}
+		gBackdropDC, gBackdropBmp, gBackdropOld = allocOffscreenDC(dc, winW, winH)
+		if gBackdropDC != 0 {
+			gBackdropW, gBackdropH = winW, winH
+		}
+	}
+	if gBgDC == 0 || gStaticDC == 0 || gBackdropDC == 0 {
+		paintSettings(dc, hwnd)
+		return
+	}
+
+	dark := isDark()
+	viet := effectiveViet()
+	needBackdrop := !gBackdropValid || gBackdropStyle != cfg.Style || gBackdropDark != dark
+	if needBackdrop {
+		paintSettingsBackdrop(gBackdropDC, winW, winH, dark)
+		gBackdropStyle = cfg.Style
+		gBackdropDark = dark
+		gBackdropValid = true
+		gStaticValid = false
+	}
+
+	needStatic := !gStaticValid || gStaticTab != gActiveTab || gStaticStyle != cfg.Style || gStaticDark != dark || gStaticViet != viet
+	if needStatic {
+		pBitBlt.Call(gStaticDC, 0, 0, uintptr(winW), uintptr(winH), gBackdropDC, 0, 0, SRCCOPY)
+		paintSettingsTabContent(gStaticDC, gActiveTab, winW, winH)
+		gStaticTab = gActiveTab
+		gStaticStyle = cfg.Style
+		gStaticDark = dark
+		gStaticViet = viet
+		gStaticValid = true
+
+		// Populate full composite gBgDC so child controls always read complete parent pixels via fillParentBg
+		pBitBlt.Call(gBgDC, 0, 0, uintptr(winW), uintptr(winH), gStaticDC, 0, 0, SRCCOPY)
+		drawWindowControls(gBgDC, hwnd, winW)
+		drawNav(gBgDC)
+		pBitBlt.Call(dc, 0, 0, uintptr(winW), uintptr(winH), gBgDC, 0, 0, SRCCOPY)
+		return
+	}
+
+	// Fast path (sidebar hover, caption hover, or partial window expose):
+	// gStaticDC is already up to date — only restore and repaint the dirty region!
+	paintRc := dirty
+	if paintRc.right <= paintRc.left || paintRc.bottom <= paintRc.top {
+		paintRc = rect{0, 0, winW, winH}
+	}
+	restoreRc := paintRc
+	capRc := captionBarRect(winW)
+	if rectsIntersect(restoreRc, capRc) {
+		restoreRc = rectUnion(restoreRc, capRc)
+	}
+	for i := range tabItems {
+		nr := navDirtyRect(i)
+		if rectsIntersect(restoreRc, nr) {
+			restoreRc = rectUnion(restoreRc, nr)
+		}
+	}
+	if restoreRc.left < 0 {
+		restoreRc.left = 0
+	}
+	if restoreRc.top < 0 {
+		restoreRc.top = 0
+	}
+	if restoreRc.right > winW {
+		restoreRc.right = winW
+	}
+	if restoreRc.bottom > winH {
+		restoreRc.bottom = winH
+	}
+	rw, rh := restoreRc.right-restoreRc.left, restoreRc.bottom-restoreRc.top
+	if rw <= 0 || rh <= 0 {
+		return
+	}
+
+	pBitBlt.Call(gBgDC, uintptr(restoreRc.left), uintptr(restoreRc.top),
+		uintptr(rw), uintptr(rh), gStaticDC, uintptr(restoreRc.left), uintptr(restoreRc.top), SRCCOPY)
+	if rectsIntersect(restoreRc, capRc) {
+		drawWindowControls(gBgDC, hwnd, winW)
+	}
+	if restoreRc.left < railW {
+		drawNavClipped(gBgDC, restoreRc)
+	}
+	pBitBlt.Call(dc, uintptr(restoreRc.left), uintptr(restoreRc.top),
+		uintptr(rw), uintptr(rh), gBgDC, uintptr(restoreRc.left), uintptr(restoreRc.top), SRCCOPY)
+}
+
+// paintSettings renders the full client area into dc (fallback when offscreen DCs are unavailable).
+func paintSettings(dc, hwnd uintptr) {
+	var rc rect
+	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
+	winW, winH := rc.right, rc.bottom
+
+	paintSettingsBackdrop(dc, winW, winH, isDark())
+	drawWindowControls(dc, hwnd, winW)
+	drawNav(dc)
+	paintSettingsTabContent(dc, gActiveTab, winW, winH)
 }
 
 func openSettings() {

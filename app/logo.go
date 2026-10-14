@@ -45,6 +45,22 @@ func initLogo() {
 	}
 }
 
+var (
+	gMascotDC, gMascotBmp, gMascotOld uintptr
+	gMascotW, gMascotH                int32
+)
+
+func releaseMascotCache() {
+	if gMascotDC != 0 {
+		pSelectObject.Call(gMascotDC, gMascotOld)
+		pDeleteDC.Call(gMascotDC)
+	}
+	if gMascotBmp != 0 {
+		pDeleteObject.Call(gMascotBmp)
+	}
+	gMascotDC, gMascotBmp, gMascotOld, gMascotW, gMascotH = 0, 0, 0, 0, 0
+}
+
 // drawAppMascot renders the high-res chibi character logo into the given rect
 // with rounded corners and an optional delicate golden hairline border.
 func drawAppMascot(dc uintptr, x, y, w, h int32, radius int32) {
@@ -54,6 +70,40 @@ func drawAppMascot(dc uintptr, x, y, w, h int32, radius int32) {
 	if len(gLogoBgra) == 0 {
 		drawLogo(dc, x+w/2, y+h/2)
 		return
+	}
+
+	if gMascotDC == 0 || gMascotW != w || gMascotH != h {
+		releaseMascotCache()
+		mem, _, _ := pCreateCompatibleDC.Call(dc)
+		bmp, _, _ := pCreateCompatibleBitmap.Call(dc, uintptr(w), uintptr(h))
+		if mem != 0 && bmp != 0 {
+			old, _, _ := pSelectObject.Call(mem, bmp)
+			var bi bitmapInfo
+			bi.bmiHeader.biSize = uint32(unsafe.Sizeof(bitmapInfoHeader{}))
+			bi.bmiHeader.biWidth = gLogoW
+			bi.bmiHeader.biHeight = -gLogoH // negative for top-down DIB
+			bi.bmiHeader.biPlanes = 1
+			bi.bmiHeader.biBitCount = 32
+			bi.bmiHeader.biCompression = 0 // BI_RGB
+			pSetStretchBltMode.Call(mem, 4 /* HALFTONE */)
+			pStretchDIBits.Call(
+				mem,
+				0, 0, uintptr(w), uintptr(h),
+				0, 0, uintptr(gLogoW), uintptr(gLogoH),
+				uintptr(unsafe.Pointer(&gLogoBgra[0])),
+				uintptr(unsafe.Pointer(&bi)),
+				0,          /* DIB_RGB_COLORS */
+				0x00CC0020, /* SRCCOPY */
+			)
+			gMascotDC, gMascotBmp, gMascotOld, gMascotW, gMascotH = mem, bmp, old, w, h
+		} else {
+			if bmp != 0 {
+				pDeleteObject.Call(bmp)
+			}
+			if mem != 0 {
+				pDeleteDC.Call(mem)
+			}
+		}
 	}
 
 	var rgn uintptr
@@ -66,24 +116,28 @@ func drawAppMascot(dc uintptr, x, y, w, h int32, radius int32) {
 		pSelectClipRgn.Call(dc, rgn)
 	}
 
-	var bi bitmapInfo
-	bi.bmiHeader.biSize = uint32(unsafe.Sizeof(bitmapInfoHeader{}))
-	bi.bmiHeader.biWidth = gLogoW
-	bi.bmiHeader.biHeight = -gLogoH // negative for top-down DIB
-	bi.bmiHeader.biPlanes = 1
-	bi.bmiHeader.biBitCount = 32
-	bi.bmiHeader.biCompression = 0 // BI_RGB
+	if gMascotDC != 0 {
+		pBitBlt.Call(dc, uintptr(x), uintptr(y), uintptr(w), uintptr(h), gMascotDC, 0, 0, 0x00CC0020 /* SRCCOPY */)
+	} else {
+		var bi bitmapInfo
+		bi.bmiHeader.biSize = uint32(unsafe.Sizeof(bitmapInfoHeader{}))
+		bi.bmiHeader.biWidth = gLogoW
+		bi.bmiHeader.biHeight = -gLogoH // negative for top-down DIB
+		bi.bmiHeader.biPlanes = 1
+		bi.bmiHeader.biBitCount = 32
+		bi.bmiHeader.biCompression = 0 // BI_RGB
 
-	pSetStretchBltMode.Call(dc, 4 /* HALFTONE */)
-	pStretchDIBits.Call(
-		dc,
-		uintptr(x), uintptr(y), uintptr(w), uintptr(h),
-		0, 0, uintptr(gLogoW), uintptr(gLogoH),
-		uintptr(unsafe.Pointer(&gLogoBgra[0])),
-		uintptr(unsafe.Pointer(&bi)),
-		0,          /* DIB_RGB_COLORS */
-		0x00CC0020, /* SRCCOPY */
-	)
+		pSetStretchBltMode.Call(dc, 4 /* HALFTONE */)
+		pStretchDIBits.Call(
+			dc,
+			uintptr(x), uintptr(y), uintptr(w), uintptr(h),
+			0, 0, uintptr(gLogoW), uintptr(gLogoH),
+			uintptr(unsafe.Pointer(&gLogoBgra[0])),
+			uintptr(unsafe.Pointer(&bi)),
+			0,          /* DIB_RGB_COLORS */
+			0x00CC0020, /* SRCCOPY */
+		)
+	}
 
 	if radius > 0 && rgn != 0 {
 		pSelectClipRgn.Call(dc, 0)

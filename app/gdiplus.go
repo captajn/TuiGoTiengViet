@@ -292,12 +292,6 @@ func (g *Gfx) FillRoundedRectGradient(x, y, w, h, radius float32, colorTop, colo
 	if g == nil || g.native == 0 || w <= 0 || h <= 0 {
 		return
 	}
-	path := createRoundRectPath(x, y, w, h, radius)
-	if path == 0 {
-		return
-	}
-	defer pGdipDeletePath.Call(path)
-
 	rc := gpRectF{x, y, w, h}
 	var brush uintptr
 	pGdipCreateLineBrushFromRect.Call(
@@ -308,10 +302,27 @@ func (g *Gfx) FillRoundedRectGradient(x, y, w, h, radius float32, colorTop, colo
 		0, // WrapModeTile
 		uintptr(unsafe.Pointer(&brush)),
 	)
-	if brush != 0 {
-		pGdipFillPath.Call(g.native, brush, path)
-		pGdipDeleteBrush.Call(brush)
+	if brush == 0 {
+		return
 	}
+	defer pGdipDeleteBrush.Call(brush)
+
+	if radius <= 0 {
+		pGdipFillRectangle.Call(g.native, brush,
+			*(*uintptr)(unsafe.Pointer(&x)),
+			*(*uintptr)(unsafe.Pointer(&y)),
+			*(*uintptr)(unsafe.Pointer(&w)),
+			*(*uintptr)(unsafe.Pointer(&h)),
+		)
+		return
+	}
+
+	path := createRoundRectPath(x, y, w, h, radius)
+	if path == 0 {
+		return
+	}
+	defer pGdipDeletePath.Call(path)
+	pGdipFillPath.Call(g.native, brush, path)
 }
 
 // DrawGlassCard renders a liquid glass surface with translucent frosted gradient,

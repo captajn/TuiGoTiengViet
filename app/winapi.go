@@ -97,14 +97,16 @@ var (
 	pStretchDIBits          = gdi32.NewProc("StretchDIBits")
 	pSetStretchBltMode      = gdi32.NewProc("SetStretchBltMode")
 
-	pGetModuleHandle  = kern32.NewProc("GetModuleHandleW")
-	pTrimWorkingSet   = kern32.NewProc("SetProcessWorkingSetSize")
-	pExtractIcon      = sh32.NewProc("ExtractIconW")
-	pDwmSetWndAttr    = dwmapi.NewProc("DwmSetWindowAttribute")
-	pSetWindowTheme   = uxtheme.NewProc("SetWindowTheme")
-	pLoadCursor       = user32.NewProc("LoadCursorW")
-	pSetWindowPos     = user32.NewProc("SetWindowPos")
-	pGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+	pGetModuleHandle    = kern32.NewProc("GetModuleHandleW")
+	pGetCurrentThreadId = kern32.NewProc("GetCurrentThreadId")
+	pTrimWorkingSet     = kern32.NewProc("SetProcessWorkingSetSize")
+	pExtractIcon        = sh32.NewProc("ExtractIconW")
+	pDwmSetWndAttr      = dwmapi.NewProc("DwmSetWindowAttribute")
+	pSetWindowTheme     = uxtheme.NewProc("SetWindowTheme")
+	pLoadCursor         = user32.NewProc("LoadCursorW")
+	pSetWindowPos       = user32.NewProc("SetWindowPos")
+	pGetSystemMetrics   = user32.NewProc("GetSystemMetrics")
+	pPostThreadMessage  = user32.NewProc("PostThreadMessageW")
 
 	pWTSRegister = wtsapi32.NewProc("WTSRegisterSessionNotification")
 )
@@ -197,9 +199,12 @@ const (
 	WM_RBUTTONUP         = 0x0205
 	WM_LBUTTONDBLCLK     = 0x0203
 	WM_CONTEXTMENU       = 0x007B
-	WM_APP               = 0x8000
-	WM_TRAYICON          = WM_APP + 1
-	WM_TOGGLE_VN         = WM_APP + 2 // posted by the hook: defer toggle work to the loop
+	WM_APP                  = 0x8000
+	WM_TRAYICON             = WM_APP + 1
+	WM_TOGGLE_VN            = WM_APP + 2 // posted by the hook: defer toggle work to the loop
+	WM_MOUSE_DOWN           = WM_APP + 3 // posted by the dedicated mouse hook thread on button down
+	WM_REINSTALL_MOUSE_HOOK = WM_APP + 4 // posted to mouse hook thread to reinstall WH_MOUSE_LL
+	WM_UNHOOK_MOUSE         = WM_APP + 5 // posted to mouse hook thread on exit
 
 	LLKHF_INJECTED          = 0x10
 	LLKHF_LOWER_IL_INJECTED = 0x02
@@ -290,6 +295,14 @@ const (
 type kbdLLHookStruct struct {
 	vkCode      uint32
 	scanCode    uint32
+	flags       uint32
+	time        uint32
+	dwExtraInfo uintptr
+}
+
+type msLLHookStruct struct {
+	pt          point
+	mouseData   uint32
 	flags       uint32
 	time        uint32
 	dwExtraInfo uintptr
