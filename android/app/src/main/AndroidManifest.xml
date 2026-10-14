@@ -20,6 +20,18 @@
 
         <activity android:name=".MacroActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
 
+        <!-- Clipboard-history images are shared with host apps via this
+             provider so commitContent can grant a read URI permission. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.clips"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/clip_paths" />
+        </provider>
+
         <service
             android:name=".ime.TuiGoImeService"
             android:label="@string/app_name"

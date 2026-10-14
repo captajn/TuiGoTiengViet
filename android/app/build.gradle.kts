@@ -21,8 +21,8 @@ android {
         applicationId = "com.tuigo.tiengviet"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.0.9"
+        versionCode = 10
+        versionName = "0.1.0"
         testInstrumentationRunner = "com.tuigo.MobileSmokeTest"
     }
 
@@ -65,4 +65,6 @@ dependencies {
     implementation(project(":engine"))
     // Inline-autofill suggestion styling (chips rendered by autofill providers).
     implementation("androidx.autofill:autofill:1.3.0")
+    // FileProvider for re-pasting clipboard-history images via commitContent.
+    implementation("androidx.core:core:1.13.1")
 }

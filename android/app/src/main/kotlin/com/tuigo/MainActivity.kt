@@ -121,6 +121,7 @@ class MainActivity : Activity() {
                 addView(themePicker())
                 addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
                 addView(toggle("Gợi ý dán từ bộ nhớ tạm", "Hiện chip dán nhanh trên bàn phím khi vừa sao chép", Prefs.KEY_CLIPBOARD_SUGGEST, true))
+                addView(toggle("Lịch sử bộ nhớ tạm", "Lưu tối đa 50 mục đã sao chép trên thiết bị — mở từ biểu tượng trên thanh gợi ý", Prefs.KEY_CLIPBOARD_HISTORY, true))
                 addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
                 addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
                 addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))

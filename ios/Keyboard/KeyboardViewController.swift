@@ -70,7 +70,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
             keyboard.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             keyboard.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             keyboard.topAnchor.constraint(equalTo: clipBar.bottomAnchor),
-            keyboard.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            keyboard.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboard.intrinsicContentSize.height)
         heightConstraint.priority = .defaultHigh

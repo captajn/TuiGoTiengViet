@@ -1,11 +1,14 @@
 name: Android
 
-# Manual only — push/PR builds disabled to save Actions minutes.
+# Upstream runs manual-only to save Actions minutes; on forks a push builds
+# automatically so contributors can verify their own copy without secrets.
 on:
   workflow_dispatch:
+  push:
 
 jobs:
   build:
+    if: github.event_name != 'push' || github.repository != 'captajn/TuiGoTiengViet'
     runs-on: ubuntu-latest
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

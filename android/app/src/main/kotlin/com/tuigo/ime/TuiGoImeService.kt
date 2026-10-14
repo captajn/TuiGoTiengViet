@@ -3,6 +3,7 @@ package com.tuigo.ime
 import android.inputmethodservice.InputMethodService
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -32,6 +33,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.inline.InlinePresentationSpec
 import androidx.autofill.inline.UiVersions
@@ -97,13 +99,28 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var lastKnownClipText: String? = null
     private var dismissedClipStamp = -1L
     private var dismissedClipText: String? = null
+    /** URI we just re-queued from the history panel — skip re-recording it. */
+    private var replayedClipUri: String? = null
     private var activeClipCandidate: ClipCandidate? = null
     private val whitespaceRegex = Regex("\\s+")
     private val clipChangedListener = ClipboardManager.OnPrimaryClipChangedListener {
         clipCopiedAtMs = System.currentTimeMillis()
         dismissedClipStamp = -1L
         dismissedClipText = null
+        recordClipToHistory()
         if (::keyboard.isInitialized) renderSuggestionStrip()
+    }
+
+    /** Samsung-style history: store each new clip while the IME is alive.
+     *  Never record inside a password field — likely a secret. */
+    private fun recordClipToHistory() {
+        if (!Prefs.clipboardHistory(this)) return
+        if (isPasswordField(currentInputEditorInfo)) return
+        val clip = try { clipboardManager?.primaryClip } catch (_: Exception) { null } ?: return
+        val uri = (0 until clip.itemCount)
+            .mapNotNull { clip.getItemAt(it)?.uri?.toString() }.firstOrNull()
+        if (uri != null && uri == replayedClipUri) { replayedClipUri = null; return }
+        ClipboardHistory.record(this, clip, clip.description)
     }
 
     /** Cursor position we expect after our own edits — lets us distinguish
@@ -180,7 +197,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val pad = (6 * dm).toInt()
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(pad, (6 * dm).toInt(), pad, (2 * dm).toInt())
         }
         val scroll = HorizontalScrollView(this).apply {
@@ -218,7 +235,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         super.onStartInput(info, restarting)
         // A different editor means any pending autofill suggestions are stale —
         // the platform issues a fresh request/response for the new field.
-        val key = "${info?.packageName}/${info?.fieldId}"
+        val key = "${info?.packageName}/${info?.fieldId}/${info?.inputType}"
         if (key != editorKey) {
             editorKey = key
             clearInlineSuggestions()
@@ -269,6 +286,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        clipPanel?.dismiss()
+        spacePopup?.dismiss()
         engine.resetBuf()
         ownSelEchoes.clear()
         expectedSel = -1
@@ -510,7 +529,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     // ---- inline autofill & clipboard suggestion strip --------------------------
 
-    @SuppressLint("NewApi") // override is only invoked on API 30+
+    // ViewStyle chip styling setters are marked @RestrictTo in autofill 1.3.0
+    // although Google's own inline-suggestion docs use them — pinned dep, safe.
+    @SuppressLint("NewApi", "RestrictedApi") // override is only invoked on API 30+
     override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
         if (!UiVersions.getVersions(uiExtras).contains(UiVersions.INLINE_UI_VERSION_1)) return null
         val dm = resources.displayMetrics.density
@@ -736,31 +757,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             }
             pill.addView(thumbView)
         } else {
-            val icon = object : View(this) {
-                private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    style = Paint.Style.STROKE
-                    strokeWidth = 1.6f * dm
-                    strokeCap = Paint.Cap.ROUND
-                    strokeJoin = Paint.Join.ROUND
-                    color = t.funcText
-                }
-                private val rect = RectF()
-                override fun onDraw(canvas: Canvas) {
-                    val w = width.toFloat()
-                    val h = height.toFloat()
-                    rect.set(w * 0.18f, h * 0.20f, w * 0.82f, h * 0.90f)
-                    canvas.drawRoundRect(rect, 2f * dm, 2f * dm, paint)
-                    rect.set(w * 0.35f, h * 0.10f, w * 0.65f, h * 0.27f)
-                    canvas.drawRoundRect(rect, 1.5f * dm, 1.5f * dm, paint)
-                    canvas.drawLine(w * 0.32f, h * 0.48f, w * 0.68f, h * 0.48f, paint)
-                    canvas.drawLine(w * 0.32f, h * 0.67f, w * 0.58f, h * 0.67f, paint)
-                }
-            }.apply {
+            pill.addView(clipboardIcon(t).apply {
                 layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f)).apply {
                     marginEnd = dp(7f)
                 }
-            }
-            pill.addView(icon)
+            })
         }
         val labelView = TextView(this).apply {
             text = cand.label
@@ -774,6 +775,241 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         return pill
     }
 
+    private fun clipboardIcon(t: com.tuigo.KeyTheme): View {
+        val dm = resources.displayMetrics.density
+        return object : View(this) {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1.6f * dm
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+                color = t.funcText
+            }
+            private val rect = RectF()
+            override fun onDraw(canvas: Canvas) {
+                val w = width.toFloat()
+                val h = height.toFloat()
+                rect.set(w * 0.18f, h * 0.20f, w * 0.82f, h * 0.90f)
+                canvas.drawRoundRect(rect, 2f * dm, 2f * dm, paint)
+                rect.set(w * 0.35f, h * 0.10f, w * 0.65f, h * 0.27f)
+                canvas.drawRoundRect(rect, 1.5f * dm, 1.5f * dm, paint)
+                canvas.drawLine(w * 0.32f, h * 0.48f, w * 0.68f, h * 0.48f, paint)
+                canvas.drawLine(w * 0.32f, h * 0.67f, w * 0.58f, h * 0.67f, paint)
+            }
+        }
+    }
+
+    /** Leading strip chip opening the persisted clipboard-history panel. */
+    private fun buildHistoryChip(): View {
+        val dm = resources.displayMetrics.density
+        fun dp(v: Float) = (v * dm).toInt()
+        val t = keyboard.theme
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12f), dp(5f), dp(12f), dp(5f))
+            minimumHeight = dp(34f)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 18f * dm
+                setColor(t.key)
+                if (t.border ushr 24 != 0) setStroke(maxOf(1, dp(1f)), t.border)
+            }
+            contentDescription = "Lịch sử bộ nhớ tạm"
+            addView(clipboardIcon(t).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f))
+            })
+            setOnClickListener { showClipboardPanel() }
+        }
+    }
+
+    private var clipPanel: PopupWindow? = null
+
+    /** Samsung-style clipboard panel: tap an entry to paste it; per-row buttons
+     *  pin it (survives the 50-entry cap) or delete it. */
+    private fun showClipboardPanel() {
+        val entries = ClipboardHistory.entries(this)
+        val t = keyboard.theme
+        val dm = resources.displayMetrics.density
+        fun dp(v: Float) = (v * dm).toInt()
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(this).apply {
+            text = "Bộ nhớ tạm"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(t.popupText)
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        })
+        if (entries.isNotEmpty()) {
+            header.addView(TextView(this).apply {
+                text = "Xóa hết"
+                textSize = 13f
+                setTextColor(t.accent)
+                setPadding(dp(12f), dp(4f), dp(4f), dp(4f))
+                setOnClickListener {
+                    ClipboardHistory.clear(this@TuiGoImeService)
+                    clipPanel?.dismiss()
+                    renderSuggestionStrip()
+                }
+            })
+        }
+        column.addView(header)
+        if (entries.isEmpty()) {
+            column.addView(TextView(this).apply {
+                text = "Chưa có gì — mục đã sao chép sẽ hiện ở đây (tối đa ${ClipboardHistory.MAX_ENTRIES})"
+                textSize = 13f
+                setTextColor(t.popupText)
+                alpha = 0.7f
+                setPadding(0, dp(10f), 0, dp(4f))
+            })
+        }
+        for (entry in entries) {
+            column.addView(buildClipRow(entry, t, dp = { v -> dp(v) }))
+        }
+        val scroller = ScrollView(this).apply {
+            addView(column)
+            isVerticalScrollBarEnabled = entries.size > 5
+        }
+        val maxH = dp(320f)
+        val popup = PopupWindow(scroller,
+            (keyboard.width - dp(24f)).coerceAtLeast(dp(200f)),
+            ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
+            elevation = dp(10f).toFloat()
+            isOutsideTouchable = true
+            setBackgroundDrawable(GradientDrawable().apply {
+                setColor(t.popup)
+                cornerRadius = dp(12f).toFloat()
+                if (t.popupBorder ushr 24 != 0) setStroke(dp(1f), t.popupBorder)
+            })
+        }
+        // Cap panel height at ~5 rows by measuring lazily once attached.
+        scroller.viewTreeObserver.addOnGlobalLayoutListener(object :
+            android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (scroller.height > maxH) {
+                    scroller.layoutParams = scroller.layoutParams.apply { height = maxH }
+                    popup.update((keyboard.width - dp(24f)).coerceAtLeast(dp(200f)), -2)
+                }
+                scroller.viewTreeObserver.removeOnGlobalLayoutListener(this)
+            }
+        })
+        clipPanel?.dismiss()
+        clipPanel = popup
+        popup.showAtLocation(keyboard, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+            0, keyboard.height + dp(64f))
+    }
+
+    private fun buildClipRow(
+        entry: ClipboardHistory.Entry,
+        t: com.tuigo.KeyTheme,
+        dp: (Float) -> Int,
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), dp(6f), dp(4f), dp(6f))
+        }
+        val thumb = entry.image?.let {
+            BitmapFactory.decodeFile(ClipboardHistory.imageFile(this, it).absolutePath)
+        }
+        if (thumb != null) {
+            row.addView(ImageView(this).apply {
+                setImageBitmap(thumb)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    cornerRadius = 6f * resources.displayMetrics.density
+                }
+                clipToOutline = true
+                layoutParams = LinearLayout.LayoutParams(dp(30f), dp(30f)).apply {
+                    marginEnd = dp(10f)
+                }
+            })
+        } else {
+            row.addView(clipboardIcon(t).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(18f), dp(18f)).apply {
+                    marginEnd = dp(10f)
+                }
+            })
+        }
+        row.addView(TextView(this).apply {
+            text = entry.text?.trim()?.replace(whitespaceRegex, " ") ?: "Hình ảnh"
+            textSize = 14f
+            setTextColor(t.popupText)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        })
+        fun action(label: String, color: Int, fn: () -> Unit) =
+            TextView(this).apply {
+                text = label
+                textSize = 12f
+                setTextColor(color)
+                setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
+                setOnClickListener { fn() }
+            }
+        row.addView(action(if (entry.pinned) "Bỏ ghim" else "Ghim", t.accent) {
+            ClipboardHistory.setPinned(this, entry.id, !entry.pinned)
+            clipPanel?.dismiss()
+            showClipboardPanel()
+        })
+        row.addView(action("✕", t.popupText) {
+            ClipboardHistory.remove(this, entry.id)
+            clipPanel?.dismiss()
+            showClipboardPanel()
+            renderSuggestionStrip()
+        })
+        row.setOnClickListener { pasteClipEntry(entry) }
+        return row
+    }
+
+    private fun pasteClipEntry(entry: ClipboardHistory.Entry) {
+        clipPanel?.dismiss()
+        engine.resetBuf()
+        spacePending = false
+        val ic = currentInputConnection ?: return
+        if (entry.image != null) {
+            val file = ClipboardHistory.imageFile(this, entry.image)
+            val committed = try {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, "$packageName.clips", file)
+                val desc = android.content.ClipDescription("Hình ảnh", arrayOf("image/png"))
+                val info = android.view.inputmethod.InputContentInfo(uri, desc, null)
+                ic.commitContent(info,
+                    android.view.inputmethod.InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+            } catch (_: Exception) { false }
+            if (!committed) {
+                // Host rejects rich content — put it back on the clipboard so the
+                // user can paste via the app instead.
+                try {
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        this, "$packageName.clips", file)
+                    replayedClipUri = uri.toString()
+                    clipboardManager?.setPrimaryClip(
+                        android.content.ClipData.newUri(contentResolver, "Hình ảnh", uri))
+                } catch (_: Exception) { }
+            }
+            renderSuggestionStrip()
+            return
+        }
+        val text = entry.text ?: return
+        if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) {
+            val anchor = minOf(selStart, selEnd)
+            expectedSel = anchor
+            selStart = anchor
+            selEnd = anchor
+        }
+        ic.commitText(text, 1)
+        bumpExpected(text.length)
+        renderSuggestionStrip()
+    }
+
     @SuppressLint("NewApi")
     private fun renderSuggestionStrip() {
         val scroll = suggestionScroll ?: return
@@ -781,37 +1017,48 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val suggestions = if (Build.VERSION.SDK_INT >= 30) pendingInline?.inlineSuggestions.orEmpty() else emptyList()
         val clipCand = currentClipCandidate()
         activeClipCandidate = clipCand
+        val showHistory = Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)
         inlineSeq++ // drop callbacks still in flight from a previous response
         strip.removeAllViews()
-        if (suggestions.isEmpty() && clipCand == null) {
+        if (suggestions.isEmpty() && clipCand == null && !showHistory) {
             scroll.visibility = View.GONE
             return
         }
         scroll.visibility = View.VISIBLE
         scroll.setBackgroundColor(keyboard.theme.bg)
-        val dm = resources.displayMetrics.density
-        val chipH = (36 * dm).toInt()
-        val gap = (6 * dm).toInt()
+        val gap = (6 * resources.displayMetrics.density).toInt()
+        fun lp(moreAfter: Boolean) = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { if (moreAfter) marginEnd = gap }
+        if (showHistory) {
+            strip.addView(buildHistoryChip().apply {
+                layoutParams = lp(clipCand != null || suggestions.isNotEmpty())
+            })
+        }
         if (clipCand != null) {
             val chip = buildClipboardChip(clipCand)
-            chip.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                if (suggestions.isNotEmpty()) marginEnd = gap
-            }
+            chip.layoutParams = lp(suggestions.isNotEmpty())
             strip.addView(chip)
         }
         if (Build.VERSION.SDK_INT >= 30 && suggestions.isNotEmpty()) {
             val seq = inlineSeq
             for (suggestion in suggestions) {
-                suggestion.inflate(this,
-                    Size(ViewGroup.LayoutParams.WRAP_CONTENT, chipH), mainExecutor) { view ->
-                    if (seq != inlineSeq || view == null) return@inflate
-                    view.layoutParams = LinearLayout.LayoutParams(view.layoutParams)
-                        .apply { marginEnd = gap }
-                    strip.addView(view)
-                }
+                try {
+                    // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a
+                    // size fully inside the spec's min/max — a mixed
+                    // wrap/fixed size throws IllegalArgumentException.
+                    suggestion.inflate(this,
+                        Size(ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
+                        if (seq != inlineSeq || view == null) return@inflate
+                        view.layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { marginEnd = gap }
+                        strip.addView(view)
+                    }
+                } catch (_: Exception) { }
             }
         }
     }

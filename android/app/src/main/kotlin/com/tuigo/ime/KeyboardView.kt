@@ -421,7 +421,7 @@ class KeyboardView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val n = rows.size
-        val h = (padTop + padBottom + navInset +
+        val h = (padTop + maxOf(padBottom, navInset.toFloat()) +
             n * keyHeight + (n - 1) * rowGap).roundToInt()
         setMeasuredDimension(w, h)
     }
