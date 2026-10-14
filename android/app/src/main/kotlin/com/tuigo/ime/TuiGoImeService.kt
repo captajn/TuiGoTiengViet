@@ -10,6 +10,8 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.os.Build
 import android.content.res.ColorStateList
@@ -99,10 +101,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var renderedTheme: com.tuigo.KeyTheme? = null
     // InlineSuggestion.inflate() throws IllegalStateException when called
     // twice on the same suggestion — provider views are cached per response
-    // and re-parented on each rebuild, never re-inflated.
+    // and re-parented on each rebuild, never re-inflated. Keys are the
+    // suggestion's index in its response: InlineSuggestion overrides
+    // equals/hashCode over state inflate() mutates, so the object itself is
+    // not a stable map key.
     private var inlineOwner: InlineSuggestionsResponse? = null
-    private val inlineViews = HashMap<InlineSuggestion, View>()
-    private val inlineInflating = HashSet<InlineSuggestion>()
+    private val inlineViews = HashMap<Int, View>()
+    private val inlineInflating = HashSet<Int>()
     private var editorKey: String? = null
 
     private var clipboardManager: ClipboardManager? = null
@@ -220,9 +225,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         suggestionStrip = strip
         suggestionScroll = scroll
+        // Edge-to-edge IME windows (API 35+) are laid out full-screen; a
+        // wrap_content strip child — e.g. a provider inline view — can claim
+        // the whole window height and push the keyboard off-screen. Bound the
+        // strip to a fixed row height (chip 40dp + its 6/2dp padding).
+        val stripH = (48 * dm).toInt()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(scroll, LinearLayout.LayoutParams(-1, -2))
+            addView(scroll, LinearLayout.LayoutParams(-1, stripH))
             addView(keyboard, LinearLayout.LayoutParams(-1, -2))
         }
     }
@@ -297,6 +307,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        dropToken++
+        pendingInline = null
         clipPanel?.dismiss()
         spacePopup?.dismiss()
         engine.resetBuf()
@@ -602,14 +614,37 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     @SuppressLint("NewApi")
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
+        // Multi-provider autofill (e.g. Credential Manager alongside the
+        // primary service) can forward an EMPTY response milliseconds after
+        // the real one — accepting it would wipe chips that are mid-inflate.
+        // An empty response never replaces visible suggestions; editor
+        // changes and view teardown clear the strip instead.
+        if (response.inlineSuggestions.isEmpty() &&
+            pendingInline?.inlineSuggestions?.isNotEmpty() == true) return true
         pendingInline = response
+        pendingInlineAt = SystemClock.uptimeMillis()
         renderSuggestionStrip()
         return true
     }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var dropToken = 0
+    private var pendingInlineAt = 0L
+
     private fun clearInlineSuggestions() {
-        pendingInline = null
-        renderSuggestionStrip()
+        // Don't clear instantly: apps like Firefox/GeckoView re-bind the
+        // editor repeatedly (bug 1715549), which would erase a freshly
+        // rendered inline presentation every time. Give the platform a beat
+        // to deliver the new field's response; only drop a response older
+        // than the editor change.
+        val cutoff = pendingInlineAt
+        val token = ++dropToken
+        mainHandler.postDelayed({
+            if (token == dropToken && pendingInlineAt <= cutoff) {
+                pendingInline = null
+                renderSuggestionStrip()
+            }
+        }, 600)
     }
 
     private data class ClipCandidate(
@@ -1023,8 +1058,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     /** Kick off the one allowed inflate() per suggestion; the provider view is
      *  cached on arrival and the strip re-renders to pick it up. */
     @SuppressLint("NewApi")
-    private fun kickInlineInflate(suggestion: InlineSuggestion) {
-        if (inlineViews.containsKey(suggestion) || !inlineInflating.add(suggestion)) return
+    private fun kickInlineInflate(index: Int, suggestion: InlineSuggestion) {
+        if (inlineViews.containsKey(index) || !inlineInflating.add(index)) return
         try {
             // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a size
             // fully inside the spec's min/max — a mixed wrap/fixed size
@@ -1032,13 +1067,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             suggestion.inflate(this,
                 Size(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
-                if (inlineInflating.remove(suggestion) && view != null) {
-                    inlineViews[suggestion] = view
+                if (inlineInflating.remove(index) && view != null) {
+                    inlineViews[index] = view
                 }
                 renderSuggestionStrip()
             }
-        } catch (_: Exception) {
-            inlineInflating.remove(suggestion)
+        } catch (e: Exception) {
+            inlineInflating.remove(index)
         }
     }
 
@@ -1056,8 +1091,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         val suggestions =
             if (Build.VERSION.SDK_INT >= 30) response?.inlineSuggestions.orEmpty() else emptyList()
-        for (suggestion in suggestions) kickInlineInflate(suggestion)
-        val ready = suggestions.mapNotNull { inlineViews[it] }
+        suggestions.forEachIndexed { i, s -> kickInlineInflate(i, s) }
+        val ready = suggestions.indices.mapNotNull { inlineViews[it] }
         val clipCand = currentClipCandidate()
         activeClipCandidate = clipCand
         val showHistory = Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)
