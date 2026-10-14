@@ -4,17 +4,52 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Tag release (vd: v0.1.0 hoặc mobile-v0.0.1)'
+      platform:
+        description: 'Target release'
+        type: choice
         required: true
+        default: windows
+        options:
+          - windows
+          - android
+          - mobile
+      tag:
+        description: 'Tag release (windows: v0.1.0 — mobile: mobile-v0.0.1 — android: mobile-v0.0.1 hoặc để trống)'
+        required: false
 
 permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check tag matches selected platform
+        run: |
+          tag='${{ github.event.inputs.tag }}'
+          platform='${{ github.event.inputs.platform }}'
+          case "$platform" in
+            windows)
+              if [ -z "$tag" ] || [[ "$tag" == mobile-v* ]]; then
+                echo "::error::Windows release needs a vX.Y.Z tag (got '${tag:-<empty>}')."
+                exit 1
+              fi ;;
+            mobile)
+              if [[ "$tag" != mobile-v* ]]; then
+                echo "::error::Android+iOS release needs a mobile-vX.Y.Z tag (got '${tag:-<empty>}')."
+                exit 1
+              fi ;;
+            android)
+              if [ -n "$tag" ] && [[ "$tag" != mobile-v* ]]; then
+                echo "::error::Android release takes a mobile-vX.Y.Z tag, or an empty tag to auto-derive mobile-v<version> (got '$tag')."
+                exit 1
+              fi ;;
+          esac
+          echo "OK: platform=$platform tag=${tag:-<auto>}"
+
   build:
-    # Windows-only: tag `v*` — mobile tags skip this job
-    if: ${{ !startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'windows' }}
     runs-on: windows-latest
     defaults:
       run:
@@ -77,11 +112,12 @@ jobs:
             app/tuigo-updater-arm64.exe
 
   apk:
-    if: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'mobile' || github.event.inputs.platform == 'android' }}
     runs-on: ubuntu-latest
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,7 +125,10 @@ jobs:
       - name: Mobile metadata and palette
         id: meta
         run: |
-          python3 -P scripts/mobile-release.py metadata --tag "$RELEASE_TAG"
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          echo "TAGARG=$args" >> "$GITHUB_ENV"
+          python3 -P scripts/mobile-release.py metadata $args
           python3 -P scripts/check-palette.py
       - uses: actions/setup-java@v4
         with:
@@ -130,7 +169,7 @@ jobs:
             src=android/app/build/outputs/apk/debug/app-debug.apk
             echo 'APK signing: debug key (no release secret configured)'
           fi
-          python3 -P scripts/mobile-release.py apk --tag "$RELEASE_TAG" --source "$src" --output dist
+          python3 -P scripts/mobile-release.py apk $TAGARG --source "$src" --output dist
           sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           signer=$(find "$sdk/build-tools" -name apksigner | sort -V | tail -n 1)
           "$signer" verify --verbose "dist/${{ steps.meta.outputs.apk_name }}"
@@ -141,7 +180,8 @@ jobs:
           if-no-files-found: error
 
   ipa:
-    if: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'mobile-v') }}
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'mobile' }}
     runs-on: macos-latest
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -174,7 +214,8 @@ jobs:
           if-no-files-found: error
 
   mobile-release:
-    needs: [apk, ipa]
+    needs: [validate, apk, ipa]
+    if: ${{ github.event.inputs.platform == 'mobile' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -207,3 +248,41 @@ jobs:
           files: |
             dist/${{ steps.meta.outputs.apk_name }}
             dist/${{ steps.meta.outputs.ipa_name }}
+
+  apk-release:
+    needs: [validate, apk]
+    if: ${{ github.event.inputs.platform == 'android' }}
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - name: Mobile metadata
+        id: meta
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          python3 -P scripts/mobile-release.py metadata $args
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-apk
+          path: dist
+      - name: Verify APK asset and resolve release tag
+        run: |
+          test -s "dist/${{ steps.meta.outputs.apk_name }}"
+          tag="$RELEASE_TAG"
+          [ -z "$tag" ] && tag="mobile-v${{ steps.meta.outputs.version }}"
+          echo "REL_TAG=$tag" >> "$GITHUB_ENV"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.REL_TAG }}
+          name: ${{ steps.meta.outputs.release_name }}
+          make_latest: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            Android: APK signed with the configured release key; debug-signed fallback if no Android release secret is configured.
+          files: |
+            dist/${{ steps.meta.outputs.apk_name }}
