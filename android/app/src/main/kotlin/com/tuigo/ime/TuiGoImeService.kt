@@ -91,6 +91,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var suggestionScroll: HorizontalScrollView? = null
     private var suggestionStrip: LinearLayout? = null
     private var pendingInline: InlineSuggestionsResponse? = null
+    private var renderedInline: InlineSuggestionsResponse? = null
+    private var renderedClipKey: String? = null
+    private var renderedHistoryOn = false
+    private var renderedTheme: com.tuigo.KeyTheme? = null
     private var inlineSeq = 0
     private var editorKey: String? = null
 
@@ -1018,12 +1022,28 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val clipCand = currentClipCandidate()
         activeClipCandidate = clipCand
         val showHistory = Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)
-        inlineSeq++ // drop callbacks still in flight from a previous response
-        strip.removeAllViews()
         if (suggestions.isEmpty() && clipCand == null && !showHistory) {
+            renderedInline = null
+            renderedClipKey = null
+            renderedHistoryOn = false
+            inlineSeq++ // drop callbacks still in flight from a previous response
+            strip.removeAllViews()
             scroll.visibility = View.GONE
             return
         }
+        // Same inputs as the visible strip? Keep it — inline chips inflate
+        // remotely, so a pointless rebuild would flash them away and back.
+        val clipKey = clipCand?.key
+        if (pendingInline === renderedInline && clipKey == renderedClipKey &&
+                showHistory == renderedHistoryOn && keyboard.theme === renderedTheme &&
+                strip.childCount > 0) {
+            scroll.visibility = View.VISIBLE
+            return
+        }
+        renderedInline = pendingInline
+        renderedClipKey = clipKey
+        renderedHistoryOn = showHistory
+        renderedTheme = keyboard.theme
         scroll.visibility = View.VISIBLE
         scroll.setBackgroundColor(keyboard.theme.bg)
         val gap = (6 * resources.displayMetrics.density).toInt()
@@ -1031,18 +1051,34 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { if (moreAfter) marginEnd = gap }
+        // Stage chips off-screen and swap them in only once every async inline
+        // view has arrived — the strip never shows a half-built frame.
+        val stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun swapIn() {
+            strip.removeAllViews()
+            while (stage.childCount > 0) {
+                val v = stage.getChildAt(0)
+                stage.removeViewAt(0)
+                strip.addView(v)
+            }
+        }
         if (showHistory) {
-            strip.addView(buildHistoryChip().apply {
+            stage.addView(buildHistoryChip().apply {
                 layoutParams = lp(clipCand != null || suggestions.isNotEmpty())
             })
         }
         if (clipCand != null) {
-            val chip = buildClipboardChip(clipCand)
-            chip.layoutParams = lp(suggestions.isNotEmpty())
-            strip.addView(chip)
+            stage.addView(buildClipboardChip(clipCand).apply {
+                layoutParams = lp(suggestions.isNotEmpty())
+            })
         }
         if (Build.VERSION.SDK_INT >= 30 && suggestions.isNotEmpty()) {
-            val seq = inlineSeq
+            val seq = ++inlineSeq
+            var pending = suggestions.size
+            fun commit() {
+                if (--pending > 0 || seq != inlineSeq) return
+                swapIn()
+            }
             for (suggestion in suggestions) {
                 try {
                     // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a
@@ -1051,15 +1087,16 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                     suggestion.inflate(this,
                         Size(ViewGroup.LayoutParams.WRAP_CONTENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
-                        if (seq != inlineSeq || view == null) return@inflate
-                        view.layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply { marginEnd = gap }
-                        strip.addView(view)
+                        if (seq == inlineSeq && view != null) {
+                            view.layoutParams = lp(false)
+                            stage.addView(view)
+                        }
+                        commit()
                     }
-                } catch (_: Exception) { }
+                } catch (_: Exception) { commit() }
             }
+        } else {
+            swapIn()
         }
     }
 
