@@ -38,10 +38,18 @@ type config struct {
 	FKeys           int  // bit0 F1=VN on, bit1 F2=VN off, bit2 F5=settings, bit3 F9=macro, bit4 F12=reset
 	Theme           int  // 0=auto, 1=dark, 2=light
 	Style           int  // 0=jade, 1=ios_pure, 2=cyber_neon, 3=matcha_latte, 4=material_teal
+	UILang          int  // 0=Tiếng Việt, 1=English
 	HudX, HudY      int
 }
 
 var cfg config
+
+func tr(vi, en string) string {
+	if cfg.UILang == 1 {
+		return en
+	}
+	return vi
+}
 
 // Per-app spec for exclude.txt:
 //

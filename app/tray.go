@@ -71,10 +71,8 @@ func syncTrayState() {
 	refreshTrayIcons()
 	if changed || themeChanged {
 		trayUpdate()
-		if gHudHwnd != 0 {
-			pInvalidateRect.Call(gHudHwnd, 0, 1)
-		}
-		if gSettingsHwnd != 0 {
+		hudUpdate()
+		if gSettingsHwnd != 0 && (themeChanged || gActiveTab == 0) {
 			pInvalidateRect.Call(gSettingsHwnd, 0, 1)
 		}
 	}
@@ -90,10 +88,10 @@ func notifyIcon(flags uint32) *notifyIconData {
 	}
 	if effectiveViet() {
 		nid.hIcon = gIconVn
-		copy(nid.szTip[:], windows.StringToUTF16("Tiếng Việt đang bật"))
+		copy(nid.szTip[:], windows.StringToUTF16(tr("Tiếng Việt đang bật", "Vietnamese: ON")))
 	} else {
 		nid.hIcon = gIconEn
-		copy(nid.szTip[:], windows.StringToUTF16("Tiếng Việt đang tắt"))
+		copy(nid.szTip[:], windows.StringToUTF16(tr("Tiếng Việt đang tắt", "Vietnamese: OFF (English)")))
 	}
 	return nid
 }
@@ -141,21 +139,21 @@ func showTrayMenu() {
 	imMenu, _, _ := pCreatePopupMenu.Call()
 	o := gEngine.GetOptions()
 
-	appendMenu(menu, MF_STRING|checked(effectiveViet()), idmToggle, "Gõ tiếng Việt\tAlt+Z")
+	appendMenu(menu, MF_STRING|checked(effectiveViet()), idmToggle, tr("Gõ tiếng Việt\tAlt+Z", "Vietnamese Input\tAlt+Z"))
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImTelex), idmTelex, "Telex")
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImTelexSimple), idmTelexSimple, "Simple Telex")
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImVni), idmVni, "VNI")
 	appendMenu(imMenu, MF_STRING|checked(gIM == ImViqr), idmViqr, "VIQR")
-	appendMenu(menu, MF_STRING|MF_POPUP, imMenu, "Kiểu gõ")
+	appendMenu(menu, MF_STRING|MF_POPUP, imMenu, tr("Kiểu gõ", "Input Method"))
 	appendMenu(menu, MF_SEPARATOR, 0, "")
-	appendMenu(menu, MF_STRING|checked(o.SpellCheckEnabled != 0), idmSpell, "Kiểm tra chính tả")
-	appendMenu(menu, MF_STRING|checked(o.ModernStyle != 0), idmModern, "Bỏ dấu kiểu mới (oà, uý)")
-	appendMenu(menu, MF_STRING|checked(o.MacroEnabled != 0), idmMacro, "Gõ tắt")
-	appendMenu(menu, MF_STRING|checked(o.AutoNonVnRestore != 0), idmRestore, "Tự phục hồi từ sai")
+	appendMenu(menu, MF_STRING|checked(o.SpellCheckEnabled != 0), idmSpell, tr("Kiểm tra chính tả", "Spell Check"))
+	appendMenu(menu, MF_STRING|checked(o.ModernStyle != 0), idmModern, tr("Bỏ dấu kiểu mới (oà, uý)", "Modern Tone Placement (oà, uý)"))
+	appendMenu(menu, MF_STRING|checked(o.MacroEnabled != 0), idmMacro, tr("Gõ tắt", "Macros"))
+	appendMenu(menu, MF_STRING|checked(o.AutoNonVnRestore != 0), idmRestore, tr("Tự phục hồi từ sai", "Auto-restore Non-VN Words"))
 	appendMenu(menu, MF_SEPARATOR, 0, "")
-	appendMenu(menu, MF_STRING, idmSettings, "Cài đặt…")
+	appendMenu(menu, MF_STRING, idmSettings, tr("Cài đặt…", "Settings…"))
 	appendMenu(menu, MF_SEPARATOR, 0, "")
-	appendMenu(menu, MF_STRING, idmExit, "Thoát")
+	appendMenu(menu, MF_STRING, idmExit, tr("Thoát", "Exit"))
 
 	var pt point
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
@@ -201,7 +199,7 @@ func flipVietKeyForApp(app inputAppContext) bool {
 }
 
 // toggleEffects is the heavyweight half of a toggle — beep, tray
-// RPC, HUD flash, registry save. Posted onto the message loop so the hook
+// RPC, HUD update, async ini save. Posted onto the message loop so the hook
 // never pays for it.
 func toggleEffects(_ string) {
 	spec, _, _ := foregroundApp()
@@ -210,8 +208,9 @@ func toggleEffects(_ string) {
 	}
 	trayUpdate()
 	hudUpdate()
-	hudFlash()
-	pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator
+	if gSettingsHwnd != 0 && gActiveTab == 0 {
+		pInvalidateRect.Call(gSettingsHwnd, 0, 1) // refresh mode indicator on Overview tab
+	}
 	if cfg.RememberAppMode || spec.mode != appModeManual {
 		saveSettings()
 	}

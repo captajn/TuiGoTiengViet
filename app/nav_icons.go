@@ -82,7 +82,18 @@ func drawNavIcon(dc uintptr, x, y, size int32, kind int, color, background uintp
 		line(20, 3, 20, 5)
 		line(20, 11, 20, 21)
 		circle(17, 5, 23, 11)
-	case 4: // Information
+	case 4: // System / gear
+		circle(4, 4, 20, 20)
+		circle(9, 9, 15, 15)
+		line(12, 1, 12, 4)
+		line(12, 20, 12, 23)
+		line(1, 12, 4, 12)
+		line(20, 12, 23, 12)
+		line(4, 4, 6, 6)
+		line(18, 18, 20, 20)
+		line(20, 4, 18, 6)
+		line(6, 18, 4, 20)
+	case 5: // Information
 		circle(2, 2, 22, 22)
 		line(12, 7, 12, 8)
 		line(10, 11, 12, 11, 12, 17)

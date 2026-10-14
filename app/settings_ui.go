@@ -138,22 +138,33 @@ var (
 func dp(v int32) int32 { return int32(int64(v) * int64(gDpi) / 96) }
 
 var tabItems = []struct {
-	name string
-	desc string
+	name   string
+	desc   string
+	nameEn string
+	descEn string
 }{
-	{"Tổng quan", "Trạng thái và tùy chọn chung"},
-	{"Gõ tiếng Việt", "Telex, VNI và nâng cao"},
-	{"Phím tắt", "Tùy chỉnh tổ hợp phím"},
-	{"Giao diện", "Chủ đề và hiển thị"},
-	{"Giới thiệu", "Thông tin ứng dụng"},
+	{"Tổng quan", "Trạng thái và tùy chọn chung", "Overview", "Status and general options"},
+	{"Gõ tiếng Việt", "Telex, VNI và nâng cao", "Typing", "Telex, VNI and macros"},
+	{"Phím tắt", "Tùy chỉnh tổ hợp phím", "Shortcuts", "Customize toggle & hotkeys"},
+	{"Giao diện", "Chủ đề và hiển thị", "Appearance", "Color mode & theme styles"},
+	{"Hệ thống", "Hệ thống và ứng dụng loại trừ", "System", "System & app exclusions"},
+	{"Giới thiệu", "Thông tin ứng dụng", "About", "Application information"},
+}
+
+func tabName(i int) string {
+	return tr(tabItems[i].name, tabItems[i].nameEn)
+}
+
+func tabDesc(i int) string {
+	return tr(tabItems[i].desc, tabItems[i].descEn)
 }
 
 // ids of per-tab STATICs
 var (
-	stIMSection, stLbIM, stLbCharset                         int
-	stSwitchSection, stLbHotkey, stHotkeyHint, stFKeySection int
-	stMacroSection, stMacroHint1, stMacroHint2               int
-	stSysSection, stLbTheme, stExcludeSection, stExcludeHint int
+	stIMSection, stLbIM, stLbCharset                                                             int
+	stSwitchSection, stLbHotkey, stHotkeyHint, stFKeySection                                     int
+	stMacroSection, stMacroHint1, stMacroHint2                                                   int
+	stThemeModeSection, stStyleSection, stSysSection, stLbTheme, stExcludeSection, stExcludeHint int
 )
 
 // control IDs
@@ -195,6 +206,7 @@ const (
 	cExcludeBrowse
 	// Mockup Tab 0 controls:
 	cRadioTelex
+	cRadioTelexSimple
 	cRadioVni
 	cRadioViqr
 	cLangBtn
@@ -447,12 +459,28 @@ func updateSettingsRegion(hwnd uintptr) {
 	applyWindowChrome(hwnd)
 }
 
+func settingsHasRoundCorners() bool {
+	if !gDwmRoundCorners {
+		return false
+	}
+	if gSettingsHwnd != 0 {
+		if zoomed, _, _ := pIsZoomed.Call(gSettingsHwnd); zoomed != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // Top titlebar static branding (gradient bar, brand mark, title, and subtitle).
 func drawTopHeaderBase(dc uintptr, winW int32) {
 	gfx := NewGfx(dc)
 	if gfx != nil {
 		// Subtle translucent specular bar along top edge
-		gfx.FillRoundedRectGradient(0, 0, float32(winW), float32(dp(44)), float32(dp(8)), HexAlphaARGB(0x18, 0xFFFFFF), HexAlphaARGB(0x04, 0xFFFFFF))
+		topR := float32(0)
+		if settingsHasRoundCorners() {
+			topR = float32(dp(8))
+		}
+		gfx.FillRoundedRectGradient(0, 0, float32(winW), float32(dp(44)), topR, HexAlphaARGB(0x18, 0xFFFFFF), HexAlphaARGB(0x04, 0xFFFFFF))
 		gfx.DrawLine(0, float32(dp(44)), float32(winW), float32(dp(44)), HexAlphaARGB(0x18, 0xFFFFFF), 1.0)
 		drawMinimalBrandMark(gfx, float32(dp(16)), float32(dp(6)), float32(dp(32)))
 		gfx.Destroy()
@@ -461,15 +489,15 @@ func drawTopHeaderBase(dc uintptr, winW int32) {
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontTitle)
-	trc := rect{dp(60), dp(5), dp(280), dp(27)}
+	trc := rect{dp(60), dp(5), dp(320), dp(27)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	sbc := rect{dp(60), dp(25), dp(280), dp(41)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Gõ tiếng Việt tối giản & hiện đại"))),
+	sbc := rect{dp(60), dp(25), dp(340), dp(41)}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Gõ tiếng Việt tối giản & hiện đại", "Minimalist & modern Vietnamese input")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sbc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -484,7 +512,7 @@ func drawTopHeader(dc uintptr, hwnd uintptr, winW int32) {
 
 // Sidebar navigation renderer with zero-aliased vector icons, style-aware squircle badges, and liquid glass pills
 func drawNav(dc uintptr) {
-	drawNavClipped(dc, rect{0, 0, railW, dp(400)})
+	drawNavClipped(dc, rect{0, 0, railW, dp(450)})
 }
 
 func drawNavClipped(dc uintptr, clip rect) {
@@ -496,8 +524,8 @@ func drawNavClipped(dc uintptr, clip rect) {
 	}()
 
 	dark := isDark()
-	iosBadgeCols := [5]uint32{0xFF007AFF, 0xFF34C759, 0xFFFF9500, 0xFFAF52DE, 0xFF5856D6}
-	matchaLightCols := [5]uint32{0xFFA8D5BA, 0xFFF7C59F, 0xFFFDE68A, 0xFFB7E4C7, 0xFFF4A261}
+	iosBadgeCols := [6]uint32{0xFF007AFF, 0xFF34C759, 0xFFFF9500, 0xFFAF52DE, 0xFF64748B, 0xFF5856D6}
+	matchaLightCols := [6]uint32{0xFFA8D5BA, 0xFFF7C59F, 0xFFFDE68A, 0xFFB7E4C7, 0xFFCBD5E1, 0xFFF4A261}
 
 	for i := 0; i < len(tabItems); i++ {
 		if !rectsIntersect(clip, navDirtyRect(i)) {
@@ -539,7 +567,7 @@ func drawNavClipped(dc uintptr, clip rect) {
 			switch cfg.Style {
 			case styleIosPure:
 				// Apple iOS 18 Settings colorful filled squircles
-				bCol := iosBadgeCols[i%5]
+				bCol := iosBadgeCols[i%len(iosBadgeCols)]
 				if !active && !hover {
 					bCol = HexAlphaARGB(0xD8, bCol&0x00FFFFFF)
 				}
@@ -591,7 +619,7 @@ func drawNavClipped(dc uintptr, clip rect) {
 						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2D6A4F)
 						iconCol = 0xFFFFFDF9
 					} else {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, matchaLightCols[i%5])
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, matchaLightCols[i%len(matchaLightCols)])
 						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFFD5C3AE, 1.0)
 						iconCol = 0xFF3D2E24
 					}
@@ -645,14 +673,14 @@ func drawNavClipped(dc uintptr, clip rect) {
 		pSetTextColor.Call(dc, titleColor)
 		oldF, _, _ := pSelectObject.Call(dc, fontBold)
 		trc := rect{r.left + dp(46), r.top + dp(6), r.right - dp(4), r.top + dp(24)}
-		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabItems[i].name))),
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabName(i)))),
 			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 		pSetTextColor.Call(dc, colMuted)
 		pSelectObject.Call(dc, fontHint)
 		drc := rect{r.left + dp(46), r.top + dp(24), r.right - dp(4), r.bottom - dp(4)}
-		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabItems[i].desc))),
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabDesc(i)))),
 			^uintptr(0), uintptr(unsafe.Pointer(&drc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -690,7 +718,7 @@ func drawSettingsCard(dc uintptr, r rect) {
 }
 
 func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
-	drawTitleBlock(dc, cx, cw, tabItems[tab].name, tabItems[tab].desc)
+	drawTitleBlock(dc, cx, cw, tabName(tab), tabDesc(tab))
 	switch tab {
 	case 1: // Input method and macros
 		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(100)})
@@ -708,15 +736,18 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 			gfx.DrawRoundedRect(fx, fy, fw, fh, float32(dp(6)), argbAccent, 1.2)
 			gfx.Destroy()
 		}
-	case 3: // Appearance, system, and app exclusions
-		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(294)})
-		drawSettingsCard(dc, rect{cx, ct + dp(300), cx + cw, ct + dp(424)})
+	case 3: // Appearance: color mode & theme style
+		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(94)})
+		drawSettingsCard(dc, rect{cx, ct + dp(106), cx + cw, ct + dp(224)})
+	case 4: // System & app exclusions
+		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(214)})
+		drawSettingsCard(dc, rect{cx, ct + dp(226), cx + cw, ct + dp(374)})
 	}
 }
 
 // drawOverviewTab renders the rich mockup content of Tab 0
 func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
-	drawTitleBlock(dc, cx, cw, "Tổng quan", "Thiết lập các tùy chọn cơ bản để sử dụng Tui Gõ")
+	drawTitleBlock(dc, cx, cw, tr("Tổng quan", "Overview"), tr("Thiết lập các tùy chọn cơ bản để sử dụng Tui Gõ", "Configure essential options for Tui Gõ"))
 
 	// Hero Card with active glass depth
 	heroRc := rect{cx, ct, cx + cw, ct + dp(56)}
@@ -731,19 +762,19 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontBold)
 	htrc := rect{textX, ct + dp(8), cx + cw - dp(140), ct + dp(30)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Chế độ gõ hiện tại"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Chế độ gõ hiện tại", "Current input mode")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&htrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
 	hdrc := rect{textX, ct + dp(30), cx + cw - dp(140), ct + dp(48)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Bấm phím tắt để chuyển Tiếng Việt / English"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Bấm phím tắt để chuyển Tiếng Việt / English", "Press shortcut to toggle Vietnamese / English")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&hdrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	// Mode indicator on the right where the switch used to be
-	modeTxt := "● Tiếng Việt"
+	modeTxt := tr("● Tiếng Việt", "● Vietnamese")
 	modeCol := colJade
 	if !effectiveViet() {
 		modeTxt = "● English"
@@ -760,14 +791,14 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontSection)
 	sec1 := rect{cx, ct + dp(66), cx + cw, ct + dp(86)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Chế độ gõ"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Chế độ gõ", "Input method")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sec1)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
 	sec1Sub := rect{cx, ct + dp(86), cx + cw, ct + dp(102)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Chọn kiểu gõ phù hợp với thói quen của bạn"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Chọn kiểu gõ phù hợp với thói quen của bạn (rê chuột để xem cách gõ)", "Choose your preferred typing method (hover to view typing guide)")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sec1Sub)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -775,7 +806,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontSection)
 	sec2 := rect{cx, ct + dp(160), cx + cw, ct + dp(180)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tùy chọn chung"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Tùy chọn chung", "General options")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sec2)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -783,14 +814,14 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontSection)
 	sec3 := rect{cx, ct + dp(286), cx + cw - dp(150), ct + dp(306)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Ngôn ngữ hiển thị"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Ngôn ngữ hiển thị", "Display language")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sec3)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
 	sec3Sub := rect{cx, ct + dp(306), cx + cw - dp(150), ct + dp(322)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Ngôn ngữ của giao diện Tui Gõ"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Ngôn ngữ của giao diện Tui Gõ", "Interface language of Tui Gõ")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sec3Sub)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -818,9 +849,9 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 		gfx.Destroy()
 	}
 
-	stTitle := "Tiếng Việt đang hoạt động"
+	stTitle := tr("Tiếng Việt đang hoạt động", "Vietnamese input is active")
 	if !effectiveViet() {
-		stTitle = "Đang tắt tiếng Việt (English)"
+		stTitle = tr("Đang tắt tiếng Việt (English)", "Vietnamese input is off (English)")
 	}
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontBold)
@@ -836,7 +867,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
 	st2 := rect{sx + dp(18), ftRc.top + dp(25), statusRight, ftRc.top + dp(44)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Phiên bản "+appVersion+" | Cập nhật lần cuối: "+appBuildStamp))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Phiên bản "+appVersion+" | Cập nhật lần cuối: "+appBuildStamp, "Version "+appVersion+" | Last updated: "+appBuildStamp)))),
 		^uintptr(0), uintptr(unsafe.Pointer(&st2)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -846,7 +877,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	if compactFooter {
 		scRc = rect{sx + dp(18), ftRc.top + dp(43), cx + cw - dp(16), ftRc.bottom - dp(3)}
 	}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Cùng bạn trên mọi hành trình ♥"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Cùng bạn trên mọi hành trình ♥", "With you on every journey ♥")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&scRc)),
 		DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -855,7 +886,7 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 
 // drawAboutTab keeps the app details in the same card system as Settings.
 func drawAboutTab(dc uintptr, cx, ct, cw, winH int32) {
-	drawTitleBlock(dc, cx, cw, "Giới thiệu", "Phiên bản và thông tin ứng dụng")
+	drawTitleBlock(dc, cx, cw, tabName(5), tabDesc(5))
 	drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(160)})
 	drawSettingsCard(dc, rect{cx, ct + dp(172), cx + cw, ct + dp(362)})
 
@@ -870,19 +901,19 @@ func drawAboutTab(dc uintptr, cx, ct, cw, winH int32) {
 	pSelectObject.Call(dc, fontNormal)
 	pSetTextColor.Call(dc, colMuted)
 	ver := rect{mascotX + mascotS + dp(20), ct + dp(58), cx + cw - dp(20), ct + dp(80)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Phiên bản "+appVersion))), ^uintptr(0), uintptr(unsafe.Pointer(&ver)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Phiên bản "+appVersion, "Version "+appVersion)))), ^uintptr(0), uintptr(unsafe.Pointer(&ver)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 	pSetTextColor.Call(dc, colText)
 	desc := rect{cx + dp(20), ct + dp(105), cx + cw - dp(20), ct + dp(148)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Bộ gõ tiếng Việt cho Windows, hỗ trợ nhiều kiểu gõ và gõ tắt. Cài đặt được lưu trên máy của bạn."))), ^uintptr(0), uintptr(unsafe.Pointer(&desc)), DT_LEFT|DT_WORDBREAK|DT_NOPREFIX)
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Bộ gõ tiếng Việt cho Windows, hỗ trợ nhiều kiểu gõ và gõ tắt. Cài đặt được lưu trên máy của bạn.", "Modern Vietnamese input method for Windows with multi-method and macro support. All settings are stored locally.")))), ^uintptr(0), uintptr(unsafe.Pointer(&desc)), DT_LEFT|DT_WORDBREAK|DT_NOPREFIX)
 
 	pSelectObject.Call(dc, fontSection)
 	info := rect{cx + dp(20), ct + dp(188), cx + cw - dp(20), ct + dp(212)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tính năng"))), ^uintptr(0), uintptr(unsafe.Pointer(&info)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Tính năng", "Features")))), ^uintptr(0), uintptr(unsafe.Pointer(&info)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 	pSelectObject.Call(dc, fontNormal)
 	rows := []struct{ label, value string }{
-		{"Kiểu gõ", "Telex · VNI · VIQR"},
-		{"Bảng mã", "Unicode · TCVN3"},
-		{"Tùy chỉnh", "Phím tắt · Ứng dụng loại trừ"},
+		{tr("Kiểu gõ", "Input methods"), "Telex · Simple Telex · VNI · VIQR"},
+		{tr("Bảng mã", "Charsets"), "Unicode · TCVN3"},
+		{tr("Tùy chỉnh", "Customization"), tr("Phím tắt · Ứng dụng loại trừ", "Shortcuts · App exclusions")},
 	}
 	for i, row := range rows {
 		y := ct + dp(220) + int32(i)*dp(27)
@@ -995,6 +1026,8 @@ func drawRadio(di *drawItemStruct) {
 	switch id {
 	case cRadioTelex:
 		selected = (gIM == ImTelex)
+	case cRadioTelexSimple:
+		selected = (gIM == ImTelexSimple)
 	case cRadioVni:
 		selected = (gIM == ImVni)
 	case cRadioViqr:
@@ -1045,17 +1078,24 @@ func drawRadio(di *drawItemStruct) {
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
-	trc := rect{rc.left + dp(23), rc.top + dp(6), rc.right - dp(2), rc.top + dp(24)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
-		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
-		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	if radioSubtitle[id] != "" {
+		trc := rect{rc.left + dp(23), rc.top + dp(6), rc.right - dp(2), rc.top + dp(24)}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-	pSetTextColor.Call(dc, colMuted)
-	pSelectObject.Call(dc, fontHint)
-	drc := rect{rc.left + dp(23), rc.top + dp(24), rc.right - dp(2), rc.bottom - dp(4)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(radioSubtitle[id]))),
-		^uintptr(0), uintptr(unsafe.Pointer(&drc)),
-		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		pSetTextColor.Call(dc, colMuted)
+		pSelectObject.Call(dc, fontHint)
+		drc := rect{rc.left + dp(23), rc.top + dp(24), rc.right - dp(2), rc.bottom - dp(4)}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(radioSubtitle[id]))),
+			^uintptr(0), uintptr(unsafe.Pointer(&drc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	} else {
+		trc := rect{rc.left + dp(23), rc.top, rc.right - dp(2), rc.bottom}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	}
 
 	pSelectObject.Call(dc, oldF)
 }
@@ -1077,7 +1117,7 @@ func drawLangBtn(di *drawItemStruct) {
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontNormal)
 	trc := rect{rc.left + dp(12), rc.top, rc.right - dp(24), rc.bottom}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tiếng Việt"))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Tiếng Việt", "English")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -1229,6 +1269,10 @@ func rebuildFonts() {
 	deleteGdiObj(&fontHint)
 	deleteGdiObj(&fontTagline)
 	applySettingsFont()
+	if gTooltipHwnd != 0 {
+		pSendMessage.Call(gTooltipHwnd, WM_SETFONT, fontNormal, 1)
+		pSendMessage.Call(gTooltipHwnd, 0x0418 /* TTM_SETMAXTIPWIDTH */, 0, uintptr(dp(340)))
+	}
 	for _, hctl := range allCtls {
 		switch {
 		case goldCtls[hctl]:
@@ -1239,6 +1283,36 @@ func rebuildFonts() {
 			pSendMessage.Call(hctl, WM_SETFONT, fontNormal, 1)
 		}
 	}
+}
+
+var (
+	comctl32            = windows.NewLazySystemDLL("comctl32.dll")
+	pInitCommonControls = comctl32.NewProc("InitCommonControls")
+	gTooltipHwnd        uintptr
+)
+
+type toolInfoW struct {
+	cbSize   uint32
+	uFlags   uint32
+	hwnd     uintptr
+	uId      uintptr
+	rect     rect
+	hinst    uintptr
+	lpszText *uint16
+}
+
+func attachControlTooltip(parent, ctl uintptr, text string) {
+	if gTooltipHwnd == 0 || ctl == 0 || text == "" {
+		return
+	}
+	ti := toolInfoW{
+		cbSize:   uint32(unsafe.Sizeof(toolInfoW{})),
+		uFlags:   0x0001 | 0x0010, // TTF_IDISHWND | TTF_SUBCLASS
+		hwnd:     parent,
+		uId:      ctl,
+		lpszText: utf16ptr(text),
+	}
+	pSendMessage.Call(gTooltipHwnd, 0x0432 /* TTM_ADDTOOLW */, 0, uintptr(unsafe.Pointer(&ti)))
 }
 
 func getDpi(hwnd uintptr) int32 {
@@ -1277,97 +1351,134 @@ func buildControls(h uintptr) {
 	gDpi = getDpi(h)
 	applySettingsFont()
 
+	pInitCommonControls.Call()
+	if gTooltipHwnd != 0 {
+		pDestroyWindow.Call(gTooltipHwnd)
+		gTooltipHwnd = 0
+	}
+	gTooltipHwnd, _, _ = pCreateWindowEx.Call(
+		0x00000008, // WS_EX_TOPMOST
+		uintptr(unsafe.Pointer(utf16ptr("tooltips_class32"))),
+		0,
+		0x80000000|0x01|0x02, // WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX
+		0, 0, 0, 0,
+		h, 0, 0, 0)
+	if gTooltipHwnd != 0 {
+		pSendMessage.Call(gTooltipHwnd, WM_SETFONT, fontNormal, 1)
+		pSendMessage.Call(gTooltipHwnd, 0x0418 /* TTM_SETMAXTIPWIDTH */, 0, uintptr(dp(340)))
+		pSendMessage.Call(gTooltipHwnd, 0x0403 /* TTM_SETDELAYTIME */, 3 /* TTDT_INITIAL */, 200)
+	}
+
 	// ---- Tab 0: Tổng quan (Overview matching mockup) ----
 	curTab = 0
-	// 3 Radio pills for Kiểu gõ
-	addRadio(cRadioTelex, "Telex", "Phổ biến, dễ sử dụng")
-	addRadio(cRadioVni, "VNI", "Tương thích rộng rãi")
-	addRadio(cRadioViqr, "VIQR", "Dành cho nâng cao")
+	// 4 Radio pills for Kiểu gõ (single-line, with hover tooltips explaining rules)
+	addRadio(cRadioTelex, "Telex", "")
+	addRadio(cRadioTelexSimple, "Simple Telex", "")
+	addRadio(cRadioVni, "VNI", "")
+	addRadio(cRadioViqr, "VIQR", "")
+	attachControlTooltip(h, ctlHnd[cRadioTelex], tr(
+		"Telex chuẩn (w gõ ư/ơ/ă):\r\n• Chữ: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw/w→ư, dd→đ\r\n• Dấu: s (sắc), f (huyền), r (hỏi), x (ngã), j (nặng), z (xóa dấu)",
+		"Standard Telex (w types ư/ơ/ă):\r\n• Letters: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw/w→ư, dd→đ\r\n• Tones: s (acute), f (grave), r (hook), x (tilde), j (dot), z (clear)"))
+	attachControlTooltip(h, ctlHnd[cRadioTelexSimple], tr(
+		"Simple Telex (gõ w giữ nguyên chữ w):\r\n• Chữ: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw→ư, dd→đ\r\n• Dấu: s (sắc), f (huyền), r (hỏi), x (ngã), j (nặng), z (xóa dấu)",
+		"Simple Telex (standalone w stays w):\r\n• Letters: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw→ư, dd→đ\r\n• Tones: s (acute), f (grave), r (hook), x (tilde), j (dot), z (clear)"))
+	attachControlTooltip(h, ctlHnd[cRadioVni], tr(
+		"Kiểu gõ VNI (dùng phím số):\r\n• Chữ: 6 (â, ê, ô), 7 (ơ, ư), 8 (ă), 9 (đ)\r\n• Dấu: 1 (sắc), 2 (huyền), 3 (hỏi), 4 (ngã), 5 (nặng), 0 (xóa dấu)",
+		"VNI input method (number keys):\r\n• Letters: 6 (â, ê, ô), 7 (ơ, ư), 8 (ă), 9 (đ)\r\n• Tones: 1 (acute), 2 (grave), 3 (hook), 4 (tilde), 5 (dot), 0 (clear)"))
+	attachControlTooltip(h, ctlHnd[cRadioViqr], tr(
+		"Kiểu gõ VIQR (dấu câu quy ước):\r\n• Chữ: ^ (â, ê, ô), + hoặc * (ơ, ư), ( (ă), dd (đ)\r\n• Dấu: ' (sắc), ` (huyền), ? (hỏi), ~ (ngã), . (nặng), - (xóa dấu)",
+		"VIQR input method (punctuation marks):\r\n• Letters: ^ (â, ê, ô), + or * (ơ, ư), ( (ă), dd (đ)\r\n• Tones: ' (acute), ` (grave), ? (hook), ~ (tilde), . (dot), - (clear)"))
+
 	// 6 Checkboxes for Tùy chọn chung (2 columns)
-	addCheckbox(cStartup, "Khởi động cùng hệ thống")
-	addCheckbox(cRestore, "Tự động khôi phục từ sai")
-	addCheckbox(cAutoCap, "Tự động viết hoa chữ đầu")
-	addCheckbox(cModern, "Bỏ dấu kiểu mới (oà, uý)")
-	addCheckbox(cSpell, "Kiểm tra chính tả tiếng Việt")
-	addCheckbox(cFreeMark, "Cho phép bỏ dấu tự do")
+	addCheckbox(cStartup, tr("Khởi động cùng hệ thống", "Launch at Windows startup"))
+	addCheckbox(cRestore, tr("Tự động khôi phục từ sai", "Auto-restore non-Vietnamese words"))
+	addCheckbox(cAutoCap, tr("Tự động viết hoa chữ đầu", "Auto-capitalize first letter"))
+	addCheckbox(cModern, tr("Bỏ dấu kiểu mới (oà, uý)", "Modern tone placement (oà, uý)"))
+	addCheckbox(cSpell, tr("Kiểm tra chính tả tiếng Việt", "Vietnamese spell check"))
+	addCheckbox(cFreeMark, tr("Cho phép bỏ dấu tự do", "Allow free tone marking"))
 	// Language dropdown button
-	addBtn(cLangBtn, "Tiếng Việt")
+	addBtn(cLangBtn, tr("Tiếng Việt", "English"))
 
 	// ---- Tab 1: Gõ tiếng Việt (Advanced input methods & Charset & Macro) ----
 	curTab = 1
-	stIMSection = addSection("KIỂU GÕ NÂNG CAO")
-	stLbIM = addLabel("Kiểu gõ")
+	stIMSection = addSection(tr("KIỂU GÕ NÂNG CAO", "ADVANCED INPUT METHOD"))
+	stLbIM = addLabel(tr("Kiểu gõ", "Method"))
 	cb := mkCtl(h, ctlDef{cIMCombo, "COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, "", 0, 0, 10, 10})
-	comboAdd(cb, []string{"Telex", "Telex đơn giản", "VNI", "VIQR",
-		"Telex + VNI", "MS-VI", "Tự định nghĩa"}, 0)
+	comboAdd(cb, []string{"Telex", "Simple Telex", "VNI", "VIQR",
+		"Telex + VNI", "MS-VI", tr("Tự định nghĩa", "Custom keymap")}, 0)
 	if isDark() {
 		darkCtl(cb)
 	}
-	stLbCharset = addLabel("Bảng mã")
+	stLbCharset = addLabel(tr("Bảng mã", "Charset"))
 	cs := mkCtl(h, ctlDef{cCharset, "COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, "", 0, 0, 10, 10})
 	comboAdd(cs, []string{"Unicode", "TCVN3"}, cfg.Charset)
 	if isDark() {
 		darkCtl(cs)
 	}
 
-	stMacroSection = addSection("GÕ TẮT (MACRO)")
-	addSw(cMacro, "Cho phép gõ tắt")
-	addSw(cMacroAlways, "Gõ tắt cả khi tắt Tiếng Việt")
-	addBtn(cMacroEdit, "Mở bảng gõ tắt")
-	stMacroHint1 = addHint("Mỗi dòng: từ_gõ_tắt:nội_dung  (vd: vn:Việt Nam)")
-	stMacroHint2 = addHint("File macro.txt nằm cạnh tuigo.exe")
+	stMacroSection = addSection(tr("GÕ TẮT (MACRO)", "MACROS (TEXT EXPANSION)"))
+	addSw(cMacro, tr("Cho phép gõ tắt", "Enable macros"))
+	addSw(cMacroAlways, tr("Gõ tắt cả khi tắt Tiếng Việt", "Expand macros even in English mode"))
+	addBtn(cMacroEdit, tr("Mở bảng gõ tắt", "Edit macro list"))
+	stMacroHint1 = addHint(tr("Mỗi dòng: từ_gõ_tắt:nội_dung  (vd: vn:Việt Nam)", "Format per line: trigger:expansion  (e.g. vn:Việt Nam)"))
+	stMacroHint2 = addHint(tr("File macro.txt nằm cạnh tuigo.exe", "Stored in macro.txt next to tuigo.exe"))
 
 	// ---- Tab 2: Phím tắt ----
 	curTab = 2
-	stSwitchSection = addSection("PHÍM CHUYỂN TIẾNG VIỆT")
+	stSwitchSection = addSection(tr("PHÍM CHUYỂN TIẾNG VIỆT", "LANGUAGE TOGGLE SHORTCUT"))
 	addSw(cModCtrl, "Ctrl")
 	addSw(cModShift, "Shift")
 	addSw(cModAlt, "Alt")
 	addSw(cModWin, "Win")
-	stLbHotkey = addLabel("Phím")
+	stLbHotkey = addLabel(tr("Phím", "Key"))
 	hotkeyEdit := mkCtl(h, ctlDef{cHotkeyBox, "EDIT", WS_TABSTOP | 0x0001 | 0x0008, "", 0, 0, 10, 10})
 	pSendMessage.Call(hotkeyEdit, 0x00C5 /* EM_LIMITTEXT */, 1, 0)
-	stHotkeyHint = addHint("A-Z hoặc 0-9 · có thể để trống")
-	addSw(cUseCtrlShift, "Thêm Ctrl + Shift làm phím chuyển")
-	stFKeySection = addSection("PHÍM NHANH (F-KEYS)")
-	addSw(cF1, "F1 — Bật tiếng Việt")
-	addSw(cF2, "F2 — Tắt tiếng Việt")
-	addSw(cF5, "F5 — Mở cài đặt")
-	addSw(cF9, "F9 — Bật/tắt gõ tắt")
-	addSw(cF12, "F12 — Xóa bộ đệm gõ")
+	stHotkeyHint = addHint(tr("A-Z hoặc 0-9 · có thể để trống", "A-Z or 0-9 · can be left blank"))
+	addSw(cUseCtrlShift, tr("Thêm Ctrl + Shift làm phím chuyển", "Also toggle with Ctrl + Shift"))
+	stFKeySection = addSection(tr("PHÍM NHANH (F-KEYS)", "FUNCTION HOTKEYS (F-KEYS)"))
+	addSw(cF1, tr("F1 — Bật tiếng Việt", "F1 — Enable Vietnamese"))
+	addSw(cF2, tr("F2 — Tắt tiếng Việt", "F2 — Disable Vietnamese (English)"))
+	addSw(cF5, tr("F5 — Mở cài đặt", "F5 — Open settings"))
+	addSw(cF9, tr("F9 — Bật/tắt gõ tắt", "F9 — Toggle macros"))
+	addSw(cF12, tr("F12 — Xóa bộ đệm gõ", "F12 — Clear typing buffer"))
 
-	// ---- Tab 3: Giao diện & Hệ thống ----
+	// ---- Tab 3: Giao diện ----
 	curTab = 3
-	stSysSection = addSection("GIAO DIỆN & HỆ THỐNG")
+	stThemeModeSection = addSection(tr("CHẾ ĐỘ MÀU", "COLOR MODE"))
+	stStyleSection = addSection(tr("PHONG CÁCH CHỦ ĐỀ", "THEME STYLE"))
 	for _, tid := range []int{
 		cThemeAuto, cThemeLight, cThemeDark,
 		cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
 	} {
 		btnIDs[tid] = true
 	}
-	mkCtl(h, ctlDef{cThemeAuto, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Hệ thống", 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeLight, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Sáng", 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeDark, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Tối", 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeJade, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Ngọc Bích", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeAuto, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Hệ thống", "System"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeLight, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Sáng", "Light"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeDark, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Tối", "Dark"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeJade, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Ngọc Bích", "Jade Glass"), 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeIosPure, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "iOS 18 Pro", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeCyberNeon, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Cyber Neon", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeMatchaLatte, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Matcha Latte", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeMaterialTeal, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Material 3", 0, 0, 10, 10})
-	addSw(cShowHud, "Hiện thanh trạng thái nổi")
-	addSw(cSound, "Âm thanh khi chuyển chế độ")
-	addSw(cSkipLayout, "Tự tắt khi bàn phím không phải kiểu US")
-	addSw(cClipboard, "Dùng Clipboard cho app không nhận phím")
-	addSw(cAdmin, "Chạy với quyền Admin")
-	addSw(cShowDlg, "Hiện bảng này khi khởi động Windows")
-	addSw(cRememberAppMode, "Tự nhớ bật/tắt tiếng Việt theo ứng dụng")
-	addBtn(cExcludeBrowse, "Chọn app…")
-	addBtn(cExcludeEdit, "Danh sách loại trừ…")
-	stExcludeSection = addSection("ỨNG DỤNG LOẠI TRỪ")
-	stExcludeHint = addHint("Tự nhớ: chuyển V/E trong app, lần sau giữ nguyên.\nChọn app để loại trừ thủ công · |lock |clip |tcvn |vni")
 
-	// ---- Tab 4: Giới thiệu ----
+	// ---- Tab 4: Hệ thống ----
 	curTab = 4
-	addBtn(cUpdateBtn, "Kiểm tra cập nhật")
+	stSysSection = addSection(tr("TÙY CHỌN HỆ THỐNG", "SYSTEM OPTIONS"))
+	addSw(cShowHud, tr("Hiện nút trạng thái nổi (V/E)", "Show mini floating badge (V/E)"))
+	addSw(cSound, tr("Âm thanh khi chuyển chế độ", "Play sound when toggling mode"))
+	addSw(cSkipLayout, tr("Tự tắt khi bàn phím không phải kiểu US", "Auto-disable on non-US keyboard layouts"))
+	addSw(cClipboard, tr("Dùng Clipboard cho app không nhận phím", "Use Clipboard fallback for incompatible apps"))
+	addSw(cAdmin, tr("Chạy với quyền Admin", "Run as Administrator"))
+	addSw(cShowDlg, tr("Hiện bảng này khi khởi động Windows", "Show settings window on startup"))
+	addSw(cRememberAppMode, tr("Tự nhớ bật/tắt tiếng Việt theo ứng dụng", "Remember V/E mode per application"))
+	addBtn(cExcludeBrowse, tr("Chọn app…", "Select app…"))
+	addBtn(cExcludeEdit, tr("Danh sách loại trừ…", "Exclusion list…"))
+	stExcludeSection = addSection(tr("ỨNG DỤNG LOẠI TRỪ", "EXCLUDED APPLICATIONS"))
+	stExcludeHint = addHint(tr("Tự nhớ: chuyển V/E trong app, lần sau giữ nguyên.\nChọn app để loại trừ thủ công · |lock |clip |tcvn |vni", "Per-app memory: remembers your last V/E state per app.\nOr add manual rules in exclude.txt · |lock |clip |tcvn |vni"))
+
+	// ---- Tab 5: Giới thiệu ----
+	curTab = 5
+	addBtn(cUpdateBtn, tr("Kiểm tra cập nhật", "Check for updates"))
 
 	curTab = -1
 
@@ -1403,11 +1514,13 @@ func layoutAll() {
 	cw := winW - cx - dp(24)
 	ct := dp(106)
 
-	// Tab 0 — Tổng quan
-	pw := (cw - 2*dp(6)) / 3
-	place(cRadioTelex, cx, ct+dp(106), pw, dp(48))
-	place(cRadioVni, cx+pw+dp(6), ct+dp(106), pw, dp(48))
-	place(cRadioViqr, cx+2*(pw+dp(6)), ct+dp(106), pw, dp(48))
+	// Tab 0 — Tổng quan (4 radio cards on 1 row)
+	pw := (cw - 3*dp(6)) / 4
+	place(cRadioTelex, cx, ct+dp(106), pw, dp(44))
+	place(cRadioTelexSimple, cx+pw+dp(6), ct+dp(106), pw, dp(44))
+	place(cRadioVni, cx+2*(pw+dp(6)), ct+dp(106), pw, dp(44))
+	rx4 := cx + 3*(pw+dp(6))
+	place(cRadioViqr, rx4, ct+dp(106), cx+cw-rx4, dp(44))
 	cw2 := (cw - dp(24)) / 2
 	place(cStartup, cx, ct+dp(190), cw2, dp(26))
 	place(cRestore, cx, ct+dp(220), cw2, dp(26))
@@ -1448,14 +1561,15 @@ func layoutAll() {
 	place(cF9, cx+dp(16), ct+dp(315), cw-dp(32), dp(26))
 	place(cF12, cx+dp(16), ct+dp(342), cw-dp(32), dp(26))
 
-	// Tab 3 — Giao diện & Hệ thống
-	place(stSysSection, cx+dp(16), ct+dp(8), cw-dp(32), dp(18))
+	// Tab 3 — Giao diện
+	place(stThemeModeSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
 	btnW := (cw - dp(32) - dp(16)) / 3
-	place(cThemeAuto, cx+dp(16), ct+dp(28), btnW, dp(34))
-	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(28), btnW, dp(34))
+	place(cThemeAuto, cx+dp(16), ct+dp(40), btnW, dp(38))
+	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(40), btnW, dp(38))
 	themeX3 := cx + dp(16) + 2*(btnW+dp(8))
-	place(cThemeDark, themeX3, ct+dp(28), cx+cw-dp(16)-themeX3, dp(34))
+	place(cThemeDark, themeX3, ct+dp(40), cx+cw-dp(16)-themeX3, dp(38))
 
+	place(stStyleSection, cx+dp(16), ct+dp(118), cw-dp(32), dp(20))
 	btn5W := (cw - dp(32) - 4*dp(6)) / 5
 	for i, tid := range []int{cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal} {
 		tx := cx + dp(16) + int32(i)*(btn5W+dp(6))
@@ -1463,20 +1577,22 @@ func layoutAll() {
 		if i == 4 {
 			tw = cx + cw - dp(16) - tx
 		}
-		place(tid, tx, ct+dp(68), tw, dp(64))
+		place(tid, tx, ct+dp(146), tw, dp(64))
 	}
 
+	// Tab 4 — Hệ thống
+	place(stSysSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
 	sysSw := []int{cShowHud, cSound, cSkipLayout, cClipboard, cAdmin, cShowDlg}
 	for row, id := range sysSw {
-		place(id, cx+dp(16), ct+dp(140)+int32(row)*dp(24), cw-dp(32), dp(24))
+		place(id, cx+dp(16), ct+dp(40)+int32(row)*dp(27), cw-dp(32), dp(25))
 	}
-	place(stExcludeSection, cx+dp(16), ct+dp(306), cw-dp(32), dp(18))
-	place(cRememberAppMode, cx+dp(16), ct+dp(328), cw-dp(32), dp(24))
-	place(cExcludeBrowse, cx+dp(16), ct+dp(356), dp(120), dp(28))
-	place(cExcludeEdit, cx+dp(144), ct+dp(356), dp(170), dp(28))
-	place(stExcludeHint, cx+dp(16), ct+dp(388), cw-dp(32), dp(32))
+	place(stExcludeSection, cx+dp(16), ct+dp(238), cw-dp(32), dp(20))
+	place(cRememberAppMode, cx+dp(16), ct+dp(266), cw-dp(32), dp(25))
+	place(cExcludeBrowse, cx+dp(16), ct+dp(298), dp(120), dp(28))
+	place(cExcludeEdit, cx+dp(144), ct+dp(298), dp(170), dp(28))
+	place(stExcludeHint, cx+dp(16), ct+dp(332), cw-dp(32), dp(32))
 
-	// Tab 4 — Giới thiệu (button sits inside the second card)
+	// Tab 5 — Giới thiệu (button sits inside the second card)
 	place(cUpdateBtn, cx+cw-dp(20)-dp(170), ct+dp(317), dp(170), dp(32))
 
 	_ = winH
@@ -1581,13 +1697,13 @@ func redrawSettings() {
 var (
 	gBackdropDC, gBackdropBmp, gBackdropOld uintptr
 	gBackdropW, gBackdropH                  int32
-	gBackdropStyle                          int
+	gBackdropStyle, gBackdropLang           int
 	gBackdropDark, gBackdropValid           bool
 
-	gStaticDC, gStaticBmp, gStaticOld         uintptr
-	gStaticW, gStaticH                        int32
-	gStaticTab, gStaticStyle                  int
-	gStaticDark, gStaticViet, gStaticValid    bool
+	gStaticDC, gStaticBmp, gStaticOld      uintptr
+	gStaticW, gStaticH                     int32
+	gStaticTab, gStaticStyle, gStaticLang  int
+	gStaticDark, gStaticViet, gStaticValid bool
 
 	gBgDC, gBgBmp, gBgOld uintptr
 	gBgW, gBgH            int32
@@ -1650,12 +1766,12 @@ func imIdx(im int) int {
 	return 0
 }
 
-// repaintRadioGroup refreshes the three "Chế độ gõ" cards. They are child
+// repaintRadioGroup refreshes the four "Chế độ gõ" cards. They are child
 // HWNDs — InvalidateRect on the parent never reaches them, so without this
 // the previously selected card kept its stale "selected" pixels next to the
 // freshly clicked one.
 func repaintRadioGroup() {
-	for _, id := range []int{cRadioTelex, cRadioVni, cRadioViqr} {
+	for _, id := range []int{cRadioTelex, cRadioTelexSimple, cRadioVni, cRadioViqr} {
 		if h := ctlHnd[id]; h != 0 {
 			pInvalidateRect.Call(h, 0, 1)
 		}
@@ -1780,8 +1896,8 @@ var pGetOpenFileName = comdlg32.NewProc("GetOpenFileNameW")
 
 func browseExe() string {
 	var buf [1024]uint16
-	filter := utf16buf("Ứng dụng (*.exe)\x00*.exe\x00Tất cả file (*.*)\x00*.*\x00")
-	title := utf16ptr("Chọn app cần loại trừ")
+	filter := utf16buf(tr("Ứng dụng (*.exe)\x00*.exe\x00Tất cả file (*.*)\x00*.*\x00", "Applications (*.exe)\x00*.exe\x00All files (*.*)\x00*.*\x00"))
+	title := utf16ptr(tr("Chọn app cần loại trừ", "Select application to exclude"))
 	ofn := openFileNameW{
 		lStructSize: uint32(unsafe.Sizeof(openFileNameW{})),
 		hwndOwner:   gSettingsHwnd,
@@ -1830,25 +1946,36 @@ func showLangMenu() {
 	hMenu, _, _ := pCreatePopupMenu.Call()
 	defer pDestroyMenu.Call(hMenu)
 
-	pAppendMenu.Call(hMenu, 0, 1, uintptr(unsafe.Pointer(utf16ptr("Unicode (Mặc định)"))))
-	pAppendMenu.Call(hMenu, 0, 2, uintptr(unsafe.Pointer(utf16ptr("TCVN3 (Tiêu chuẩn VN 3)"))))
+	flagVi := uintptr(0)
+	flagEn := uintptr(0)
+	if cfg.UILang == 0 {
+		flagVi = MF_CHECKED
+	} else {
+		flagEn = MF_CHECKED
+	}
+	pAppendMenu.Call(hMenu, flagVi, 1, uintptr(unsafe.Pointer(utf16ptr("Tiếng Việt"))))
+	pAppendMenu.Call(hMenu, flagEn, 2, uintptr(unsafe.Pointer(utf16ptr("English"))))
 
 	var pt point
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 
 	r, _, _ := pTrackPopupMenu.Call(hMenu, 0x0100|0x0002,
 		uintptr(pt.x), uintptr(pt.y), 0, gSettingsHwnd, 0)
+	newLang := cfg.UILang
 	switch r {
 	case 1:
-		cfg.Charset = 0
-		saveSettings()
-		pSendMessage.Call(ctlHnd[cCharset], CB_SETCURSEL, 0, 0)
-		pInvalidateRect.Call(gSettingsHwnd, 0, 1)
+		newLang = 0
 	case 2:
-		cfg.Charset = 1
+		newLang = 1
+	default:
+		return
+	}
+	if newLang != cfg.UILang {
+		cfg.UILang = newLang
 		saveSettings()
-		pSendMessage.Call(ctlHnd[cCharset], CB_SETCURSEL, 1, 0)
-		pInvalidateRect.Call(gSettingsHwnd, 0, 1)
+		syncTrayState()
+		rethemed = true
+		pDestroyWindow.Call(gSettingsHwnd)
 	}
 }
 
@@ -1859,7 +1986,7 @@ func launchUpdater(now bool) {
 	up := filepath.Join(exeDir(), "tuigo-updater.exe")
 	if _, err := os.Stat(up); err != nil {
 		pMessageBox.Call(gSettingsHwnd,
-			uintptr(unsafe.Pointer(utf16ptr("Không thấy tuigo-updater.exe cạnh tuigo.exe.\nTải bản zip đầy đủ hoặc tải trên trang Releases của GitHub."))),
+			uintptr(unsafe.Pointer(utf16ptr(tr("Không thấy tuigo-updater.exe cạnh tuigo.exe.\nTải bản zip đầy đủ hoặc tải trên trang Releases của GitHub.", "tuigo-updater.exe was not found next to tuigo.exe.\nDownload the full zip package from GitHub Releases.")))),
 			uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))), 0x30)
 		return
 	}
@@ -1893,6 +2020,9 @@ func settingsCommand(id int) {
 		return
 	case cRadioTelex:
 		setIM(ImTelex)
+		return
+	case cRadioTelexSimple:
+		setIM(ImTelexSimple)
 		return
 	case cRadioVni:
 		setIM(ImVni)
@@ -2261,6 +2391,8 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 				switch id {
 				case cRadioTelex:
 					selected = (gIM == ImTelex)
+				case cRadioTelexSimple:
+					selected = (gIM == ImTelexSimple)
 				case cRadioVni:
 					selected = (gIM == ImVni)
 				case cRadioViqr:
@@ -2335,6 +2467,10 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		pDestroyWindow.Call(hwnd)
 		return 0
 	case WM_DESTROY:
+		if gTooltipHwnd != 0 {
+			pDestroyWindow.Call(gTooltipHwnd)
+			gTooltipHwnd = 0
+		}
 		gSettingsHwnd = 0
 		gCaptionHover, gCaptionDown = -1, -1
 		gMouseTracking = false
@@ -2388,8 +2524,13 @@ func paintSettingsBackdrop(dc uintptr, winW, winH int32, dark bool) {
 	gfx := NewGfx(dc)
 	if gfx != nil {
 		gfx.FillAtmosphericGlassBg(float32(winW), float32(winH), dark)
-		gfx.DrawRoundedRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, float32(dp(8)), argbBorder, 1.0)
-		gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+		if settingsHasRoundCorners() {
+			gfx.DrawRoundedRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, float32(dp(8)), argbBorder, 1.0)
+			gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+		} else {
+			gfx.DrawRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, argbBorder, 1.0)
+			gfx.DrawLine(1.0, 1.0, float32(winW)-1.0, 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+		}
 		gfx.Destroy()
 	} else {
 		rc := rect{0, 0, winW, winH}
@@ -2407,7 +2548,7 @@ func paintSettingsTabContent(dc uintptr, tab int, winW, winH int32) {
 	switch tab {
 	case 0:
 		drawOverviewTab(dc, cx, ct, cw, winH)
-	case 4:
+	case 5:
 		drawAboutTab(dc, cx, ct, cw, winH)
 	default:
 		drawSettingsTab(dc, tab, cx, ct, cw)
@@ -2437,16 +2578,17 @@ func paintSettingsCached(dc, hwnd uintptr, winW, winH int32, dirty rect) {
 
 	dark := isDark()
 	viet := effectiveViet()
-	needBackdrop := !gBackdropValid || gBackdropStyle != cfg.Style || gBackdropDark != dark
+	needBackdrop := !gBackdropValid || gBackdropStyle != cfg.Style || gBackdropDark != dark || gBackdropLang != cfg.UILang
 	if needBackdrop {
 		paintSettingsBackdrop(gBackdropDC, winW, winH, dark)
 		gBackdropStyle = cfg.Style
 		gBackdropDark = dark
+		gBackdropLang = cfg.UILang
 		gBackdropValid = true
 		gStaticValid = false
 	}
 
-	needStatic := !gStaticValid || gStaticTab != gActiveTab || gStaticStyle != cfg.Style || gStaticDark != dark || gStaticViet != viet
+	needStatic := !gStaticValid || gStaticTab != gActiveTab || gStaticStyle != cfg.Style || gStaticDark != dark || gStaticViet != viet || gStaticLang != cfg.UILang
 	if needStatic {
 		pBitBlt.Call(gStaticDC, 0, 0, uintptr(winW), uintptr(winH), gBackdropDC, 0, 0, SRCCOPY)
 		paintSettingsTabContent(gStaticDC, gActiveTab, winW, winH)
@@ -2454,6 +2596,7 @@ func paintSettingsCached(dc, hwnd uintptr, winW, winH int32, dirty rect) {
 		gStaticStyle = cfg.Style
 		gStaticDark = dark
 		gStaticViet = viet
+		gStaticLang = cfg.UILang
 		gStaticValid = true
 
 		// Populate full composite gBgDC so child controls always read complete parent pixels via fillParentBg
@@ -2577,7 +2720,7 @@ func openSettings() {
 	gSettingsHwnd, _, _ = pCreateWindowEx.Call(
 		0x00040000,
 		uintptr(unsafe.Pointer(cls)),
-		uintptr(unsafe.Pointer(utf16ptr("Tui Gõ — Cài đặt"))),
+		uintptr(unsafe.Pointer(utf16ptr(tr("Tui Gõ — Cài đặt", "Tui Gõ — Settings")))),
 		0x80000000|0x02000000|0x00020000|0x00010000,
 		uintptr(posX), uintptr(posY), uintptr(winW), uintptr(winH),
 		0, 0, 0, 0)

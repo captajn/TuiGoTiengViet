@@ -170,17 +170,25 @@ func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
-	trc := rect{int32(cx + outerR + float32(dp(12))), rc.top + dp(6), rc.right - dp(4), rc.top + dp(24)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
-		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
-		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	sub := radioSubtitle[id]
+	if sub == "" {
+		trc := rect{int32(cx + outerR + float32(dp(10))), rc.top, rc.right - dp(4), rc.bottom}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	} else {
+		trc := rect{int32(cx + outerR + float32(dp(12))), rc.top + dp(6), rc.right - dp(4), rc.top + dp(24)}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-	pSetTextColor.Call(dc, colMuted)
-	pSelectObject.Call(dc, fontHint)
-	drc := rect{int32(cx + outerR + float32(dp(12))), rc.top + dp(24), rc.right - dp(4), rc.bottom - dp(4)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(radioSubtitle[id]))),
-		^uintptr(0), uintptr(unsafe.Pointer(&drc)),
-		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		pSetTextColor.Call(dc, colMuted)
+		pSelectObject.Call(dc, fontHint)
+		drc := rect{int32(cx + outerR + float32(dp(12))), rc.top + dp(24), rc.right - dp(4), rc.bottom - dp(4)}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(sub))),
+			^uintptr(0), uintptr(unsafe.Pointer(&drc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	}
 
 	pSelectObject.Call(dc, oldF)
 }
@@ -298,7 +306,26 @@ func drawSmoothVectorIcon(gfx *Gfx, cx, cy, size float32, kind int, color uint32
 		gfx.FillCircle(x+size*0.5, y+size*0.65, float32(dp(3)), color)
 		gfx.FillCircle(x+size*0.8, y+size*0.4, float32(dp(3)), color)
 
-	case 4: // Information: sleek circle with 'i'
+	case 4: // System / Cog: gear ring with 8 radial teeth and center hub
+		rIn := size * 0.17
+		rRing := size * 0.34
+		rOut := size * 0.48
+		gfx.DrawCircle(cx, cy, rRing, color, thk)
+		gfx.DrawCircle(cx, cy, rIn, color, thk*0.85)
+		// 4 cardinal teeth
+		gfx.DrawLine(cx, cy-rOut, cx, cy-rRing, color, thk)
+		gfx.DrawLine(cx, cy+rRing, cx, cy+rOut, color, thk)
+		gfx.DrawLine(cx-rOut, cy, cx-rRing, cy, color, thk)
+		gfx.DrawLine(cx+rRing, cy, cx+rOut, cy, color, thk)
+		// 4 diagonal teeth (cos 45° ≈ 0.7071)
+		d1 := rRing * 0.7071
+		d2 := rOut * 0.7071
+		gfx.DrawLine(cx-d2, cy-d2, cx-d1, cy-d1, color, thk)
+		gfx.DrawLine(cx+d1, cy+d1, cx+d2, cy+d2, color, thk)
+		gfx.DrawLine(cx-d2, cy+d2, cx-d1, cy+d1, color, thk)
+		gfx.DrawLine(cx+d1, cy-d1, cx+d2, cy-d2, color, thk)
+
+	case 5: // Information: sleek circle with 'i'
 		gfx.DrawCircle(cx, cy, size*0.46, color, thk)
 		gfx.FillCircle(cx, cy-size*0.22, float32(dp(2)), color)
 		gfx.DrawLine(cx, cy-size*0.06, cx, cy+size*0.22, color, thk)
@@ -453,12 +480,12 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	pSetTextColor.Call(dc, titleCol)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
 
-	title := "Hệ thống (Tự động)"
+	title := tr("Hệ thống (Tự động)", "System (Auto)")
 	switch themeMode {
 	case themeLight:
-		title = "Chế độ Sáng (Light)"
+		title = tr("Chế độ Sáng (Light)", "Light Mode")
 	case themeDark:
-		title = "Chế độ Tối (Dark)"
+		title = tr("Chế độ Tối (Dark)", "Dark Mode")
 	}
 
 	textLeft := int32(iconX + iconSz/2.0 + float32(dp(8)))
@@ -505,12 +532,12 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 
 	// Mini preview colors for this style in the current Light/Dark mode
 	var pvBg, pvKey, pvFunc, pvBorder, pvAccent uint32
-	title := "Ngọc Bích"
-	sub := "Mặc định"
+	title := tr("Ngọc Bích", "Jade Glass")
+	sub := tr("Mặc định", "Default")
 
 	switch styleID {
 	case styleJade:
-		title = "Ngọc Bích"
+		title = tr("Ngọc Bích", "Jade Glass")
 		sub = "Liquid Glass"
 		if dark {
 			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF0F1115, 0xFF232834, 0xFF1A1E27, 0xFF3ED3B8, 0xFF3ED3B8
@@ -535,7 +562,7 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 		}
 	case styleMatchaLatte:
 		title = "Matcha"
-		sub = "Kem Trà Xanh"
+		sub = tr("Kem Trà Xanh", "Matcha Cream")
 		if dark {
 			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF121A16, 0xFF24352C, 0xFF2D4439, 0xFF74C69D, 0xFFF4A261
 		} else {

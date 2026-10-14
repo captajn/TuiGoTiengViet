@@ -12,6 +12,7 @@ var (
 	gSending      bool // reentrancy guard for our own SendInput
 	gChordClean   = true
 	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
+	gShiftFirst   bool // true if Shift went down before Ctrl in the current chord
 	gCtrlHeld     bool
 	gShiftHeld    bool
 	gAltHeld      bool
@@ -207,18 +208,25 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		// drop a fast chord tap.
 		wasChord := gCtrlHeld && gShiftHeld
 		noneHeld := !gCtrlHeld && !gShiftHeld
+		isCtrl := vk == VK_LCONTROL || vk == VK_RCONTROL
 		// While Alt is held (Alt+Tab / Alt+Esc), Windows injects a phantom
 		// Ctrl that reaches LL hooks — don't let it count toward the chord.
 		altHeld := keyDown(VK_MENU)
 		if !altHeld {
-			switch vk {
-			case VK_LCONTROL, VK_RCONTROL:
+			if isCtrl {
 				gCtrlHeld = true
-			case VK_LSHIFT, VK_RSHIFT:
+			} else {
 				gShiftHeld = true
 			}
 		}
 		if noneHeld {
+			gModDownAt = time.Now()
+			gShiftFirst = !isCtrl
+			gChordClean = true
+		} else if !wasChord && gCtrlHeld && gShiftHeld && !isCtrl && gChordClean {
+			// Holding Ctrl and tapping Shift (once or repeatedly) is the most
+			// common Ctrl+Shift gesture: refresh the chord timestamp when Shift
+			// joins a clean held Ctrl.
 			gModDownAt = time.Now()
 		}
 		// Modifier-only chord (Ctrl+Shift): ARM it here but fire on release —
@@ -230,7 +238,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
 			time.Since(gModDownAt) < 800*time.Millisecond &&
 			gLastKeyAt.Before(gModDownAt) && // no letters between the two presses
-			!altHeld && !gWinHeld {
+			gChordClean && !altHeld && !gWinHeld {
 			gChordPending = true
 			gChordClean = true
 		}
@@ -402,25 +410,33 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 			case WM_KEYUP, WM_SYSKEYUP:
 				switch p.vkCode {
 				case VK_LCONTROL, VK_RCONTROL, VK_LSHIFT, VK_RSHIFT:
-					if p.vkCode == VK_LCONTROL || p.vkCode == VK_RCONTROL {
+					isCtrl := p.vkCode == VK_LCONTROL || p.vkCode == VK_RCONTROL
+					if isCtrl {
 						gCtrlHeld = false
 					} else {
 						gShiftHeld = false
 					}
 					if gChordPending {
-						if gCtrlHeld || gShiftHeld {
-							// First release — the other modifier is still
-							// held. Brushing Ctrl while holding Shift for
-							// capitals lands here and must NOT toggle.
+						if gShiftFirst && gShiftHeld && isCtrl {
+							// Shift went down first and is still held while Ctrl was
+							// released: wait for Shift release so brushing Ctrl while
+							// holding Shift for capitals doesn't toggle before the letter.
 							gModUpAt = time.Now()
-						} else {
-							// Both released: toggle only if the chord stayed
-							// clean and the pair was let go as one gesture.
-							if gChordClean && time.Since(gModUpAt) < 700*time.Millisecond &&
+						} else if !gCtrlHeld && !gShiftHeld && !gModUpAt.IsZero() {
+							if gChordClean && time.Since(gModUpAt) < 900*time.Millisecond &&
 								flipVietKey() {
 								postToggle(1)
 							}
 							gChordPending = false
+							gModUpAt = time.Time{}
+						} else {
+							// Clean Ctrl+Shift (either Shift released while Ctrl held,
+							// or first release when Ctrl went down first): fire immediately!
+							if gChordClean && flipVietKey() {
+								postToggle(1)
+							}
+							gChordPending = false
+							gModUpAt = time.Time{}
 						}
 					}
 				case VK_MENU, VK_LMENU, VK_RMENU:
@@ -431,10 +447,37 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 				if p.vkCode == uint32(cfg.HotkeyVk) {
 					gHotkeyDown = false
 				}
-				if isModifierKey(p.vkCode) {
+				if isModifierKey(p.vkCode) && !gCtrlHeld && !gShiftHeld {
 					gChordClean = true
 				}
 			case WM_KEYDOWN, WM_SYSKEYDOWN:
+				// Self-heal stale modifier flags on physical modifier press so a
+				// missed keyup (window activation / UAC / focus switch) never
+				// stalls Ctrl+Shift for 30 seconds until the timer runs.
+				if !injected && gTestMagic == 0 {
+					switch p.vkCode {
+					case VK_LCONTROL, VK_RCONTROL:
+						if gShiftHeld && !keyDown(VK_LSHIFT) && !keyDown(VK_RSHIFT) {
+							gShiftHeld = false
+						}
+						if gAltHeld && !keyDown(VK_LMENU) && !keyDown(VK_RMENU) {
+							gAltHeld = false
+						}
+						if gWinHeld && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
+							gWinHeld = false
+						}
+					case VK_LSHIFT, VK_RSHIFT:
+						if gCtrlHeld && !keyDown(VK_LCONTROL) && !keyDown(VK_RCONTROL) {
+							gCtrlHeld = false
+						}
+						if gAltHeld && !keyDown(VK_LMENU) && !keyDown(VK_RMENU) {
+							gAltHeld = false
+						}
+						if gWinHeld && !keyDown(VK_LWIN) && !keyDown(VK_RWIN) {
+							gWinHeld = false
+						}
+					}
+				}
 				if handleKeyDown(p) {
 					return 1
 				}
@@ -473,7 +516,7 @@ func flushPendingMouseClick() {
 	// caret mid-text — forward-Delete there would erase a real
 	// character. A click on another window refocuses it; the field
 	// then typically selects all text or sits at end-of-text.
-	if shellInputSurface(rootClassName(clicked)) || clicked == gSettingsHwnd {
+	if shellInputSurface(rootClassName(clicked)) || clicked == gSettingsHwnd || clicked == gHudHwnd {
 		// Mouse-down ran before Explorer/settings took foreground.
 		// Capture the typing app even if the user never typed a key in it.
 		captureInputAppAt(fg)

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -40,11 +41,43 @@ func readIni(path string) (map[string]string, error) {
 	return m, nil
 }
 
+var (
+	saveWorkerOnce sync.Once
+	saveCh         = make(chan string, 1)
+	saveDiskMu     sync.Mutex
+)
+
+// saveSettings formats the INI snapshot on the UI thread and writes it to disk
+// on a background goroutine so disk / antivirus file-rename scans never block
+// the WH_KEYBOARD_LL message loop.
 func saveSettings() {
+	data := formatSettingsIni()
+	saveWorkerOnce.Do(func() {
+		go func() {
+			for s := range saveCh {
+				_ = writeIniAtomic(iniPath(), s)
+			}
+		}()
+	})
+	select {
+	case saveCh <- data:
+	default:
+		select {
+		case <-saveCh:
+		default:
+		}
+		select {
+		case saveCh <- data:
+		default:
+		}
+	}
+}
+
+func saveSettingsSync() {
 	_ = saveSettingsTo(iniPath())
 }
 
-func saveSettingsTo(path string) error {
+func formatSettingsIni() string {
 	bv := func(b bool) string {
 		if b {
 			return "1"
@@ -78,6 +111,7 @@ func saveSettingsTo(path string) error {
 	fmt.Fprintf(&b, "UseCtrlShift=%s\n", bv(cfg.UseCtrlShift))
 	fmt.Fprintf(&b, "Theme=%d\n", cfg.Theme)
 	fmt.Fprintf(&b, "Style=%d\n", cfg.Style)
+	fmt.Fprintf(&b, "UILang=%d\n", cfg.UILang)
 	fmt.Fprintf(&b, "HudX=%d\n", cfg.HudX)
 	fmt.Fprintf(&b, "HudY=%d\n", cfg.HudY)
 	names := make([]string, 0, len(gRememberedAppViet))
@@ -88,13 +122,23 @@ func saveSettingsTo(path string) error {
 	for _, name := range names {
 		fmt.Fprintf(&b, "AppMode.%s=%s\n", name, bv(gRememberedAppViet[name]))
 	}
+	return b.String()
+}
+
+func writeIniAtomic(path, content string) error {
+	saveDiskMu.Lock()
+	defer saveDiskMu.Unlock()
 	// Atomic-ish: write temp then rename so a crash mid-write can't leave a
 	// truncated ini that silently resets every option on next start.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0644); err != nil {
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func saveSettingsTo(path string) error {
+	return writeIniAtomic(path, formatSettingsIni())
 }
 
 func loadRememberedAppModes(vals map[string]string) {
@@ -237,6 +281,9 @@ func loadSettings() bool {
 	}
 	if cfg.Theme < 0 || cfg.Theme > 2 {
 		cfg.Theme = 0
+	}
+	if v, ok := getI("UILang"); ok && (v == 0 || v == 1) {
+		cfg.UILang = v
 	}
 	if v, ok := getI("HudX"); ok {
 		cfg.HudX = v

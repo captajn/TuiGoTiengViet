@@ -105,11 +105,14 @@ var (
 	pSetWindowTheme     = uxtheme.NewProc("SetWindowTheme")
 	pLoadCursor         = user32.NewProc("LoadCursorW")
 	pSetWindowPos       = user32.NewProc("SetWindowPos")
-	pGetSystemMetrics   = user32.NewProc("GetSystemMetrics")
-	pPostThreadMessage  = user32.NewProc("PostThreadMessageW")
+	pGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
+	pPostThreadMessage   = user32.NewProc("PostThreadMessageW")
+	pUpdateLayeredWindow = user32.NewProc("UpdateLayeredWindow")
 
 	pWTSRegister = wtsapi32.NewProc("WTSRegisterSessionNotification")
 )
+
+var gDwmRoundCorners bool
 
 // loadAppIcon returns the application mascot icon or falls back to exe icon.
 func loadAppIcon() uintptr {
@@ -138,6 +141,9 @@ func darkTitlebar(hwnd uintptr) {
 
 // applyWindowChrome enables hardware-accelerated DWM anti-aliased rounded corners,
 // dark mode preference, and modern Windows 11 Acrylic blur backdrop (liquid glass).
+// On Windows 10 (where DWMWA_WINDOW_CORNER_PREFERENCE is unsupported and returns non-zero),
+// gDwmRoundCorners stays false so the client backdrop paints crisp square outer corners
+// matching the native Windows 10 frame instead of drawing a rounded border inside square corners.
 func applyWindowChrome(hwnd uintptr) {
 	dark := int32(0)
 	if isDark() {
@@ -153,7 +159,8 @@ func applyWindowChrome(hwnd uintptr) {
 	pDwmSetWndAttr.Call(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, uintptr(unsafe.Pointer(&dark)), 4)
 
 	corner := int32(DWMWCP_ROUND)
-	pDwmSetWndAttr.Call(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, uintptr(unsafe.Pointer(&corner)), 4)
+	hr, _, _ := pDwmSetWndAttr.Call(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, uintptr(unsafe.Pointer(&corner)), 4)
+	gDwmRoundCorners = (hr == 0)
 
 	backdrop := int32(DWMSBT_TRANSIENTWINDOW)
 	pDwmSetWndAttr.Call(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, uintptr(unsafe.Pointer(&backdrop)), 4)

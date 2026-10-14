@@ -79,20 +79,16 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			toggleVietKeyForApp("tray-icon", gTrayToggleApp)
 			return 0
 		}
-		if wp == 3 {
-			syncTrayState()
-			return 0
-		}
 		if wp == 2 { // HUD flash timeout
-			if !cfg.ShowHud && gHudHwnd != 0 {
+			if !cfg.ShowHud && gHudHwnd != 0 && hudShown {
 				pShowWindow.Call(gHudHwnd, 0) // SW_HIDE
+				hudShown = false
 			}
 			return 0
 		}
-		hookWatchdog()
-		// Resync tracked modifier state: a keyup can be missed (secure
-		// desktop, UAC prompt, hook gap) leaving stale held flags that
-		// corrupt the Ctrl+Shift chord tracking.
+		// Resync tracked modifier state every 500ms (timer 3) as well as timer 1:
+		// a keyup can be missed (secure desktop, UAC prompt, hook gap) leaving
+		// stale held flags that corrupt the Ctrl+Shift chord tracking.
 		if gCtrlHeld && !keyDown(VK_LCONTROL) && !keyDown(VK_RCONTROL) {
 			gCtrlHeld = false
 		}
@@ -108,6 +104,11 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		if gHotkeyDown && cfg.HotkeyVk != 0 && !keyDown(uint32(cfg.HotkeyVk)) {
 			gHotkeyDown = false
 		}
+		if wp == 3 {
+			syncTrayState()
+			return 0
+		}
+		hookWatchdog()
 		if !gTrayAdded {
 			trayAdd() // Explorer wasn't ready at boot — retry
 		}
@@ -121,7 +122,7 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case WM_DESTROY:
-		saveSettings()
+		saveSettingsSync()
 		pPostQuitMessage.Call(0)
 		return 0
 	}

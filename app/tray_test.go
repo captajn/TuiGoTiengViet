@@ -342,7 +342,7 @@ func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 		pDeleteObject.Call(bmp)
 	}()
 
-	gActiveTab = 4
+	gActiveTab = len(tabItems) - 1
 	gHoveredTab = -1
 	paintSettingsCached(dc, 0, winW, winH, rect{0, 0, winW, winH})
 
@@ -368,4 +368,35 @@ func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 		t.Fatalf("sidebar hover repaint too slow: avg %v/step (want < 5ms)", avg)
 	}
 }
+
+func TestUILangAndMiniHudAndWin10Corners(t *testing.T) {
+	oldLang := cfg.UILang
+	oldRound := gDwmRoundCorners
+	defer func() {
+		cfg.UILang = oldLang
+		gDwmRoundCorners = oldRound
+	}()
+
+	cfg.UILang = 0
+	if got := tr("Tiếng Việt", "English"); got != "Tiếng Việt" {
+		t.Fatalf("UILang=0: got %q", got)
+	}
+	cfg.UILang = 1
+	if got := tr("Tiếng Việt", "English"); got != "English" {
+		t.Fatalf("UILang=1: got %q", got)
+	}
+
+	// Verify mini HUD badge renders transparent corners (fixing Win10 square corner artifacts)
+	for _, on := range []bool{true, false} {
+		pixels := make([]uint32, 34*34)
+		renderHudPixels(pixels, 34, on, palDark)
+		if topLeftA := pixels[0] >> 24; topLeftA != 0 {
+			t.Fatalf("renderHudPixels(on=%v) top-left corner alpha = %d, want 0", on, topLeftA)
+		}
+		if centerA := pixels[17*34+17] >> 24; centerA == 0 {
+			t.Fatalf("renderHudPixels(on=%v) center pixel alpha = 0, want opaque", on)
+		}
+	}
+}
+
 
