@@ -421,7 +421,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     // ---- helpers --------------------------------------------------------------------
 
     private func rememberTail() {
-        expectedTail = String((textDocumentProxy.documentContextBeforeInput ?? "").suffix(64))
+        let ctx = textDocumentProxy.documentContextBeforeInput ?? ""
+        expectedTail = String(ctx.suffix(64))
     }
 
     private func checkExternalChange() {
@@ -460,7 +461,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
             keyboard.setAutoShift(false)
             return
         }
-        let ctx = proxy.documentContextBeforeInput ?? ""
+        let ctx = expectedTail.isEmpty ? (proxy.documentContextBeforeInput ?? "") : expectedTail
         let on = ctx.isEmpty
             || ctx.hasSuffix("\n")
             || ctx.hasSuffix(". ") || ctx.hasSuffix("? ") || ctx.hasSuffix("! ")

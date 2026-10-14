@@ -97,6 +97,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var lastKnownClipText: String? = null
     private var dismissedClipStamp = -1L
     private var dismissedClipText: String? = null
+    private var activeClipCandidate: ClipCandidate? = null
+    private val whitespaceRegex = Regex("\\s+")
     private val clipChangedListener = ClipboardManager.OnPrimaryClipChangedListener {
         clipCopiedAtMs = System.currentTimeMillis()
         dismissedClipStamp = -1L
@@ -315,7 +317,12 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val ei = currentInputEditorInfo
         dismissCurrentClipSuggestion()
 
-        if ((selStart >= 0 && selEnd >= 0 && selStart != selEnd) || !ic.getSelectedText(0).isNullOrEmpty()) {
+        val hasSelection = if (selStart >= 0 && selEnd >= 0) {
+            selStart != selEnd
+        } else {
+            !ic.getSelectedText(0).isNullOrEmpty()
+        }
+        if (hasSelection) {
             engine.resetBuf()
             spacePending = false
             if (selStart >= 0 && selEnd >= 0) {
@@ -378,8 +385,12 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val ic = currentInputConnection ?: return
         dismissCurrentClipSuggestion()
         spacePending = false
-        val selected = ic.getSelectedText(0)
-        if (!selected.isNullOrEmpty() || (selStart >= 0 && selEnd >= 0 && selStart != selEnd)) {
+        val hasSelection = if (selStart >= 0 && selEnd >= 0) {
+            selStart != selEnd || !ic.getSelectedText(0).isNullOrEmpty()
+        } else {
+            !ic.getSelectedText(0).isNullOrEmpty()
+        }
+        if (hasSelection) {
             engine.resetBuf()
             ic.commitText("", 1)
             if (selStart >= 0 && selEnd >= 0) {
@@ -628,7 +639,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             )
         }
         val isSensitive = desc?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true
-        val singleLine = rawText!!.trim().replace(Regex("\\s+"), " ")
+        val singleLine = rawText!!.trim().replace(whitespaceRegex, " ")
         val label = if (isSensitive) "••••••••" else singleLine
         return ClipCandidate(
             key = clipKey,
@@ -641,7 +652,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     }
 
     private fun dismissCurrentClipSuggestion() {
-        val cand = currentClipCandidate() ?: return
+        val cand = activeClipCandidate ?: return
+        activeClipCandidate = null
         dismissedClipStamp = cand.stamp
         dismissedClipText = cand.key
         renderSuggestionStrip()
@@ -679,6 +691,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             contentDescription = "Dán từ bộ nhớ tạm"
             setOnClickListener {
                 val ic = currentInputConnection ?: return@setOnClickListener
+                activeClipCandidate = null
                 dismissedClipStamp = cand.stamp
                 dismissedClipText = cand.key
                 engine.resetBuf()
@@ -767,6 +780,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val strip = suggestionStrip ?: return
         val suggestions = if (Build.VERSION.SDK_INT >= 30) pendingInline?.inlineSuggestions.orEmpty() else emptyList()
         val clipCand = currentClipCandidate()
+        activeClipCandidate = clipCand
         inlineSeq++ // drop callbacks still in flight from a previous response
         strip.removeAllViews()
         if (suggestions.isEmpty() && clipCand == null) {

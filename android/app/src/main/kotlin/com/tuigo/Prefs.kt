@@ -61,14 +61,20 @@ object Prefs {
         return builder.build()
     }
 
+    @Volatile
+    private var lastSyncedIm: Int = -1
+
     /** Sync the active input method label (Telex / VNI / VIQR) shown in Android System Settings. */
     @Suppress("DEPRECATION")
-    fun syncSystemSubtype(ctx: Context): InputMethodSubtype? {
+    fun syncSystemSubtype(ctx: Context, force: Boolean = false): InputMethodSubtype? {
+        val im = inputMethod(ctx)
+        if (!force && im == lastSyncedIm) return null
         return try {
             val imm = ctx.getSystemService(InputMethodManager::class.java) ?: return null
             val imi = imm.inputMethodList?.firstOrNull { it.packageName == ctx.packageName } ?: return null
-            val subtype = subtypeForMethod(inputMethod(ctx))
+            val subtype = subtypeForMethod(im)
             imm.setAdditionalInputMethodSubtypes(imi.id, arrayOf(subtype))
+            lastSyncedIm = im
             subtype
         } catch (_: Exception) {
             null

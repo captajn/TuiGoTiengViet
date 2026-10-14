@@ -165,7 +165,7 @@ class KeyboardView @JvmOverloads constructor(
                 code = ch.code,
                 label = ch.toString(),
                 hint = hintChar?.toString() ?: "",
-                longPressChar = hintChar ?: if (withLetterHints) topRowNumberHints[ch] else null,
+                longPressChar = hintChar,
             )
         }
         return if (insetWeight > 0f) {
@@ -301,18 +301,24 @@ class KeyboardView @JvmOverloads constructor(
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL; color = 0x1A000000.toInt()
     }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shadowRect = RectF()
+    private val popupRect = RectF()
 
     private var pressed: Key? = null
     private var shiftTapTime = 0L
     private var downPointerId = -1
+    private var downX = 0f
+    private var downY = 0f
     private var spaceLongFired = false
     private var spaceSliding = false
     private var spaceDownX = 0f
     private var spaceDownY = 0f
     private var spaceLastStepX = 0f
-    private val spaceSwipeSlop = 7 * dp
+    private val spaceSwipeSlop = 10 * dp
     private val spaceStepPx = 10 * dp
+    private val keyHysteresis = 8 * dp
+    private val tapLockSlop = 10 * dp
 
     /** True after a long-press already produced output — further moves in
      *  the same gesture must not re-arm the touched key (finger jitter used
@@ -522,7 +528,7 @@ class KeyboardView @JvmOverloads constructor(
                 val spaceLabel = if (spaceSliding) "◀   $baseLabel   ▶" else baseLabel
                 drawCentered(canvas, spaceLabel, r)
                 if (vietnameseOn && !spaceSliding) {
-                    val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = t.accent }
+                    dotPaint.color = t.accent
                     val labelWidth = textPaint.measureText(spaceLabel)
                     val dotX = r.centerX() - labelWidth / 2f - 7 * dp
                     val dotY = r.centerY()
@@ -646,16 +652,16 @@ class KeyboardView @JvmOverloads constructor(
         val ph = keyHeight * 1.15f
         val px = (r.centerX() - pw / 2).coerceIn(padH, width - padH - pw)
         val py = (r.top - ph - rowGap).coerceAtLeast(2 * dp)
-        val popup = RectF(px, py, px + pw, py + ph)
+        popupRect.set(px, py, px + pw, py + ph)
         keyPaint.color = theme.popup
-        canvas.drawRoundRect(popup, corner, corner, keyPaint)
+        canvas.drawRoundRect(popupRect, corner, corner, keyPaint)
         if (theme.popupBorder ushr 24 != 0) {
             borderPaint.color = theme.popupBorder
-            canvas.drawRoundRect(popup, corner, corner, borderPaint)
+            canvas.drawRoundRect(popupRect, corner, corner, borderPaint)
         }
         popupTextPaint.textSize = 26 * dp
-        val y = popup.centerY() - (popupTextPaint.descent() + popupTextPaint.ascent()) / 2
-        canvas.drawText(currentLabel(key.spec), popup.centerX(), y, popupTextPaint)
+        val y = popupRect.centerY() - (popupTextPaint.descent() + popupTextPaint.ascent()) / 2
+        canvas.drawText(currentLabel(key.spec), popupRect.centerX(), y, popupTextPaint)
     }
 
     // ---- touch --------------------------------------------------------------
@@ -666,6 +672,22 @@ class KeyboardView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 downPointerId = ev.getPointerId(0)
                 onDown(ev.x, ev.y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val idx = ev.actionIndex
+                // Multi-touch rollover: when a second thumb lands before the first
+                // thumb lifts, commit the currently pressed key in order immediately.
+                val prev = pressed
+                if (!pressConsumed && !spaceSliding && prev != null &&
+                    prev.spec.code != K.DEL && prev.spec.code != K.SPACER
+                ) {
+                    cancelPress()
+                    dispatch(prev)
+                } else {
+                    cancelPress()
+                }
+                downPointerId = ev.getPointerId(idx)
+                onDown(ev.getX(idx), ev.getY(idx))
             }
             MotionEvent.ACTION_MOVE -> {
                 val idx = ev.findPointerIndex(downPointerId)
@@ -687,6 +709,8 @@ class KeyboardView @JvmOverloads constructor(
         val key = hit(x, y) ?: return
         pressConsumed = false
         pressed = key
+        downX = x
+        downY = y
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         playSoundEffect(SoundEffectConstants.CLICK)
         if (key.spec.code == K.DEL) {
@@ -701,9 +725,16 @@ class KeyboardView @JvmOverloads constructor(
             spaceLastStepX = x
             handler.postDelayed(spaceLongPress, 550)
         } else if (key.spec.longPressChar != null) {
-            handler.postDelayed(hintLongPress, 400)
+            handler.postDelayed(hintLongPress, 450)
         }
         invalidate()
+    }
+
+    private fun withinHysteresis(key: Key, x: Float, y: Float): Boolean {
+        if (abs(x - downX) <= tapLockSlop && abs(y - downY) <= tapLockSlop) return true
+        val r = key.rect
+        return x >= r.left - keyHysteresis && x <= r.right + keyHysteresis &&
+            y >= r.top - keyHysteresis && y <= r.bottom + keyHysteresis
     }
 
     private fun onMove(x: Float, y: Float) {
@@ -727,14 +758,21 @@ class KeyboardView @JvmOverloads constructor(
                 return
             }
         }
+        // Keep the current key locked while the finger is still inside its hysteresis
+        // zone so slight vertical thumb-roll between the letter row and number row
+        // never jumps to the adjacent row mid-tap.
+        val current = pressed
+        if (current != null && withinHysteresis(current, x, y)) return
         val key = hit(x, y)
-        if (key !== pressed) {
+        if (key !== current) {
             pressed = key
+            downX = x
+            downY = y
             handler.removeCallbacks(repeatDelete)
             handler.removeCallbacks(spaceLongPress)
             handler.removeCallbacks(hintLongPress)
             if (key?.spec?.code == K.DEL) handler.postDelayed(repeatDelete, 400)
-            else if (key?.spec?.longPressChar != null) handler.postDelayed(hintLongPress, 400)
+            else if (key?.spec?.longPressChar != null) handler.postDelayed(hintLongPress, 450)
             invalidate()
         }
     }
@@ -742,8 +780,10 @@ class KeyboardView @JvmOverloads constructor(
     private fun onUp(x: Float, y: Float) {
         val p = pressed ?: return
         val wasSliding = spaceSliding
+        val shouldDispatch = !wasSliding && p.spec.code != K.DEL && p.spec.code != K.SPACER &&
+            (withinHysteresis(p, x, y) || hit(x, y) === p)
         cancelPress()
-        if (!wasSliding && hit(x, y) === p && p.spec.code != K.DEL && p.spec.code != K.SPACER) {
+        if (shouldDispatch) {
             dispatch(p)
         }
     }
@@ -762,8 +802,34 @@ class KeyboardView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
-    private fun hit(x: Float, y: Float): Key? =
-        keys.firstOrNull { it.rect.contains(x, y) }
+    private fun hit(x: Float, y: Float): Key? {
+        for (i in 0 until keys.size) {
+            val k = keys[i]
+            if (k.spec.code != K.SPACER && k.rect.contains(x, y)) return k
+        }
+        // Snap touches landing in the narrow gap between keys/rows to the closest key.
+        val padX = keyGap * 0.6f
+        val padY = rowGap * 0.6f
+        var best: Key? = null
+        var bestDistSq = Float.MAX_VALUE
+        for (i in 0 until keys.size) {
+            val k = keys[i]
+            if (k.spec.code == K.SPACER) continue
+            val r = k.rect
+            if (x >= r.left - padX && x <= r.right + padX &&
+                y >= r.top - padY && y <= r.bottom + padY
+            ) {
+                val dx = x - r.centerX()
+                val dy = y - r.centerY()
+                val distSq = dx * dx + dy * dy
+                if (distSq < bestDistSq) {
+                    bestDistSq = distSq
+                    best = k
+                }
+            }
+        }
+        return best
+    }
 
     private fun dispatch(key: Key) {
         when (key.spec.code) {

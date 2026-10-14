@@ -110,12 +110,11 @@ final class KeyboardView: UIView {
     private func row(_ s: String, inset: CGFloat = 0, withHints: Bool = false) -> [KeySpec] {
         let keys = s.map { ch -> KeySpec in
             let hintChar: Character? = !withHints ? nil : (Self.letterHints[ch] ?? (!showNumberRow ? Self.topRowNumberHints[ch] : nil))
-            let altChar: Character? = hintChar ?? (withHints ? Self.topRowNumberHints[ch] : nil)
             return KeySpec(
                 Int(ch.unicodeScalars.first!.value),
                 String(ch),
                 hint: hintChar.map { String($0) } ?? "",
-                longPressChar: altChar
+                longPressChar: hintChar
             )
         }
         guard inset > 0 else { return keys }
@@ -440,6 +439,9 @@ final class KeyboardView: UIView {
     private var shiftTapTime = Date.distantPast
     private var deleteTimer: Timer?
     private var hintTimer: Timer?
+    private let tapFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let longPressFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let selectionFeedback = UISelectionFeedbackGenerator()
 
     private func startDeleteRepeat() {
         stopDeleteRepeat()
@@ -459,10 +461,10 @@ final class KeyboardView: UIView {
     private func startHintTimer(for key: Key) {
         stopHintTimer()
         guard let alt = key.spec.longPressChar else { return }
-        hintTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+        hintTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
             guard let self = self, self.pressed === key else { return }
             self.clearPress()
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            self.longPressFeedback.impactOccurred()
             self.listener?.onChar(alt)
         }
     }
@@ -478,7 +480,6 @@ final class KeyboardView: UIView {
         guard let key = keys.first(where: { $0.button === b }) else { return }
         if key.spec.code == K.globe { return }
         pressed = key
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         paintKey(key, pressed: true)
         if key.spec.code == K.del {
             startDeleteRepeat()
@@ -486,6 +487,8 @@ final class KeyboardView: UIView {
             showPopup(for: key)
             startHintTimer(for: key)
         }
+        tapFeedback.impactOccurred()
+        tapFeedback.prepare()
     }
 
     @objc private func onGlobe(_ sender: UIButton, event: UIEvent) {
@@ -496,7 +499,7 @@ final class KeyboardView: UIView {
     @objc private func onSpaceHold(_ g: UILongPressGestureRecognizer) {
         guard g.state == .began, !spaceSliding else { return }
         clearPress()
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        longPressFeedback.impactOccurred()
         listener?.onSpaceMenu()
     }
 
@@ -526,7 +529,7 @@ final class KeyboardView: UIView {
                 spaceLastStepX += CGFloat(steps) * stepPt
                 let dir = steps > 0 ? 1 : -1
                 for _ in 0..<abs(steps) { listener?.onCursorMove(dir) }
-                UISelectionFeedbackGenerator().selectionChanged()
+                selectionFeedback.selectionChanged()
             }
         case .ended, .cancelled, .failed:
             spaceSliding = false
