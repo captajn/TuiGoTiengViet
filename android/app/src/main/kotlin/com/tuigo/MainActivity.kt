@@ -15,120 +15,181 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var step1Btn: View
     private lateinit var step2Btn: View
+    private lateinit var macroSummary: TextView
+    private var selectedTab = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedTab = savedInstanceState?.getInt("selected_tab", 0) ?: 0
         ui = MobileUi(this)
         val p = Prefs.get(this)
         val root = ui.column()
         root.addView(ui.text("GÕ THEO CÁCH CỦA BẠN", 11f, ui.pal.accent, true))
         root.addView(ui.brandHeader("Tui Gõ", "Tiếng Việt, thật tự nhiên."))
-        root.addView(ui.card("Bắt đầu", "Hai bước để dùng bàn phím của bạn").apply {
-            status = ui.text("", 13.5f, ui.pal.accent, true)
-            addView(status)
-            step1Btn = ui.button("1. Bật Tui Gõ trong cài đặt", true) {
-                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            }
-            step2Btn = ui.button("2. Chọn bàn phím Tui Gõ") {
-                getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
-            }
-            addView(step1Btn)
-            addView(step2Btn)
-        })
-        root.addView(ui.card("Kiểu gõ", "Chọn một kiểu phù hợp với thói quen của bạn").apply {
-            val methods = listOf(
-                Triple(ImTelex, "Telex", "Telex · s, f, r, x, j để thêm dấu; aa, ee, oo, w, dd"),
-                Triple(ImVni, "VNI", "VNI · Dùng hàng phím số 1–9 để thêm dấu"),
-                Triple(ImViqr, "VIQR", "VIQR · Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu"))
-            val group = RadioGroup(this@MainActivity).apply {
-                tag = "input-methods"
-                orientation = LinearLayout.HORIZONTAL
-                background = ui.surface(ui.pal.raised, 14)
-                setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4))
-                layoutParams = ui.fullWidthLp(topMarginDp = 6)
-            }
-            val ids = mutableMapOf<Int, Int>()
-            val hints = mutableMapOf<Int, String>()
-            val current = Prefs.inputMethod(this@MainActivity)
-            methods.forEach { (im, name, hint) ->
-                val radio = RadioButton(this@MainActivity).apply {
-                    id = View.generateViewId(); tag = "method-$im"
-                    text = name; textSize = 14.5f; isSingleLine = true
-                    gravity = android.view.Gravity.CENTER
-                    buttonDrawable = null // modern segmented pill
-                    minHeight = ui.dp(44)
-                    setPadding(ui.dp(6), ui.dp(10), ui.dp(6), ui.dp(10))
-                    layoutParams = RadioGroup.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+
+        // Tab 0: Bộ gõ
+        val tabTyping = ui.column().apply {
+            addView(ui.card("Bắt đầu", "Hai bước để dùng bàn phím của bạn").apply {
+                status = ui.text("", 13.5f, ui.pal.accent, true)
+                addView(status)
+                step1Btn = ui.button("1. Bật Tui Gõ trong cài đặt", true) {
+                    startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
                 }
-                ids[radio.id] = im
-                hints[radio.id] = hint
-                group.addView(radio)
-            }
-            val hintText = ui.text("", 12.5f, ui.pal.muted).apply {
-                setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(4))
-            }
-            group.check(ids.entries.first { it.value == current }.key)
-            fun renderSelection() {
-                for (i in 0 until group.childCount) {
-                    val radio = group.getChildAt(i) as RadioButton
-                    if (radio.isChecked) {
-                        radio.background = ui.glassCard(active = true, 12)
-                        radio.setTextColor(ui.pal.accent)
-                        radio.typeface = android.graphics.Typeface.DEFAULT_BOLD
-                        hintText.text = hints[radio.id] ?: ""
-                    } else {
-                        radio.background = null
-                        radio.setTextColor(ui.pal.muted)
-                        radio.typeface = android.graphics.Typeface.DEFAULT
+                step2Btn = ui.button("2. Chọn bàn phím Tui Gõ") {
+                    getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
+                }
+                addView(step1Btn)
+                addView(step2Btn)
+            })
+            addView(ui.card("Kiểu gõ", "Chọn một kiểu phù hợp với thói quen của bạn").apply {
+                val methods = listOf(
+                    Triple(ImTelex, "Telex", "Telex · s, f, r, x, j để thêm dấu; aa, ee, oo, w, dd"),
+                    Triple(ImVni, "VNI", "VNI · Dùng hàng phím số 1–9 để thêm dấu"),
+                    Triple(ImViqr, "VIQR", "VIQR · Dùng ký hiệu ^, +, ', `, ?, ~, . để thêm dấu"))
+                val group = RadioGroup(this@MainActivity).apply {
+                    tag = "input-methods"
+                    orientation = LinearLayout.HORIZONTAL
+                    background = ui.surface(ui.pal.raised, 14)
+                    setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4))
+                    layoutParams = ui.fullWidthLp(topMarginDp = 6)
+                }
+                val ids = mutableMapOf<Int, Int>()
+                val hints = mutableMapOf<Int, String>()
+                val current = Prefs.inputMethod(this@MainActivity)
+                methods.forEach { (im, name, hint) ->
+                    val radio = RadioButton(this@MainActivity).apply {
+                        id = View.generateViewId(); tag = "method-$im"
+                        text = name; textSize = 14.5f; isSingleLine = true
+                        gravity = android.view.Gravity.CENTER
+                        buttonDrawable = null // modern segmented pill
+                        minHeight = ui.dp(44)
+                        setPadding(ui.dp(6), ui.dp(10), ui.dp(6), ui.dp(10))
+                        layoutParams = RadioGroup.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    ids[radio.id] = im
+                    hints[radio.id] = hint
+                    group.addView(radio)
+                }
+                val hintText = ui.text("", 12.5f, ui.pal.muted).apply {
+                    setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(4))
+                }
+                group.check(ids.entries.first { it.value == current }.key)
+                fun renderSelection() {
+                    for (i in 0 until group.childCount) {
+                        val radio = group.getChildAt(i) as RadioButton
+                        if (radio.isChecked) {
+                            radio.background = ui.glassCard(active = true, 12)
+                            radio.setTextColor(ui.pal.accent)
+                            radio.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                            hintText.text = hints[radio.id] ?: ""
+                        } else {
+                            radio.background = null
+                            radio.setTextColor(ui.pal.muted)
+                            radio.typeface = android.graphics.Typeface.DEFAULT
+                        }
                     }
                 }
-            }
-            renderSelection()
-            Prefs.syncSystemSubtype(this@MainActivity)
-            group.setOnCheckedChangeListener { _, id ->
-                ids[id]?.let {
-                    p.edit().putInt(Prefs.KEY_IM, it).apply()
-                    Prefs.syncSystemSubtype(this@MainActivity)
-                }
                 renderSelection()
-            }
-            addView(group)
-            addView(hintText)
+                Prefs.syncSystemSubtype(this@MainActivity)
+                group.setOnCheckedChangeListener { _, id ->
+                    ids[id]?.let {
+                        p.edit().putInt(Prefs.KEY_IM, it).apply()
+                        Prefs.syncSystemSubtype(this@MainActivity)
+                    }
+                    renderSelection()
+                }
+                addView(group)
+                addView(hintText)
+            })
+            addView(ui.card("Cách gõ", "Tinh chỉnh cách Tui Gõ xử lý từ và dấu").apply {
+                addView(toggle("Mặc định gõ tiếng Việt", "App chưa dùng Tui Gõ sẽ mở ở chế độ này", Prefs.KEY_VIET_ON))
+                addView(toggle("Bỏ dấu tự do", "Thêm dấu ngay khi đang gõ từ", Prefs.KEY_FREE_MARKING))
+                addView(toggle("Đặt dấu kiểu mới", "Ví dụ: hoà, thuỷ", Prefs.KEY_MODERN_STYLE))
+                addView(toggle("Kiểm tra chính tả", "Giữ cách gõ tiếng Việt hợp lệ", Prefs.KEY_SPELL_CHECK))
+                addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
+                addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
+            })
+            addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {
+                addView(ui.editor("Ví dụ: tieengs Vieetj", false).apply { tag = "typing-preview" })
+            })
+        }
+
+        // Tab 1: Giao diện
+        val tabTheme = ui.column().apply {
+            addView(ui.card("Bàn phím", "Không gian gõ vừa tay bạn").apply {
+                addView(ui.text("Giao diện", 14f, ui.pal.text, true))
+                addView(themePicker())
+                addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
+                addView(toggle("Gợi ý dán từ bộ nhớ tạm", "Hiện chip dán nhanh trên bàn phím khi vừa sao chép", Prefs.KEY_CLIPBOARD_SUGGEST, true))
+                addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
+                addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
+                addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
+            })
+            addView(ui.card("Xem trước bàn phím", "Chạm vào ô bên dưới để thử giao diện và kích thước phím").apply {
+                addView(ui.editor("Chạm để hiện bàn phím...", false).apply { tag = "typing-preview-theme" })
+            })
+        }
+
+        // Tab 2: Gõ tắt
+        val tabMacro = ui.column().apply {
+            addView(ui.card("Gõ tắt", "Ít thao tác hơn, nhiều điều muốn nói hơn").apply {
+                addView(toggle("Bật gõ tắt", "Gõ ko rồi Space → không", Prefs.KEY_MACRO))
+                macroSummary = ui.text("", 13f, ui.pal.muted).apply {
+                    setPadding(0, ui.dp(6), 0, ui.dp(6))
+                }
+                addView(macroSummary)
+                addView(ui.button("Quản lý từ gõ tắt", true) {
+                    startActivity(Intent(this@MainActivity, MacroActivity::class.java))
+                })
+            })
+            addView(ui.card("Thử gõ tắt", "Gõ từ tắt rồi nhấn phím Space để kiểm tra").apply {
+                addView(ui.editor("Ví dụ: ko + Space", false).apply { tag = "typing-preview-macro" })
+            })
+        }
+
+        val tabs = listOf(
+            MobileUi.TabSpec("typing", "Bộ gõ", MobileUi.ICON_KEYBOARD, tabTyping),
+            MobileUi.TabSpec("theme", "Giao diện", MobileUi.ICON_THEME, tabTheme),
+            MobileUi.TabSpec("macro", "Gõ tắt", MobileUi.ICON_MACRO, tabMacro),
+        )
+        tabs.forEach { root.addView(it.content) }
+        root.addView(ui.text("Chỉ trên thiết bị của bạn. Không thu thập nội dung gõ.", 12f, ui.pal.muted).apply {
+            layoutParams = ui.fullWidthLp(topMarginDp = 14)
         })
-        root.addView(ui.card("Cách gõ", "Tinh chỉnh cách Tui Gõ xử lý từ và dấu").apply {
-            addView(toggle("Mặc định gõ tiếng Việt", "App chưa dùng Tui Gõ sẽ mở ở chế độ này", Prefs.KEY_VIET_ON))
-            addView(toggle("Bỏ dấu tự do", "Thêm dấu ngay khi đang gõ từ", Prefs.KEY_FREE_MARKING))
-            addView(toggle("Đặt dấu kiểu mới", "Ví dụ: hoà, thuỷ", Prefs.KEY_MODERN_STYLE))
-            addView(toggle("Kiểm tra chính tả", "Giữ cách gõ tiếng Việt hợp lệ", Prefs.KEY_SPELL_CHECK))
-            addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
-            addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
-        })
-        root.addView(ui.card("Gõ tắt", "Ít thao tác hơn, nhiều điều muốn nói hơn").apply {
-            addView(toggle("Bật gõ tắt", "Gõ ko rồi Space → không", Prefs.KEY_MACRO))
-            addView(ui.button("Quản lý từ gõ tắt") { startActivity(Intent(this@MainActivity, MacroActivity::class.java)) })
-        })
-        root.addView(ui.card("Bàn phím", "Không gian gõ vừa tay bạn").apply {
-            addView(ui.text("Giao diện", 14f, ui.pal.text, true))
-            addView(themePicker())
-            addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
-            addView(toggle("Gợi ý dán từ bộ nhớ tạm", "Hiện chip dán nhanh trên bàn phím khi vừa sao chép", Prefs.KEY_CLIPBOARD_SUGGEST, true))
-            addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
-            addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
-            addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
-        })
-        root.addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {
-            addView(ui.editor("Ví dụ: tieengs Vieetj", false).apply { tag = "typing-preview" })
-        })
-        root.addView(ui.text("Chỉ trên thiết bị của bạn. Không thu thập nội dung gõ.", 12f, ui.pal.muted))
-        ui.install(this, root)
+        ui.installWithBottomNav(this, root, tabs, selectedTab) { selectedTab = it }
     }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("selected_tab", selectedTab)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onResume() {
         super.onResume()
         updateStatus()
+        updateMacroSummary()
     }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) updateStatus()
     }
+
+    private fun updateMacroSummary() {
+        if (!::macroSummary.isInitialized) return
+        val lines = try {
+            MacroFiles.read(this).lineSequence().map { it.trim() }.filter { it.isNotEmpty() && ':' in it }.toList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        macroSummary.text = if (lines.isEmpty()) {
+            "Chưa có từ gõ tắt nào được lưu · Ví dụ: ko:không, vn:Việt Nam"
+        } else {
+            val preview = lines.take(3).joinToString(" · ") { it.replace(":", " → ") }
+            "Đang lưu ${lines.size} mục · $preview"
+        }
+    }
+
     private fun updateStatus() {
         if (!::status.isInitialized) return
         val manager = getSystemService(InputMethodManager::class.java)

@@ -149,12 +149,91 @@ class MobileUi(private val context: Context) {
         layoutParams = fullWidthLp(topMarginDp = 6)
     }
 
-    private fun applyResponsiveContentPadding(content: LinearLayout) {
+    data class TabSpec(
+        val id: String,
+        val label: String,
+        val iconType: Int,
+        val content: LinearLayout,
+    )
+
+    companion object {
+        const val ICON_KEYBOARD = 0
+        const val ICON_THEME = 1
+        const val ICON_MACRO = 2
+    }
+
+    private fun navIcon(type: Int, color: Int): View = object : View(context) {
+        private val dm = context.resources.displayMetrics.density
+        private val strokePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 1.8f * dm
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+            this.color = color
+        }
+        private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+            this.color = color
+        }
+        private val rect = android.graphics.RectF()
+        private val path = android.graphics.Path()
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            when (type) {
+                ICON_KEYBOARD -> {
+                    rect.set(w * 0.10f, h * 0.22f, w * 0.90f, h * 0.80f)
+                    canvas.drawRoundRect(rect, 3.5f * dm, 3.5f * dm, strokePaint)
+                    val dotR = 1.2f * dm
+                    for (i in 0..3) {
+                        val cx = w * (0.26f + i * 0.16f)
+                        canvas.drawCircle(cx, h * 0.42f, dotR, fillPaint)
+                    }
+                    for (i in 0..2) {
+                        val cx = w * (0.34f + i * 0.16f)
+                        canvas.drawCircle(cx, h * 0.56f, dotR, fillPaint)
+                    }
+                    canvas.drawLine(w * 0.32f, h * 0.68f, w * 0.68f, h * 0.68f, strokePaint)
+                }
+                ICON_THEME -> {
+                    val gap = w * 0.08f
+                    val box = (w * 0.72f - gap) / 2f
+                    val startX = w * 0.14f
+                    val startY = h * 0.14f
+                    val r = 3f * dm
+                    rect.set(startX, startY, startX + box, startY + box)
+                    canvas.drawRoundRect(rect, r, r, strokePaint)
+                    rect.set(startX + box + gap, startY, startX + box * 2 + gap, startY + box)
+                    canvas.drawRoundRect(rect, r, r, fillPaint)
+                    rect.set(startX, startY + box + gap, startX + box, startY + box * 2 + gap)
+                    canvas.drawRoundRect(rect, r, r, strokePaint)
+                    rect.set(startX + box + gap, startY + box + gap, startX + box * 2 + gap, startY + box * 2 + gap)
+                    canvas.drawRoundRect(rect, r, r, strokePaint)
+                }
+                else -> {
+                    path.reset()
+                    path.moveTo(w * 0.56f, h * 0.12f)
+                    path.lineTo(w * 0.24f, h * 0.54f)
+                    path.lineTo(w * 0.48f, h * 0.54f)
+                    path.lineTo(w * 0.42f, h * 0.88f)
+                    path.lineTo(w * 0.76f, h * 0.44f)
+                    path.lineTo(w * 0.52f, h * 0.44f)
+                    path.close()
+                    canvas.drawPath(path, strokePaint)
+                }
+            }
+        }
+    }.apply {
+        layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
+    }
+
+    private fun applyResponsiveContentPadding(content: LinearLayout, bottomExtraDp: Int = 28) {
         val dm = context.resources.displayMetrics
         val baseH = if (swDp < 360) dp(14) else dp(18)
         val maxContentW = dp(640)
         val extraH = if (dm.widthPixels > maxContentW + baseH * 2) (dm.widthPixels - maxContentW) / 2 else baseH
-        content.setPadding(extraH, dp(18), extraH, dp(28))
+        content.setPadding(extraH, dp(18), extraH, dp(bottomExtraDp))
     }
 
     fun install(activity: Activity, content: LinearLayout) {
@@ -183,6 +262,169 @@ class MobileUi(private val context: Context) {
             }
         }
         activity.setContentView(scroll)
+        configureWindowAndScrollFocus(activity, scroll)
+    }
+
+    @Suppress("ClickableViewAccessibility")
+    fun installWithBottomNav(
+        activity: Activity,
+        content: LinearLayout,
+        tabs: List<TabSpec>,
+        initialTab: Int = 0,
+        onTabSelected: (Int) -> Unit = {},
+    ) {
+        applyResponsiveContentPadding(content, bottomExtraDp = 104)
+        val container = FrameLayout(context).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(pal.bg, pal.glow, pal.bg))
+        }
+        val scroll = ScrollView(context).apply {
+            isFillViewport = true; clipToPadding = true
+            addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val navHost = FrameLayout(context).apply {
+            val dm = context.resources.displayMetrics
+            val baseH = if (swDp < 360) dp(14) else dp(18)
+            val maxW = dp(520)
+            val hMargin = if (dm.widthPixels > maxW + baseH * 2) (dm.widthPixels - maxW) / 2 else baseH
+            setPadding(hMargin, dp(6), hMargin, dp(12))
+        }
+        val navBar = LinearLayout(context).apply {
+            tag = "bottom-nav"
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = glassCard(false, 24)
+            elevation = dp(10).toFloat()
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+        var activeIndex = initialTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+        val tabViews = mutableListOf<LinearLayout>()
+
+        fun selectTab(index: Int, animate: Boolean) {
+            activeIndex = index
+            onTabSelected(index)
+            tabs.forEachIndexed { i, tab ->
+                val active = i == index
+                tab.content.animate().cancel()
+                if (active) {
+                    tab.content.visibility = View.VISIBLE
+                    if (animate) {
+                        tab.content.alpha = 0.35f
+                        tab.content.translationY = dp(8).toFloat()
+                        tab.content.animate()
+                            .alpha(1f)
+                            .translationY(0f)
+                            .setDuration(180)
+                            .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
+                            .start()
+                    } else {
+                        tab.content.alpha = 1f
+                        tab.content.translationY = 0f
+                    }
+                } else {
+                    tab.content.visibility = View.GONE
+                }
+            }
+            tabViews.forEachIndexed { i, item ->
+                val active = i == index
+                val spec = tabs[i]
+                item.isSelected = active
+                item.background = if (active) glassCard(active = true, 18) else null
+                item.removeAllViews()
+                val col = if (active) pal.accent else pal.muted
+                item.addView(navIcon(spec.iconType, col))
+                item.addView(TextView(context).apply {
+                    text = spec.label
+                    textSize = 12f
+                    setTextColor(col)
+                    typeface = Typeface.create("sans-serif", if (active) Typeface.BOLD else Typeface.NORMAL)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }
+            if (animate) {
+                scroll.post { scroll.smoothScrollTo(0, 0) }
+            }
+        }
+
+        tabs.forEachIndexed { index, spec ->
+            val item = LinearLayout(context).apply {
+                tag = "nav-tab-${spec.id}"
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                minimumHeight = dp(54)
+                setPadding(dp(8), dp(6), dp(8), dp(6))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setOnTouchListener { v, ev ->
+                    when (ev.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            v.animate().cancel()
+                            v.animate().scaleX(0.95f).scaleY(0.95f).setDuration(80).start()
+                        }
+                        android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                            v.animate().cancel()
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(140)
+                                .setInterpolator(android.view.animation.OvershootInterpolator(1.4f))
+                                .start()
+                        }
+                    }
+                    false
+                }
+                setOnClickListener {
+                    if (activeIndex != index) selectTab(index, animate = true)
+                }
+            }
+            tabViews.add(item)
+            navBar.addView(item)
+        }
+        selectTab(activeIndex, animate = false)
+
+        navHost.addView(navBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        container.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        container.addView(navHost, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+
+        container.setOnApplyWindowInsetsListener { _, insets ->
+            applyResponsiveContentPadding(content, bottomExtraDp = 104)
+            val dm = context.resources.displayMetrics
+            val baseH = if (swDp < 360) dp(14) else dp(18)
+            val maxW = dp(520)
+            val hMargin = if (dm.widthPixels > maxW + baseH * 2) (dm.widthPixels - maxW) / 2 else baseH
+            if (Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                val ime = insets.getInsets(WindowInsets.Type.ime())
+                val imeVisible = insets.isVisible(WindowInsets.Type.ime())
+                navHost.visibility = if (imeVisible) View.GONE else View.VISIBLE
+                scroll.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+                navHost.setPadding(bars.left + hMargin, dp(6), bars.right + hMargin, bars.bottom + dp(12))
+                if (imeVisible) {
+                    scroll.post {
+                        scroll.findFocus()?.let { focused ->
+                            focused.requestRectangleOnScreen(android.graphics.Rect(0, 0, focused.width, focused.height), false)
+                        }
+                    }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val top = insets.systemWindowInsetTop
+                @Suppress("DEPRECATION")
+                val bottom = insets.systemWindowInsetBottom
+                @Suppress("DEPRECATION")
+                val left = insets.systemWindowInsetLeft
+                @Suppress("DEPRECATION")
+                val right = insets.systemWindowInsetRight
+                val imeVisible = bottom > dp(120)
+                navHost.visibility = if (imeVisible) View.GONE else View.VISIBLE
+                scroll.setPadding(left, top, right, bottom)
+                navHost.setPadding(left + hMargin, dp(6), right + hMargin, bottom + dp(12))
+            }
+            insets
+        }
+
+        activity.setContentView(container)
+        configureWindowAndScrollFocus(activity, scroll)
+        container.requestApplyInsets()
+    }
+
+    private fun configureWindowAndScrollFocus(activity: Activity, scroll: ScrollView) {
         if (Build.VERSION.SDK_INT >= 29) activity.window.decorView.isForceDarkAllowed = false
         // Insets can arrive before the focused child has its final bounds.
         // Check after layout so the editor remains above the IME, including

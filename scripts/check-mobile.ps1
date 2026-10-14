@@ -15,8 +15,12 @@ try {
         if (!(Test-Path 'keystore.properties')) { throw 'No existing release signing config; do not create or replace a signing key.' }
         $tasks += @(':app:assembleRelease', ':app:lintRelease')
     }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & .\gradlew.bat @tasks --console=plain 2>&1 | Tee-Object -FilePath (Join-Path $output 'android-final.log')
-    if ($LASTEXITCODE -ne 0) { throw 'Android checks failed; see android-final.log' }
+    $gradleExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($gradleExit -ne 0) { throw 'Android checks failed; see android-final.log' }
     if ($Device) {
         $sdkLine = Get-Content local.properties | Where-Object { $_ -match '^sdk.dir=' } | Select-Object -First 1
         $sdk = ($sdkLine -replace '^sdk.dir=', '') -replace '\\\\', '\'
