@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf16"
@@ -150,6 +151,9 @@ type tuigoEngine struct {
 	eng  *engine.Engine
 	sess *session.Session
 
+	// mu guards the fields below and the engine/session state: IBus
+	// delivers D-Bus method calls on separate goroutines (N8).
+	mu        sync.Mutex
 	cfg       config.Settings
 	viet      bool
 	ctrlHeld  bool
@@ -176,11 +180,7 @@ func (e *tuigoEngine) reloadConfig() {
 	}
 	cfg, _ := config.Load()
 	e.cfg = cfg
-	opts := cfg.EngineOptions()
-	e.eng.SetOptions(&opts)
-	e.eng.SetInputMethod(cfg.InputMethod)
-	e.eng.LoadKeyMapFile(config.KeymapPath())
-	e.eng.LoadMacroFile(config.MacroPath())
+	configureEngine(e.eng, cfg, config.KeymapPath(), config.MacroPath())
 
 	e.viet = cfg.VietKey
 	if e.sess == nil {
@@ -189,6 +189,7 @@ func (e *tuigoEngine) reloadConfig() {
 		e.apply(e.sess.SetViet(cfg.VietKey))
 	}
 	e.sess.AutoCap = cfg.AutoCap
+	e.sess.AlwaysMacro = cfg.AlwaysMacro
 }
 
 func (e *tuigoEngine) hasToggle(name string) bool {
@@ -275,6 +276,8 @@ func (e *tuigoEngine) onModRelease(keyval uint32) {
 // ------------------------------------------------------------------
 
 func (e *tuigoEngine) ProcessKeyEvent(keyval uint32, keycode uint32, state uint32) (bool, *dbus.Error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if state&ibusReleaseMask != 0 {
 		e.onModRelease(keyval)
 		return false, nil
@@ -343,22 +346,30 @@ func (e *tuigoEngine) FocusIn() *dbus.Error {
 }
 
 func (e *tuigoEngine) FocusOut() *dbus.Error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.apply(e.sess.Reset())
 	return nil
 }
 
 func (e *tuigoEngine) Reset() *dbus.Error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.apply(e.sess.Reset())
 	return nil
 }
 
 func (e *tuigoEngine) Enable() *dbus.Error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.reloadConfig()
 	e.RegisterProperties(e.props())
 	return nil
 }
 
 func (e *tuigoEngine) Disable() *dbus.Error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.apply(e.sess.Reset())
 	return nil
 }
@@ -381,6 +392,8 @@ func (e *tuigoEngine) CandidateClicked(index, button, state uint32) *dbus.Error 
 }
 
 func (e *tuigoEngine) PropertyActivate(propName string, propState uint32) *dbus.Error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	switch propName {
 	case "vietkey":
 		if (propState == ibus.PROP_STATE_CHECKED) != e.viet {
@@ -388,6 +401,8 @@ func (e *tuigoEngine) PropertyActivate(propName string, propState uint32) *dbus.
 		}
 	case "im_telex":
 		e.setIM(engine.ImTelex)
+	case "im_telexsimple":
+		e.setIM(engine.ImTelexSimple)
 	case "im_vni":
 		e.setIM(engine.ImVni)
 	case "im_viqr":
@@ -396,6 +411,8 @@ func (e *tuigoEngine) PropertyActivate(propName string, propState uint32) *dbus.
 		e.setIM(engine.ImMsVi)
 	case "im_telexvni":
 		e.setIM(engine.ImTelexVni)
+	case "im_usrkeymap":
+		e.setIM(engine.ImUsrKeymap)
 	case "open_settings":
 		openSettings()
 	}
@@ -406,6 +423,11 @@ func (e *tuigoEngine) setIM(im int) {
 	e.cfg.InputMethod = im
 	e.cfg.Save()
 	e.eng.SetInputMethod(im)
+	// ImUsrKeymap only takes effect once the keymap file is loaded, and
+	// loading it overrides the built-in methods — so do it here only.
+	if im == engine.ImUsrKeymap {
+		e.eng.LoadKeyMapFile(config.KeymapPath())
+	}
 	e.RegisterProperties(e.props())
 }
 
@@ -427,10 +449,12 @@ func (e *tuigoEngine) props() *ibus.PropList {
 		ibus.NewPropertyWithChild("input_method", ibus.PROP_TYPE_MENU,
 			"Kiểu gõ", "", "Kiểu gõ", true, true, 0, *ibus.NewPropList(
 				radio("im_telex", "Telex", e.cfg.InputMethod == engine.ImTelex),
+				radio("im_telexsimple", "Telex đơn giản", e.cfg.InputMethod == engine.ImTelexSimple),
 				radio("im_vni", "VNI", e.cfg.InputMethod == engine.ImVni),
 				radio("im_viqr", "VIQR", e.cfg.InputMethod == engine.ImViqr),
 				radio("im_msvi", "MS Vi (AllCode)", e.cfg.InputMethod == engine.ImMsVi),
 				radio("im_telexvni", "Telex + VNI", e.cfg.InputMethod == engine.ImTelexVni),
+				radio("im_usrkeymap", "Keymap tuỳ chỉnh", e.cfg.InputMethod == engine.ImUsrKeymap),
 			)),
 		ibus.NewProperty("sep", ibus.PROP_TYPE_SEPARATOR, "", "", "", false, true, 0),
 		ibus.NewProperty("open_settings", ibus.PROP_TYPE_NORMAL,
@@ -464,7 +488,7 @@ func component() *ibus.Component {
 	if err != nil || *execPath != "" {
 		self = *execPath
 	}
-	icon := filepath.Join(filepath.Dir(self), "tuigo.png")
+	icon := filepath.Join(filepath.Dir(self), "logo.jpg")
 	c := ibus.NewComponent(
 		"org.freedesktop.IBus.TuiGo",
 		"Vietnamese input method (Telex/VNI/VIQR)",

@@ -17,23 +17,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"tuigo-linux/config"
-	"tuigo/engine"
 )
 
 //go:embed logo.jpg
 var logoJPG []byte
 
-var imNames = []struct {
-	label string
-	im    int
-}{
-	{"Telex", engine.ImTelex},
-	{"VNI", engine.ImVni},
-	{"VIQR", engine.ImViqr},
-	{"MS Vi (AllCode)", engine.ImMsVi},
-	{"Telex đơn giản", engine.ImTelexSimple},
-	{"Telex + VNI", engine.ImTelexVni},
-}
+var imNames = config.ImChoices()
 
 func main() {
 	a := app.NewWithID("com.tuigo.settings")
@@ -50,8 +39,8 @@ func main() {
 	imLabels := make([]string, len(imNames))
 	imSel := 0
 	for i, n := range imNames {
-		imLabels[i] = n.label
-		if n.im == cfg.InputMethod {
+		imLabels[i] = n.Label
+		if n.Im == cfg.InputMethod {
 			imSel = i
 		}
 	}
@@ -66,6 +55,8 @@ func main() {
 	freeMarking.Checked = cfg.FreeMarking
 	macroCheck := widget.NewCheck("Bật gõ tắt (macro)", func(bool) {})
 	macroCheck.Checked = cfg.MacroEnabled
+	alwaysMacro := widget.NewCheck("Gõ tắt cả khi tắt Tiếng Việt", func(bool) {})
+	alwaysMacro.Checked = cfg.AlwaysMacro
 	restoreCheck := widget.NewCheck("Tự khôi phục từ không đúng tiếng Việt", func(bool) {})
 	restoreCheck.Checked = cfg.AutoNonVnRestore
 	autoCap := widget.NewCheck("Tự viết hoa sau dấu chấm câu", func(bool) {})
@@ -99,8 +90,8 @@ func main() {
 	status := widget.NewLabel("")
 	save := func() bool {
 		for _, n := range imNames {
-			if imRadio.Selected == n.label {
-				cfg.InputMethod = n.im
+			if imRadio.Selected == n.Label {
+				cfg.InputMethod = n.Im
 			}
 		}
 		cfg.VietKey = vietCheck.Checked
@@ -108,6 +99,7 @@ func main() {
 		cfg.ModernStyle = modernCheck.Checked
 		cfg.FreeMarking = freeMarking.Checked
 		cfg.MacroEnabled = macroCheck.Checked
+		cfg.AlwaysMacro = alwaysMacro.Checked
 		cfg.AutoNonVnRestore = restoreCheck.Checked
 		cfg.AutoCap = autoCap.Checked
 		cfg.ToggleKeys = cfg.ToggleKeys[:0]
@@ -159,8 +151,9 @@ func main() {
 		widget.NewLabel("Phím tắt chuyển Việt/Anh"),
 		container.NewHBox(ctrlShift, altZ, ctrlSpace),
 	)
-	macro := container.NewBorder(macroHint, nil, nil, nil,
-		container.NewScroll(macroEdit))
+	macro := container.NewBorder(
+		container.NewVBox(macroCheck, alwaysMacro, widget.NewSeparator(), macroHint),
+		nil, nil, nil, container.NewScroll(macroEdit))
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Cài đặt", container.NewScroll(general)),

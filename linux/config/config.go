@@ -43,6 +43,30 @@ type Settings struct {
 	// ToggleKeys lists VN/EN toggle chords: "ctrl+shift", "alt+z",
 	// "ctrl+space". Empty/none disables hotkey toggling.
 	ToggleKeys []string
+	// AlwaysMacro ("Gõ tắt cả khi tắt Tiếng Việt") lets macros expand
+	// while Vietnamese typing is off. Same key name as Windows.
+	AlwaysMacro bool
+}
+
+// ImChoice is one entry of the settings GUI input-method list.
+type ImChoice struct {
+	Label string
+	Im    int
+}
+
+// ImChoices lists every input method the settings GUI offers. The list
+// must cover all engine methods — an unknown selection would silently
+// reset InputMethod to the first entry on Save (PLAN N3).
+func ImChoices() []ImChoice {
+	return []ImChoice{
+		{"Telex", engine.ImTelex},
+		{"VNI", engine.ImVni},
+		{"VIQR", engine.ImViqr},
+		{"MS Vi (AllCode)", engine.ImMsVi},
+		{"Telex đơn giản", engine.ImTelexSimple},
+		{"Telex + VNI", engine.ImTelexVni},
+		{"Keymap tuỳ chỉnh (keymap.txt)", engine.ImUsrKeymap},
+	}
 }
 
 // Defaults matching the Windows build (engine.New already defaults the
@@ -94,10 +118,27 @@ func Load() (Settings, bool) {
 	s.MacroEnabled = getB("MacroEnabled", s.MacroEnabled)
 	s.AutoNonVnRestore = getB("AutoNonVnRestore", s.AutoNonVnRestore)
 	s.AutoCap = getB("AutoCap", s.AutoCap)
-	if v, ok := m["ToggleKey"]; ok {
-		s.ToggleKeys = parseToggleKeys(v)
-	}
+	s.AlwaysMacro = getB("AlwaysMacro", s.AlwaysMacro)
+	s.ToggleKeys = toggleKeysFromIni(m)
 	return s, true
+}
+
+// toggleKeysFromIni resolves the VN/EN toggle chords from a shared
+// tuigo.ini. ToggleKeyNames is the Linux-owned key. The legacy Linux
+// ToggleKey chord list is honoured for older files, but a numeric
+// ToggleKey is the Windows legacy value ("ToggleKey=%d") and must fall
+// back to the defaults instead of silently disabling every hotkey (N1).
+func toggleKeysFromIni(m map[string]string) []string {
+	if v, ok := m["ToggleKeyNames"]; ok {
+		return parseToggleKeys(v) // explicit empty = toggling disabled
+	}
+	if v, ok := m["ToggleKey"]; ok {
+		if _, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return Defaults().ToggleKeys // Windows legacy int — not ours
+		}
+		return parseToggleKeys(v) // legacy Linux chord list
+	}
+	return Defaults().ToggleKeys
 }
 
 func parseToggleKeys(v string) []string {
@@ -127,10 +168,16 @@ func (s Settings) EngineOptions() engine.Options {
 		FreeMarking:       int32(b2i(s.FreeMarking)),
 		MacroEnabled:      int32(b2i(s.MacroEnabled)),
 		AutoNonVnRestore:  int32(b2i(s.AutoNonVnRestore)),
+		AlwaysMacro:       int32(b2i(s.AlwaysMacro)),
 	}
 }
 
-// Save writes tuigo.ini atomically (temp + rename), same as Windows.
+// Save writes tuigo.ini atomically (temp + rename). Keys the Linux build
+// does not manage are preserved verbatim so a config shared with the
+// Windows build keeps its settings — Save must never wipe foreign keys
+// (N2). The legacy Linux ToggleKey chord list is superseded by
+// ToggleKeyNames and dropped; a numeric ToggleKey is Windows' legacy
+// value and stays.
 func (s Settings) Save() error {
 	if err := os.MkdirAll(Dir(), 0755); err != nil {
 		return err
@@ -141,23 +188,65 @@ func (s Settings) Save() error {
 		}
 		return "0"
 	}
-	var sb strings.Builder
-	sb.WriteString("[TuiGo]\n")
-	sb.WriteString("VietKey=" + bv(s.VietKey) + "\n")
-	sb.WriteString("InputMethod=" + strconv.Itoa(s.InputMethod) + "\n")
-	sb.WriteString("SpellCheck=" + bv(s.SpellCheck) + "\n")
-	sb.WriteString("ModernStyle=" + bv(s.ModernStyle) + "\n")
-	sb.WriteString("FreeMarking=" + bv(s.FreeMarking) + "\n")
-	sb.WriteString("MacroEnabled=" + bv(s.MacroEnabled) + "\n")
-	sb.WriteString("AutoNonVnRestore=" + bv(s.AutoNonVnRestore) + "\n")
-	sb.WriteString("AutoCap=" + bv(s.AutoCap) + "\n")
-	sb.WriteString("ToggleKey=" + strings.Join(s.ToggleKeys, ",") + "\n")
+	managed := [][2]string{
+		{"VietKey", bv(s.VietKey)},
+		{"InputMethod", strconv.Itoa(s.InputMethod)},
+		{"SpellCheck", bv(s.SpellCheck)},
+		{"ModernStyle", bv(s.ModernStyle)},
+		{"FreeMarking", bv(s.FreeMarking)},
+		{"MacroEnabled", bv(s.MacroEnabled)},
+		{"AutoNonVnRestore", bv(s.AutoNonVnRestore)},
+		{"AlwaysMacro", bv(s.AlwaysMacro)},
+		{"AutoCap", bv(s.AutoCap)},
+		{"ToggleKeyNames", strings.Join(s.ToggleKeys, ",")},
+	}
+	existing, _ := os.ReadFile(IniPath())
+	content := mergeIni(string(existing), managed)
 
 	tmp := IniPath() + ".tmp"
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0644); err != nil {
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, IniPath())
+}
+
+// mergeIni keeps every line of the existing ini the Linux settings do not
+// manage (foreign keys, comments), then writes the managed keys fresh.
+func mergeIni(existing string, managed [][2]string) string {
+	managedSet := map[string]bool{}
+	for _, kv := range managed {
+		managedSet[kv[0]] = true
+	}
+	var sb strings.Builder
+	sb.WriteString("[TuiGo]\n")
+	for _, line := range strings.Split(existing, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "[") {
+			continue
+		}
+		if t[0] == ';' || t[0] == '#' {
+			sb.WriteString(line + "\n")
+			continue
+		}
+		k, v, ok := strings.Cut(t, "=")
+		if !ok {
+			continue
+		}
+		key := strings.TrimSpace(k)
+		if managedSet[key] {
+			continue // rewritten below with the fresh value
+		}
+		if key == "ToggleKey" {
+			if _, err := strconv.Atoi(strings.TrimSpace(v)); err != nil {
+				continue // legacy Linux chord list — superseded by ToggleKeyNames
+			}
+		}
+		sb.WriteString(line + "\n")
+	}
+	for _, kv := range managed {
+		sb.WriteString(kv[0] + "=" + kv[1] + "\n")
+	}
+	return sb.String()
 }
 
 // readIni parses a minimal key=value ini (one section, ; and # comments) —
