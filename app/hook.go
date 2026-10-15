@@ -223,10 +223,12 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 			gModDownAt = time.Now()
 			gShiftFirst = !isCtrl
 			gChordClean = true
-		} else if !wasChord && gCtrlHeld && gShiftHeld && !isCtrl && gChordClean {
-			// Holding Ctrl and tapping Shift (once or repeatedly) is the most
-			// common Ctrl+Shift gesture: refresh the chord timestamp when Shift
-			// joins a clean held Ctrl.
+		} else if !wasChord && gCtrlHeld && gShiftHeld && gChordClean {
+			// The second modifier just joined the first — refresh the arm
+			// timestamp regardless of which came first (Ctrl+Shift or
+			// Shift+Ctrl). Without this, pressing Shift first and holding
+			// it for >800ms before pressing Ctrl silently prevents the chord
+			// from arming.
 			gModDownAt = time.Now()
 		}
 		// Modifier-only chord (Ctrl+Shift): ARM it here but fire on release —
@@ -236,7 +238,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		// Shift (typing capitals) plus an accidental Ctrl tap is not a chord.
 		modChord := cfg.UseCtrlShift || (cfg.HotkeyVk == 0 && cfg.HotkeyMods == 3)
 		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
-			time.Since(gModDownAt) < 800*time.Millisecond &&
+			time.Since(gModDownAt) < 1200*time.Millisecond &&
 			gLastKeyAt.Before(gModDownAt) && // no letters between the two presses
 			gChordClean && !altHeld && !gWinHeld {
 			gChordPending = true

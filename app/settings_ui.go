@@ -457,6 +457,27 @@ func toggleSettingsMaximize(hwnd uintptr) {
 
 func updateSettingsRegion(hwnd uintptr) {
 	applyWindowChrome(hwnd)
+	if !gDwmRoundCorners && hwnd != 0 {
+		// Win10: DWMWA_WINDOW_CORNER_PREFERENCE is unsupported — the
+		// window frame stays square while client painting draws rounded
+		// rects, producing visible "rounded-inside-square" glitches.
+		// Clip the window to a rounded rect via a GDI region so the
+		// actual window shape matches the painted corners.
+		var rc rect
+		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
+		if rc.right > 0 && rc.bottom > 0 {
+			r := dp(16)
+			rgn, _, _ := pCreateRoundRectRgn.Call(
+				0, 0, uintptr(rc.right), uintptr(rc.bottom),
+				uintptr(r*2), uintptr(r*2))
+			if rgn != 0 {
+				pSetWindowRgn.Call(hwnd, rgn, 1)
+			}
+		}
+	} else if hwnd != 0 {
+		// Win11: DWM handles rounding natively — remove any leftover region.
+		pSetWindowRgn.Call(hwnd, 0, 1)
+	}
 }
 
 func settingsHasRoundCorners() bool {
@@ -757,19 +778,19 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 		gfx.Destroy()
 	}
 
-	// Hero Card text — status display only (no master switch, EVKey-style)
+	// Hero Card text — compact: mode + shortcut hint on one line
 	textX := cx + dp(18)
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontBold)
 	htrc := rect{textX, ct + dp(8), cx + cw - dp(140), ct + dp(30)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Chế độ gõ hiện tại", "Current input mode")))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Chế độ gõ", "Input mode")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&htrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
 	hdrc := rect{textX, ct + dp(30), cx + cw - dp(140), ct + dp(48)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Bấm phím tắt để chuyển Tiếng Việt / English", "Press shortcut to toggle Vietnamese / English")))),
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Ctrl+Shift để chuyển", "Ctrl+Shift to toggle")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&hdrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
@@ -825,60 +846,39 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 		^uintptr(0), uintptr(unsafe.Pointer(&sec3Sub)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-	// Section 4: Footer Status Card
-	footerHeight := dp(48)
-	compactFooter := cw < dp(520)
-	if compactFooter {
-		footerHeight = dp(64)
-	}
+	// Section 4: Footer — compact status + version on one line
+	footerHeight := dp(36)
 	ftRc := rect{cx, ct + dp(336), cx + cw, ct + dp(336) + footerHeight}
 	drawSettingsCard(dc, ftRc)
 
 	sx := cx + dp(22)
-	sy := ftRc.top + dp(24)
+	sy := ftRc.top + dp(18)
 	gfx = NewGfx(dc)
 	if gfx != nil {
 		dotCol := argbSwitchOn
 		if !effectiveViet() {
 			dotCol = argbMuted
 		}
-		// Glowing outer ring
-		gfx.FillCircle(float32(sx), float32(sy), float32(dp(8)), HexAlphaARGB(0x28, dotCol&0x00FFFFFF))
-		// Core status dot
 		gfx.FillCircle(float32(sx), float32(sy), float32(dp(4)), dotCol)
 		gfx.Destroy()
 	}
 
-	stTitle := tr("Tiếng Việt đang hoạt động", "Vietnamese input is active")
+	stTitle := tr("Tiếng Việt", "Vietnamese")
 	if !effectiveViet() {
-		stTitle = tr("Đang tắt tiếng Việt (English)", "Vietnamese input is off (English)")
+		stTitle = "English"
 	}
 	pSetTextColor.Call(dc, colText)
 	pSelectObject.Call(dc, fontBold)
-	statusRight := cx + cw - dp(260)
-	if compactFooter {
-		statusRight = cx + cw - dp(16)
-	}
-	st1 := rect{sx + dp(18), ftRc.top + dp(6), statusRight, ftRc.top + dp(25)}
+	st1 := rect{sx + dp(14), ftRc.top + dp(6), cx + cw - dp(120), ftRc.top + dp(30)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(stTitle))),
 		^uintptr(0), uintptr(unsafe.Pointer(&st1)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	st2 := rect{sx + dp(18), ftRc.top + dp(25), statusRight, ftRc.top + dp(44)}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Phiên bản "+appVersion+" | Cập nhật lần cuối: "+appBuildStamp, "Version "+appVersion+" | Last updated: "+appBuildStamp)))),
+	st2 := rect{cx + cw - dp(120), ftRc.top + dp(6), cx + cw - dp(16), ftRc.top + dp(30)}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("v"+appVersion))),
 		^uintptr(0), uintptr(unsafe.Pointer(&st2)),
-		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
-
-	pSetTextColor.Call(dc, colGold)
-	pSelectObject.Call(dc, fontTagline)
-	scRc := rect{cx + cw - dp(260), ftRc.top + dp(8), cx + cw - dp(16), ftRc.bottom - dp(8)}
-	if compactFooter {
-		scRc = rect{sx + dp(18), ftRc.top + dp(43), cx + cw - dp(16), ftRc.bottom - dp(3)}
-	}
-	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Cùng bạn trên mọi hành trình ♥", "With you on every journey ♥")))),
-		^uintptr(0), uintptr(unsafe.Pointer(&scRc)),
 		DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	_ = winH
@@ -1397,7 +1397,7 @@ func buildControls(h uintptr) {
 	addCheckbox(cSpell, tr("Kiểm tra chính tả tiếng Việt", "Vietnamese spell check"))
 	addCheckbox(cFreeMark, tr("Cho phép bỏ dấu tự do", "Allow free tone marking"))
 	// Language dropdown button
-	addBtn(cLangBtn, tr("Tiếng Việt", "English"))
+	addBtn(cLangBtn, tr("▸ English ▾", "▸ Tiếng Việt ▾"))
 
 	// ---- Tab 1: Gõ tiếng Việt (Advanced input methods & Charset & Macro) ----
 	curTab = 1
