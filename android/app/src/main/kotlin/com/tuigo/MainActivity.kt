@@ -121,7 +121,8 @@ class MainActivity : Activity() {
                 addView(themePicker())
                 addView(toggle("Hiện hàng số", "VNI luôn có hàng số để gõ dấu", Prefs.KEY_NUMBER_ROW, false))
                 addView(toggle("Gợi ý dán từ bộ nhớ tạm", "Hiện chip dán nhanh trên bàn phím khi vừa sao chép", Prefs.KEY_CLIPBOARD_SUGGEST, true))
-                addView(toggle("Lịch sử bộ nhớ tạm", "Lưu tối đa 50 mục đã sao chép trên thiết bị — mở từ biểu tượng trên thanh gợi ý", Prefs.KEY_CLIPBOARD_HISTORY, true))
+                addView(toggle("Lịch sử bộ nhớ tạm", "Lưu các mục đã sao chép trên thiết bị — mở từ biểu tượng đồng hồ trên thanh gợi ý", Prefs.KEY_CLIPBOARD_HISTORY, true))
+                addView(slider("Số mục bộ nhớ tạm lưu tối đa", Prefs.KEY_CLIPBOARD_MAX, 10, 500, 50, "mục"))
                 addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
                 addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
                 addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
@@ -309,7 +310,7 @@ class MainActivity : Activity() {
             override fun getIntrinsicHeight(): Int = h
         }
     }
-    private fun slider(title: String, key: String, min: Int, max: Int, default: Int): View {
+    private fun slider(title: String, key: String, min: Int, max: Int, default: Int, unit: String = "dp"): View {
         val p = Prefs.get(this)
         return ui.column().apply {
             layoutParams = ui.fullWidthLp(topMarginDp = 8)
@@ -322,10 +323,10 @@ class MainActivity : Activity() {
                 setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
                 layoutParams = ui.fullWidthLp()
             }
-            label.text = "$title · ${seek.progress + min} dp"; seek.contentDescription = label.text
+            label.text = "$title · ${seek.progress + min} $unit"; seek.contentDescription = label.text
             seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, value: Int, user: Boolean) {
-                    label.text = "$title · ${value + min} dp"; seek.contentDescription = label.text
+                    label.text = "$title · ${value + min} $unit"; seek.contentDescription = label.text
                     if (user) p.edit().putInt(key, value + min).apply()
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}

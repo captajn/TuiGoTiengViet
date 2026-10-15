@@ -28,6 +28,7 @@ object Prefs {
     const val KEY_THEME = "key_theme"
     const val KEY_CLIPBOARD_SUGGEST = "clipboard_suggest"
     const val KEY_CLIPBOARD_HISTORY = "clipboard_history"
+    const val KEY_CLIPBOARD_MAX = "clipboard_history_max"
     const val KEY_VIET_PER_APP = "viet_per_app"
 
     fun get(ctx: Context): SharedPreferences =
@@ -106,6 +107,8 @@ object Prefs {
         get(ctx).getBoolean(KEY_CLIPBOARD_SUGGEST, true)
     fun clipboardHistory(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_CLIPBOARD_HISTORY, true)
+    fun clipboardHistoryMax(ctx: Context): Int =
+        get(ctx).getInt(KEY_CLIPBOARD_MAX, 50).coerceIn(5, 2000)
     fun keyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_HEIGHT, 56)
     fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)
 

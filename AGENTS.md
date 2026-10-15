@@ -1,6 +1,7 @@
 # Mobile verification
 
 - Read plan.md and progress.md before resuming a staged mobile task. Respect the user's approved scope.
+- Ship mobile features on both Android and iOS in the same change. Where a capability is platform-limited (e.g. no inline-autofill hosting or background clipboard reads on iOS), implement the closest equivalent and note the difference instead of silently skipping the platform.
 - Run `powershell -File scripts/check-mobile.ps1` after Android changes. Add `-Device -Serial emulator-5554` only with a prepared test emulator; this installs debug APKs and runs instrumented checks. Do not uninstall or overwrite a user's physical-device app without authorization.
 - Run `sh scripts/check-ios.sh` on macOS after iOS changes. Windows source review is not evidence that UIKit/SwiftUI compile or render correctly.
 - Android RadioGroup: assign each child a unique View ID, check the persisted selection after all children are added, then attach the group listener. Confirm exactly one selection and that the live engine uses it.

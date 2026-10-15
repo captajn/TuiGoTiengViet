@@ -87,8 +87,8 @@ Các flag gồm lock, clip, safedel, tcvn và kiểu gõ telex/stelex/vni/viqr/m
 | Nền tảng | Vị trí | Dữ liệu |
 | --- | --- | --- |
 | Windows | Cạnh tuigo.exe | tuigo.ini, macro.txt, keymap.txt, exclude.txt; version.txt và update-stamp.txt là trạng thái phiên bản/cập nhật |
-| Android | Bộ nhớ riêng của app | SharedPreferences, macro.txt, lựa chọn giao diện/kiểu gõ và VI/EN theo package ứng dụng; nếu bật **Lịch sử bộ nhớ tạm**: clipboard_history.json + clips/ (tối đa 50 mục đã sao chép, kể cả ảnh thu nhỏ) |
-| iOS / iPadOS | App Group group.com.tuigo và preferences của extension | Tùy chọn, macro.txt; VI/EN theo documentIdentifier khi extension có quyền ghi |
+| Android | Bộ nhớ riêng của app | SharedPreferences, macro.txt, lựa chọn giao diện/kiểu gõ và VI/EN theo package ứng dụng; nếu bật **Lịch sử bộ nhớ tạm**: clipboard_history.json + clips/ (số mục lưu tùy chỉnh, kể cả ảnh thu nhỏ) |
+| iOS / iPadOS | App Group group.com.tuigo và preferences của extension | Tùy chọn, macro.txt; VI/EN theo documentIdentifier khi extension có quyền ghi; nếu bật **Lịch sử bộ nhớ tạm**: clipboard_history.json + clips/ (chỉ ghi được khi extension được cấp Full Access) |
 | macOS | ~/Library/Application Support/TuiGo/ | tuigo.ini, macro.txt, keymap.txt |
 | Linux | $XDG_CONFIG_HOME/tuigo/, mặc định ~/.config/tuigo/ | tuigo.ini, macro.txt, keymap.txt |
 
@@ -99,8 +99,8 @@ Windows chỉ tạo Run key/task khởi động khi bạn bật chức năng tư
 ### Quyền truy cập và clipboard
 
 - **Windows:** hook bàn phím/chuột phục vụ xử lý gõ, con trỏ và phím tắt. Chế độ Clipboard và nhánh tương thích lựa chọn có thể đọc/thay tạm clipboard để gửi/sửa chữ, với cơ chế khôi phục; dữ liệu này không được ghi thành log hoặc tải lên.
-- **Android:** đăng ký dịch vụ bàn phím với quyền BIND_INPUT_METHOD. Khi bật tùy chọn **Gợi ý dán từ bộ nhớ tạm**, bàn phím chỉ đọc mục văn bản vừa sao chép trong bộ nhớ để hiện chip dán nhanh trên thanh gợi ý. Khi bật **Lịch sử bộ nhớ tạm** (mặc định bật), bàn phím ghi lại tối đa 50 mục đã sao chép trong lúc bàn phím chạy — lưu cục bộ trong bộ nhớ riêng của app, không đồng bộ; clip đánh dấu nhạy cảm và nội dung sao chép trong ô mật khẩu không được ghi. Mở danh sách từ biểu tượng bộ nhớ tạm trên thanh gợi ý; xóa từng mục, ghim hoặc xóa hết trong panel đó. Manifest không xin INTERNET; bạn tự bật/chọn bàn phím trong Cài đặt hệ thống.
-- **iOS:** extension không yêu cầu Full Access để gõ. Ghi lựa chọn VI/EN vào App Group hoặc đọc pasteboard hệ thống từ extension phụ thuộc quyền hệ điều hành cấp; thiếu quyền thì vẫn đổi VI/EN trong phiên. App không dùng Full Access để kết nối mạng.
+- **Android:** đăng ký dịch vụ bàn phím với quyền BIND_INPUT_METHOD. Khi bật tùy chọn **Gợi ý dán từ bộ nhớ tạm**, bàn phím chỉ đọc mục văn bản vừa sao chép trong bộ nhớ để hiện chip dán nhanh trên thanh gợi ý. Khi bật **Lịch sử bộ nhớ tạm** (mặc định bật), bàn phím ghi lại các mục đã sao chép trong lúc bàn phím chạy — số mục lưu tối đa tùy chỉnh trong Cài đặt (mặc định 50), lưu cục bộ trong bộ nhớ riêng của app, không đồng bộ; clip đánh dấu nhạy cảm và nội dung sao chép trong ô mật khẩu không được ghi. Mở danh sách từ biểu tượng đồng hồ trên thanh gợi ý; xóa từng mục, ghim hoặc xóa hết trong panel đó. Manifest không xin INTERNET; bạn tự bật/chọn bàn phím trong Cài đặt hệ thống.
+- **iOS:** extension không yêu cầu Full Access để gõ. Ghi lựa chọn VI/EN vào App Group hoặc đọc pasteboard hệ thống từ extension phụ thuộc quyền hệ điều hành cấp; thiếu quyền thì vẫn đổi VI/EN trong phiên. Với Full Access, **Lịch sử bộ nhớ tạm** lưu các mục đã sao chép trong khi bàn phím mở (số mục tùy chỉnh, mặc định 50; bỏ qua ô mật khẩu) vào App Group, mở panel từ biểu tượng đồng hồ trên thanh gợi ý. App không dùng Full Access để kết nối mạng.
 - **macOS/Linux:** dùng API input method của hệ điều hành. Source xử lý việc gõ không có HTTP client hay chức năng đồng bộ cloud.
 
 ### Kết nối mạng và cập nhật

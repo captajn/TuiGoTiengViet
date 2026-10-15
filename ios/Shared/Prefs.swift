@@ -24,6 +24,8 @@ enum Prefs {
     static let keyKeyGap = "key_gap"
     static let keyTheme = "key_theme"
     static let keyClipboardSuggest = "clipboard_suggest"
+    static let keyClipboardHistory = "clipboard_history"
+    static let keyClipboardMax = "clipboard_history_max"
     static let keyVietPerApp = "viet_per_app"
 
     static func keyHeight() -> Double {
@@ -38,6 +40,13 @@ enum Prefs {
     static func clipboardSuggest() -> Bool {
         defaults.object(forKey: keyClipboardSuggest) as? Bool ?? true
     }
+    static func clipboardHistory() -> Bool {
+        defaults.object(forKey: keyClipboardHistory) as? Bool ?? true
+    }
+    static func clipboardHistoryMax() -> Int {
+        // Settings binds the slider through a Double — read via NSNumber.
+        min(2000, max(5, (defaults.object(forKey: keyClipboardMax) as? NSNumber)?.intValue ?? 50))
+    }
     static func inputMethod() -> Int {
         let saved = defaults.object(forKey: keyIM) as? Int ?? ImTelex
         return [ImTelex, ImVni, ImViqr].contains(saved) ? saved : ImTelex
@@ -47,10 +56,12 @@ enum Prefs {
         defaults.set(inputMethod(), forKey: keyIM)
     }
 
+    static var sharedContainer: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: suiteName)
+    }
+
     static var macroURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: suiteName)?
-            .appendingPathComponent("macro.txt")
+        sharedContainer?.appendingPathComponent("macro.txt")
     }
 
     static func vietOn() -> Bool {

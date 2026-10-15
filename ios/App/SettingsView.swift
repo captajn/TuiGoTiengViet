@@ -12,6 +12,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.keyVietOn, store: Prefs.defaults) private var vietOnDefault = true
     @AppStorage(Prefs.keyNumberRow, store: Prefs.defaults) private var numberRow = false
     @AppStorage(Prefs.keyClipboardSuggest, store: Prefs.defaults) private var clipboardSuggest = true
+    @AppStorage(Prefs.keyClipboardHistory, store: Prefs.defaults) private var clipboardHistory = true
+    @AppStorage(Prefs.keyClipboardMax, store: Prefs.defaults) private var clipboardMax = 50.0
     @AppStorage(Prefs.keyKeyHeight, store: Prefs.defaults) private var keyHeight = 52.0
     @AppStorage(Prefs.keyKeyGap, store: Prefs.defaults) private var keyGap = 4.0
     @AppStorage(Prefs.keyTheme, store: Prefs.defaults) private var keyTheme = KeyboardThemes.defaultId
@@ -105,6 +107,16 @@ struct SettingsView: View {
                         Toggle("Gợi ý dán từ bộ nhớ tạm", isOn: $clipboardSuggest)
                         Text("Hiện chip dán nhanh trên bàn phím khi bộ nhớ tạm có văn bản mới.").font(.caption).foregroundColor(GlassTheme.muted)
                             .fixedSize(horizontal: false, vertical: true)
+                        Divider()
+                        Toggle("Lịch sử bộ nhớ tạm", isOn: $clipboardHistory)
+                        Text("Lưu các mục đã sao chép trên thiết bị — mở từ biểu tượng đồng hồ trên thanh gợi ý. Cần bật Cho phép truy cập đầy đủ cho bàn phím.").font(.caption).foregroundColor(GlassTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Số mục bộ nhớ tạm lưu tối đa · \(Int(clipboardMax)) mục").font(.subheadline)
+                            Slider(value: $clipboardMax, in: 10...500, step: 1)
+                                .frame(maxWidth: .infinity)
+                                .accessibilityLabel("Số mục bộ nhớ tạm lưu tối đa")
+                        }
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Chiều cao phím · \(Int(keyHeight)) pt").font(.subheadline)
                             Slider(value: $keyHeight, in: 44...68, step: 1)

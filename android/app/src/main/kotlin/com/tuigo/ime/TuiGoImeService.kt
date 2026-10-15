@@ -596,7 +596,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                     .build()
             )
             .build()
-        val maxW = (resources.displayMetrics.widthPixels * 0.8f).toInt()
+        // Keep each chip compact so several suggestions fit on screen and the
+        // rest remain reachable by swiping the strip — a near-full-width chip
+        // hides the fact that more suggestions exist.
+        val maxW = minOf((resources.displayMetrics.widthPixels * 0.62f).toInt(),
+            (320 * dm).toInt())
         val spec = InlinePresentationSpec.Builder(Size(chipH, chipH), Size(maxW, chipH))
             .setStyle(styles)
             .build()
@@ -739,14 +743,48 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
     } catch (_: Exception) { null }
 
-    private fun buildClipboardChip(cand: ClipCandidate): View {
+    private fun pasteClipCandidate(cand: ClipCandidate) {
+        val ic = currentInputConnection ?: return
+        activeClipCandidate = null
+        dismissedClipStamp = cand.stamp
+        dismissedClipText = cand.key
+        engine.resetBuf()
+        spacePending = false
+        if (cand.imageUri != null) {
+            val committed = try {
+                val clipDesc = android.content.ClipDescription("Hình ảnh", arrayOf(cand.imageMime ?: "image/*"))
+                val contentInfo = android.view.inputmethod.InputContentInfo(cand.imageUri, clipDesc, null)
+                ic.commitContent(contentInfo, android.view.inputmethod.InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+            } catch (_: Exception) { false }
+            if (!committed) {
+                ic.performContextMenuAction(android.R.id.paste)
+            }
+        } else if (cand.rawText != null) {
+            if ((selStart >= 0 && selEnd >= 0 && selStart != selEnd) || !ic.getSelectedText(0).isNullOrEmpty()) {
+                if (selStart >= 0 && selEnd >= 0) {
+                    val anchor = minOf(selStart, selEnd)
+                    expectedSel = anchor
+                    selStart = anchor
+                    selEnd = anchor
+                }
+            }
+            ic.commitText(cand.rawText, 1)
+            bumpExpected(cand.rawText.length)
+        }
+        renderSuggestionStrip()
+    }
+
+    /** Paste chip for the freshest clip. In compact mode (inline-autofill
+     *  suggestions are sharing the strip) it collapses to a small icon so the
+     *  provider chips keep the space and remain horizontally scrollable. */
+    private fun buildClipboardChip(cand: ClipCandidate, compact: Boolean): View {
         val dm = resources.displayMetrics.density
         fun dp(v: Float) = (v * dm).toInt()
         val t = keyboard.theme
         val pill = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), dp(5f), dp(14f), dp(5f))
+            setPadding(dp(if (compact) 10f else 12f), dp(5f), dp(if (compact) 10f else 14f), dp(5f))
             minimumHeight = dp(34f)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -754,37 +792,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 setColor(t.key)
                 if (t.border ushr 24 != 0) setStroke(maxOf(1, dp(1f)), t.border)
             }
-            contentDescription = "Dán từ bộ nhớ tạm"
-            setOnClickListener {
-                val ic = currentInputConnection ?: return@setOnClickListener
-                activeClipCandidate = null
-                dismissedClipStamp = cand.stamp
-                dismissedClipText = cand.key
-                engine.resetBuf()
-                spacePending = false
-                if (cand.imageUri != null) {
-                    val committed = try {
-                        val clipDesc = android.content.ClipDescription("Hình ảnh", arrayOf(cand.imageMime ?: "image/*"))
-                        val contentInfo = android.view.inputmethod.InputContentInfo(cand.imageUri, clipDesc, null)
-                        ic.commitContent(contentInfo, android.view.inputmethod.InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
-                    } catch (_: Exception) { false }
-                    if (!committed) {
-                        ic.performContextMenuAction(android.R.id.paste)
-                    }
-                } else if (cand.rawText != null) {
-                    if ((selStart >= 0 && selEnd >= 0 && selStart != selEnd) || !ic.getSelectedText(0).isNullOrEmpty()) {
-                        if (selStart >= 0 && selEnd >= 0) {
-                            val anchor = minOf(selStart, selEnd)
-                            expectedSel = anchor
-                            selStart = anchor
-                            selEnd = anchor
-                        }
-                    }
-                    ic.commitText(cand.rawText, 1)
-                    bumpExpected(cand.rawText.length)
-                }
-                renderSuggestionStrip()
-            }
+            contentDescription = "Dán: ${cand.label}"
+            setOnClickListener { pasteClipCandidate(cand) }
+        }
+        if (compact) {
+            pill.addView(clipboardIcon(t).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f))
+            })
+            return pill
         }
         val thumb = cand.imageUri?.let { loadThumbnail(it, dp(24f)) }
         if (thumb != null) {
@@ -844,6 +859,31 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
+    /** Clock-with-history glyph for the history chip — distinct from the
+     *  clipboard icon used by the paste chip when both sit side by side. */
+    private fun historyIcon(t: com.tuigo.KeyTheme): View {
+        val dm = resources.displayMetrics.density
+        return object : View(this) {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1.6f * dm
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+                color = t.funcText
+            }
+            override fun onDraw(canvas: Canvas) {
+                val w = width.toFloat()
+                val h = height.toFloat()
+                val cx = w * 0.5f
+                val cy = h * 0.52f
+                val r = w * 0.34f
+                canvas.drawCircle(cx, cy, r, paint)
+                canvas.drawLine(cx, cy - r * 0.55f, cx, cy, paint)
+                canvas.drawLine(cx, cy, cx + r * 0.5f, cy + r * 0.3f, paint)
+            }
+        }
+    }
+
     /** Leading strip chip opening the persisted clipboard-history panel. */
     private fun buildHistoryChip(): View {
         val dm = resources.displayMetrics.density
@@ -861,7 +901,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 if (t.border ushr 24 != 0) setStroke(maxOf(1, dp(1f)), t.border)
             }
             contentDescription = "Lịch sử bộ nhớ tạm"
-            addView(clipboardIcon(t).apply {
+            addView(historyIcon(t).apply {
                 layoutParams = LinearLayout.LayoutParams(dp(16f), dp(16f))
             })
             setOnClickListener { showClipboardPanel() }
@@ -871,7 +911,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var clipPanel: PopupWindow? = null
 
     /** Samsung-style clipboard panel: tap an entry to paste it; per-row buttons
-     *  pin it (survives the 50-entry cap) or delete it. */
+     *  pin it (survives the history cap) or delete it. */
     private fun showClipboardPanel() {
         val entries = ClipboardHistory.entries(this)
         val t = keyboard.theme
@@ -908,7 +948,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         column.addView(header)
         if (entries.isEmpty()) {
             column.addView(TextView(this).apply {
-                text = "Chưa có gì — mục đã sao chép sẽ hiện ở đây (tối đa ${ClipboardHistory.MAX_ENTRIES})"
+                text = "Chưa có gì — mục đã sao chép sẽ hiện ở đây (tối đa ${Prefs.clipboardHistoryMax(this@TuiGoImeService)})"
                 textSize = 13f
                 setTextColor(t.popupText)
                 alpha = 0.7f
@@ -1129,19 +1169,15 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         // synchronous, so the strip is rewritten within the same frame and
         // never shows a half-built state.
         strip.removeAllViews()
-        if (showHistory) {
-            strip.addView(buildHistoryChip().apply {
-                layoutParams = lp(clipCand != null || ready.isNotEmpty())
-            })
-        }
-        if (clipCand != null) {
-            strip.addView(buildClipboardChip(clipCand).apply {
-                layoutParams = lp(ready.isNotEmpty())
-            })
-        }
-        for (chip in ready) {
+        // Password/autofill chips own the strip: the recent-clip chip shrinks
+        // to a tap-to-paste icon so suggestions stay readable and scrollable.
+        val chips = mutableListOf<View>()
+        if (showHistory) chips += buildHistoryChip()
+        if (clipCand != null) chips += buildClipboardChip(clipCand, compact = ready.isNotEmpty())
+        chips += ready
+        chips.forEachIndexed { i, chip ->
             (chip.parent as? ViewGroup)?.removeView(chip)
-            chip.layoutParams = lp(false)
+            chip.layoutParams = lp(i < chips.lastIndex)
             strip.addView(chip)
         }
         scroll.visibility = View.VISIBLE

@@ -5,6 +5,7 @@ import android.content.ClipDescription
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import com.tuigo.Prefs
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -18,10 +19,11 @@ import java.util.concurrent.Executors
  *
  * Storage: filesDir/clipboard_history.json (newest first) + PNG files under
  * filesDir/clips/.
- * Pinned entries are kept above the cap; at most MAX_ENTRIES unpinned entries.
+ * Pinned entries are kept above the cap; at most clipboardHistoryMax
+ * (Prefs.KEY_CLIPBOARD_MAX) unpinned entries.
  */
 object ClipboardHistory {
-    const val MAX_ENTRIES = 50
+    const val DEFAULT_MAX_ENTRIES = 50
     private const val MAX_PINNED = 20
     private const val FILE = "clipboard_history.json"
     private const val IMGDIR = "clips"
@@ -40,8 +42,13 @@ object ClipboardHistory {
     private val imageExecutor = Executors.newSingleThreadExecutor()
 
     @Synchronized
-    fun entries(ctx: Context): List<Entry> =
-        ArrayList(cache ?: loadLocked(ctx))
+    fun entries(ctx: Context): List<Entry> {
+        val list = cache ?: loadLocked(ctx)
+        // The user may have lowered the cap since the last insert — trim now
+        // so the panel never shows more than the configured limit.
+        if (enforceCapsLocked(ctx, list)) saveLocked(ctx, list)
+        return ArrayList(list)
+    }
 
     @Synchronized
     fun hasEntries(ctx: Context): Boolean =
@@ -140,21 +147,31 @@ object ClipboardHistory {
     }
 
     /** Insert newest-first; a re-copied text bumps to the top instead of
-     *  duplicating. Oldest unpinned entries are evicted beyond MAX_ENTRIES. */
+     *  duplicating. Oldest unpinned entries are evicted beyond the cap. */
     @Synchronized
     private fun insert(ctx: Context, e: Entry) {
         val list = cache ?: loadLocked(ctx)
         if (e.text != null) list.removeAll { it.text == e.text }
         list.add(e)
         list.sortWith(compareByDescending<Entry> { it.pinned }.thenByDescending { it.ts })
+        enforceCapsLocked(ctx, list)
+        saveLocked(ctx, list)
+    }
+
+    /** Evict oldest unpinned beyond the configured cap, then oldest pinned
+     *  beyond cap + MAX_PINNED. Returns true when entries were removed. */
+    private fun enforceCapsLocked(ctx: Context, list: MutableList<Entry>): Boolean {
+        val cap = Prefs.clipboardHistoryMax(ctx)
+        var changed = false
         fun evictAt(idx: Int) {
             if (idx < 0) return
             list[idx].image?.let { File(imageDir(ctx), it).delete() }
             list.removeAt(idx)
+            changed = true
         }
-        while (list.count { !it.pinned } > MAX_ENTRIES) evictAt(list.indexOfLast { !it.pinned })
-        while (list.size > MAX_ENTRIES + MAX_PINNED) evictAt(list.indexOfLast { it.pinned })
-        saveLocked(ctx, list)
+        while (list.count { !it.pinned } > cap) evictAt(list.indexOfLast { !it.pinned })
+        while (list.size > cap + MAX_PINNED) evictAt(list.indexOfLast { it.pinned })
+        return changed
     }
 
     private fun saveLocked(ctx: Context, list: List<Entry>) {
