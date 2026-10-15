@@ -61,9 +61,10 @@ internal fun MacroStore.addItem(item: String): Boolean {
 // header ";[DO NOT DELETE THIS LINE]***version=n" tolerated.
 internal fun Engine.loadMacroFileImpl(fname: String): Boolean {
     val f = File(fname)
-    if (!f.isFile) return false
-
+    // Clear before the early return: a removed/unreadable file must not
+    // leave the previous macro list active (reloaded on activation).
     macStore.items.clear()
+    if (!f.isFile) return false
 
     f.bufferedReader(Charsets.UTF_8).useLines { lines ->
         for (raw in lines) {

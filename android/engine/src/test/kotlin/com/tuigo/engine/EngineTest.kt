@@ -277,6 +277,21 @@ class EngineTest {
     }
 
     @Test
+    fun macroFileRemovedClearsList() {
+        // Reload on activation: a removed file must drop the previous list
+        // instead of keeping stale expansions (Settings -> delete macro.txt).
+        val e = newEngine(Options().apply { macroEnabled = 1 })
+        val path = kotlin.io.path.createTempFile("macro", ".txt").toString()
+        java.io.File(path).writeText("ko:không\n")
+        assertTrue(e.loadMacroFile(path))
+        assertTrue(java.io.File(path).delete())
+        assertTrue(!e.loadMacroFile(path))
+        val d = DocSim()
+        d.typeKeys(e, "ko ")
+        assertEquals("ko ", d.toString())
+    }
+
+    @Test
     fun viqr() {
         val e = newEngine(defaultOpts)
         e.setInputMethod(ImViqr)
