@@ -102,22 +102,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var suggestionStrip: FlexboxLayout? = null
     private var pinnedSuggestionHost: android.widget.FrameLayout? = null
     private val scrollableInlineViews = mutableListOf<InlineContentView>()
-    private var pendingInline: InlineSuggestionsResponse? = null
-    private var renderedInline: InlineSuggestionsResponse? = null
     private var renderedClipKey: String? = null
     private var renderedHistoryOn = false
-    private var renderedReadyCount = 0
     private var renderedTheme: com.tuigo.KeyTheme? = null
-    // InlineSuggestion.inflate() throws IllegalStateException when called
-    // twice on the same suggestion — provider views are cached per response
-    // and re-parented on each rebuild, never re-inflated. Keys are the
-    // suggestion's index in its response: InlineSuggestion overrides
-    // equals/hashCode over state inflate() mutates, so the object itself is
-    // not a stable map key.
-    private var inlineOwner: InlineSuggestionsResponse? = null
-    private val inlineViews = HashMap<Int, View>()
-    private val inlineInflating = HashSet<Int>()
-    private val inlineCompleted = HashSet<Int>()
+    private var inlineGeneration = 0
+    private var hasInlineSuggestions = false
 
     private var clipboardManager: ClipboardManager? = null
     private var clipCopiedAtMs = 0L
@@ -625,22 +614,22 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     @SuppressLint("NewApi")
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
-        pendingInline = response
         if (response.inlineSuggestions.isEmpty()) {
             clearInlineSuggestions()
             renderSuggestionStrip()
         } else {
-            renderInlineResponse(response)
+            showInlineSuggestions(response)
         }
         return true
     }
 
     @SuppressLint("NewApi")
     private fun clearInlineSuggestions() {
-        // Invalidate the response first so callbacks from old inflate() calls
-        // cannot publish stale provider views into the new editor.
-        pendingInline = null
-        inlineOwner = null
+        inlineGeneration++
+        hasInlineSuggestions = false
+        val scroll = suggestionScroll
+        scroll?.scrollTo(0, 0)
+        scroll?.removeAllViews()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             scrollableInlineViews.forEach { view ->
                 view.surfaceControl?.let { surfaceControl ->
@@ -649,19 +638,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             }
         }
         scrollableInlineViews.clear()
-        inlineViews.clear()
-        inlineInflating.clear()
-        inlineCompleted.clear()
-        suggestionStrip?.removeAllViews()
         pinnedSuggestionHost?.removeAllViews()
-        suggestionScroll?.apply {
-            scrollTo(0, 0)
-            visibility = View.GONE
-        }
-        renderedInline = null
+        scroll?.visibility = View.GONE
+        suggestionStrip = null
         renderedClipKey = null
         renderedHistoryOn = false
-        renderedReadyCount = 0
         renderedTheme = null
     }
 
@@ -1109,199 +1090,182 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderSuggestionStrip()
     }
 
-    /** Kick off the one allowed inflate() per suggestion; the provider view is
-     *  cached on arrival and the strip re-renders to pick it up. */
     private val inlineExecutor = Executor { it.run() }
 
     @SuppressLint("NewApi")
-    private fun renderInlineResponse(response: InlineSuggestionsResponse) {
-        val suggestions = response.inlineSuggestions
-        inlineOwner = response
-        inlineViews.clear()
-        inlineInflating.clear()
-        inlineCompleted.clear()
-        renderedInline = null
+    private fun showInlineSuggestions(response: InlineSuggestionsResponse) {
+        val generation = ++inlineGeneration
+        hasInlineSuggestions = true
 
-        val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
-        suggestions.forEachIndexed { index, suggestion ->
-            kickInlineInflate(
-                owner = response,
-                index = index,
-                suggestion = suggestion,
-            )
+        var pinned: InlineSuggestion? = null
+        val scrollable = mutableListOf<InlineSuggestion>()
+        var extraPinnedCount = 0
+        response.inlineSuggestions.forEach { suggestion ->
+            if (suggestion.info.isPinned) {
+                if (pinned == null) {
+                    pinned = suggestion
+                } else {
+                    scrollable.add(extraPinnedCount++, suggestion)
+                }
+            } else {
+                scrollable += suggestion
+            }
         }
-    }
 
-    @SuppressLint("NewApi")
-    private fun kickInlineInflate(
-        owner: InlineSuggestionsResponse,
-        index: Int,
-        suggestion: InlineSuggestion,
-    ) {
-        if (inlineCompleted.contains(index) || !inlineInflating.add(index)) return
-        try {
-            // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a size
-            // fully inside the spec's min/max — a mixed wrap/fixed size
-            // throws IllegalArgumentException.
-            suggestion.inflate(this,
-                Size(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    (40 * resources.displayMetrics.density).toInt()), inlineExecutor) { view ->
-                if (inlineOwner === owner && inlineInflating.remove(index)) {
-                    inlineCompleted.add(index)
-                    if (view != null) {
-                        inlineViews[index] = view
-                    }
-                    publishInlineResponse(owner)
+        val pinnedSuggestion = pinned
+        if (pinnedSuggestion == null) {
+            setPinnedInlineView(null, generation)
+        } else {
+            inflateInlineSuggestion(pinnedSuggestion) { view ->
+                setPinnedInlineView(view, generation)
+            }
+        }
+
+        if (scrollable.isEmpty()) {
+            setScrollableInlineViews(emptyList(), generation)
+            return
+        }
+        val views = MutableList<InlineContentView?>(scrollable.size) { null }
+        var completed = 0
+        scrollable.forEachIndexed { index, suggestion ->
+            inflateInlineSuggestion(suggestion) { view ->
+                if (generation != inlineGeneration) return@inflateInlineSuggestion
+                views[index] = view
+                completed++
+                if (completed == scrollable.size) {
+                    setScrollableInlineViews(views, generation)
                 }
             }
-        } catch (e: Exception) {
-            if (inlineOwner === owner) {
-                inlineInflating.remove(index)
-                inlineCompleted.add(index)
-                publishInlineResponse(owner)
-            }
         }
     }
 
     @SuppressLint("NewApi")
-    private fun publishInlineResponse(response: InlineSuggestionsResponse) {
-        if (inlineOwner !== response) return
-        val suggestions = response.inlineSuggestions
-        if (inlineCompleted.size < suggestions.size) return
+    private fun inflateInlineSuggestion(
+        suggestion: InlineSuggestion,
+        onInflated: (InlineContentView?) -> Unit,
+    ) {
+        try {
+            suggestion.inflate(
+                this,
+                Size(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    (40 * resources.displayMetrics.density).toInt(),
+                ),
+                inlineExecutor,
+                onInflated,
+            )
+        } catch (_: Exception) {
+            onInflated(null)
+        }
+    }
 
+    @SuppressLint("NewApi")
+    private fun setScrollableInlineViews(
+        views: List<InlineContentView?>,
+        generation: Int,
+    ) {
+        if (generation != inlineGeneration) return
         val scroll = suggestionScroll ?: return
-        val strip = suggestionStrip ?: return
-        val pinnedHost = pinnedSuggestionHost ?: return
-        val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
-        val pinned = pinnedIndex?.let(inlineViews::get)
-        val scrollable = suggestions.indices
-            .filter { it != pinnedIndex }
-            .mapNotNull(inlineViews::get)
-
+        scroll.scrollTo(0, 0)
+        scroll.removeAllViews()
         scrollableInlineViews.forEach { view ->
             view.surfaceControl?.let { surfaceControl ->
                 SurfaceControl.Transaction().reparent(surfaceControl, null).apply()
             }
         }
         scrollableInlineViews.clear()
-        scroll.removeAllViews()
-        pinnedHost.removeAllViews()
-        scroll.scrollTo(0, 0)
 
-        val nextStrip = FlexboxLayout(this).apply {
+        val flexbox = FlexboxLayout(this).apply {
             flexWrap = FlexWrap.NOWRAP
-            justifyContent = JustifyContent.FLEX_START
-            alignItems = com.google.android.flexbox.AlignItems.CENTER
-            val horizontalPadding = (6 * resources.displayMetrics.density).toInt()
-            setPadding(horizontalPadding, 0, horizontalPadding, 0)
+            justifyContent = JustifyContent.CENTER
         }
-        scrollable.forEach { view ->
-            (view.parent as? ViewGroup)?.removeView(view)
-            if (view is InlineContentView) {
-                attachInlineSurface(view)
-                scrollableInlineViews += view
-            }
-            nextStrip.addView(view)
+        val parentSurfaceControl = suggestionSurface?.surfaceControl ?: return
+        views.forEach { view ->
+            if (view == null) return@forEach
+            scrollableInlineViews += view
+            view.setSurfaceControlCallback(object : InlineContentView.SurfaceControlCallback {
+                override fun onCreated(surfaceControl: SurfaceControl) {
+                    SurfaceControl.Transaction()
+                        .reparent(surfaceControl, parentSurfaceControl)
+                        .apply()
+                }
+
+                override fun onDestroyed(surfaceControl: SurfaceControl) = Unit
+            })
+            flexbox.addView(view)
             view.layoutParams = (view.layoutParams as? FlexboxLayout.LayoutParams
                 ?: FlexboxLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )).apply { flexShrink = 0f }
         }
-        suggestionStrip = nextStrip
-        scroll.addView(nextStrip, ViewGroup.LayoutParams(
+        suggestionStrip = flexbox
+        scroll.addView(flexbox, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         ))
-        if (pinned != null) {
-            (pinned.parent as? ViewGroup)?.removeView(pinned)
-            pinnedHost.addView(pinned)
-        }
-
-        renderedInline = response
-        renderedReadyCount = scrollable.size + (if (pinned != null) 1 else 0)
         activeClipCandidate = null
         scroll.visibility = View.VISIBLE
     }
 
     @SuppressLint("NewApi")
-    private fun attachInlineSurface(view: InlineContentView) {
-        view.setSurfaceControlCallback(object : InlineContentView.SurfaceControlCallback {
-            override fun onCreated(surfaceControl: SurfaceControl) {
-                val parent = suggestionSurface?.surfaceControl ?: return
-                SurfaceControl.Transaction().reparent(surfaceControl, parent).apply()
+    private fun setPinnedInlineView(view: InlineContentView?, generation: Int) {
+        if (generation != inlineGeneration) return
+        val host = pinnedSuggestionHost ?: return
+        host.removeAllViews()
+        if (view != null) {
+            host.addView(view)
+            view.layoutParams = (view.layoutParams as? android.widget.FrameLayout.LayoutParams
+                ?: android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )).apply {
+                val margin = (10 * resources.displayMetrics.density).toInt()
+                leftMargin = margin
+                rightMargin = margin
             }
-
-            override fun onDestroyed(surfaceControl: SurfaceControl) = Unit
-        })
+        }
     }
 
     @SuppressLint("NewApi")
     private fun renderSuggestionStrip() {
         val scroll = suggestionScroll ?: return
-        val strip = suggestionStrip ?: return
-        val response = pendingInline
-        if (response?.inlineSuggestions?.isNotEmpty() == true) {
-            if (inlineOwner !== response) {
-                renderInlineResponse(response)
-            } else {
-                publishInlineResponse(response)
-            }
-            return
-        }
-        if (response !== inlineOwner) {
-            // Provider views die with their response — drop the whole cache so
-            // a fresh response gets fresh inflate() calls.
-            inlineViews.clear()
-            inlineInflating.clear()
-            inlineCompleted.clear()
-            inlineOwner = response
-        }
-        val suggestions =
-            if (Build.VERSION.SDK_INT >= 30) response?.inlineSuggestions.orEmpty() else emptyList()
-        val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
-        if (response != null) suggestions.forEachIndexed { i, suggestion ->
-            kickInlineInflate(response, i, suggestion)
-        }
-        // InlineContentView owns a remote surface. Match fcitx5-android by
-        // attaching the current response as one batch instead of repeatedly
-        // removing and re-adding early views while later inflations complete.
-        if (inlineCompleted.size < suggestions.size) {
-            return
-        }
-        val pinned = pinnedIndex?.let { inlineViews[it] }
-        val ready = suggestions.indices
-            .filter { it != pinnedIndex }
-            .mapNotNull { inlineViews[it] }
+        if (hasInlineSuggestions) return
         val clipCand = currentClipCandidate()
         activeClipCandidate = clipCand
         val showHistory = Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)
-        val hasInline = ready.isNotEmpty() || pinned != null
-        if (!hasInline && clipCand == null && !showHistory) {
-            renderedInline = null
+        if (clipCand == null && !showHistory) {
             renderedClipKey = null
             renderedHistoryOn = false
-            renderedReadyCount = 0
-            strip.removeAllViews()
+            suggestionStrip?.removeAllViews()
             pinnedSuggestionHost?.removeAllViews()
             scroll.visibility = View.GONE
             return
         }
-        // Same inputs as the visible strip? Keep it — reparenting a provider
-        // view for no reason can flash it away and back for a frame.
         val clipKey = clipCand?.key
-        if (response === renderedInline && clipKey == renderedClipKey &&
-                showHistory == renderedHistoryOn && ready.size + (if (pinned != null) 1 else 0) == renderedReadyCount &&
-                keyboard.theme == renderedTheme && strip.childCount > 0) {
+        val currentStrip = suggestionStrip
+        if (clipKey == renderedClipKey && showHistory == renderedHistoryOn &&
+                keyboard.theme == renderedTheme && (currentStrip?.childCount ?: 0) > 0) {
             scroll.visibility = View.VISIBLE
             return
         }
-        renderedInline = response
         renderedClipKey = clipKey
         renderedHistoryOn = showHistory
-        renderedReadyCount = ready.size + (if (pinned != null) 1 else 0)
         renderedTheme = keyboard.theme
         scroll.setBackgroundColor(keyboard.theme.bg)
+        val strip = FlexboxLayout(this).apply {
+            flexWrap = FlexWrap.NOWRAP
+            justifyContent = JustifyContent.FLEX_START
+            alignItems = com.google.android.flexbox.AlignItems.CENTER
+            val padding = (6 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, (2 * resources.displayMetrics.density).toInt())
+        }
+        scroll.removeAllViews()
+        scroll.addView(strip, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        suggestionStrip = strip
         val gap = (6 * resources.displayMetrics.density).toInt()
         fun lp(view: View, moreAfter: Boolean) = FlexboxLayout.LayoutParams(
             view.layoutParams?.width?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1310,35 +1274,15 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             flexShrink = 0f
             if (moreAfter) marginEnd = gap
         }
-        // Provider views that were cached are already inflated — a rebuild is
-        // synchronous, so the strip is rewritten within the same frame and
-        // never shows a half-built state.
-        strip.removeAllViews()
-        // Password/autofill chips own the strip: the recent-clip chip shrinks
-        // to a tap-to-paste icon so suggestions stay readable and scrollable.
         val chips = mutableListOf<View>()
-        if (hasInline) {
-            chips += ready
-        } else {
-            if (showHistory) chips += buildHistoryChip()
-            if (clipCand != null) chips += buildClipboardChip(clipCand, compact = false)
-        }
+        if (showHistory) chips += buildHistoryChip()
+        if (clipCand != null) chips += buildClipboardChip(clipCand, compact = false)
         chips.forEachIndexed { i, chip ->
             (chip.parent as? ViewGroup)?.removeView(chip)
             chip.layoutParams = lp(chip, i < chips.lastIndex)
             strip.addView(chip)
         }
-        pinnedSuggestionHost?.apply {
-            removeAllViews()
-            if (pinned != null) {
-                (pinned.parent as? ViewGroup)?.removeView(pinned)
-                addView(pinned, android.widget.FrameLayout.LayoutParams(
-                    pinned.layoutParams?.width?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
-                    pinned.layoutParams?.height?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER_VERTICAL,
-                ).apply { marginEnd = gap })
-            }
-        }
+        pinnedSuggestionHost?.removeAllViews()
         scroll.visibility = View.VISIBLE
     }
 
