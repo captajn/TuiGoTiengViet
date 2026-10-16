@@ -65,6 +65,7 @@ dependencies {
     implementation(project(":engine"))
     // Inline-autofill suggestion styling (chips rendered by autofill providers).
     implementation("androidx.autofill:autofill:1.3.0")
+    implementation("com.google.android.flexbox:flexbox:3.0.0")
     // FileProvider for re-pasting clipboard-history images via commitContent.
     implementation("androidx.core:core:1.13.1")
 }
