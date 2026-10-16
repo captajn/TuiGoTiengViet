@@ -25,6 +25,8 @@ import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.SurfaceControl
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -38,6 +40,7 @@ import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.inline.InlineContentView
 import android.widget.inline.InlinePresentationSpec
 import androidx.autofill.inline.UiVersions
 import androidx.autofill.inline.common.ImageViewStyle
@@ -53,6 +56,7 @@ import com.tuigo.engine.ImViqr
 import com.tuigo.engine.Result
 import com.tuigo.MacroFiles
 import com.tuigo.engine.loadMacroText
+import java.util.concurrent.Executor
 
 /**
  * InputMethodService shell around the pure-Kotlin engine port.
@@ -92,6 +96,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     /** Inline-autofill & clipboard suggestion strip (Gboard-style chips above the keys). */
     private var suggestionScroll: HorizontalScrollView? = null
+    private var suggestionSurface: SurfaceView? = null
     private var suggestionStrip: LinearLayout? = null
     private var pendingInline: InlineSuggestionsResponse? = null
     private var renderedInline: InlineSuggestionsResponse? = null
@@ -225,6 +230,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         suggestionStrip = strip
         suggestionScroll = scroll
+        val surface = SurfaceView(this).apply {
+            setZOrderOnTop(true)
+        }
+        suggestionSurface = surface
         // Edge-to-edge IME windows (API 35+) are laid out full-screen; a
         // wrap_content strip child — e.g. a provider inline view — can claim
         // the whole window height and push the keyboard off-screen. Bound the
@@ -232,7 +241,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val stripH = (48 * dm).toInt()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(scroll, LinearLayout.LayoutParams(-1, stripH))
+            addView(android.widget.FrameLayout(this@TuiGoImeService).apply {
+                addView(scroll, android.widget.FrameLayout.LayoutParams(-1, -1))
+                addView(surface, android.widget.FrameLayout.LayoutParams(-1, -1))
+            }, LinearLayout.LayoutParams(-1, stripH))
             addView(keyboard, LinearLayout.LayoutParams(-1, -2))
         }
     }
@@ -596,19 +608,15 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                     .build()
             )
             .build()
-        // Keep each chip compact so several suggestions fit on screen and the
-        // rest remain reachable by swiping the strip — a near-full-width chip
-        // hides the fact that more suggestions exist.
-        val maxW = minOf((resources.displayMetrics.widthPixels * 0.62f).toInt(),
-            (320 * dm).toInt())
-        val spec = InlinePresentationSpec.Builder(Size(chipH, chipH), Size(maxW, chipH))
+        // Let each provider choose its natural chip width. Constraining the
+        // presentation itself can make some providers collapse their response
+        // to one item; the horizontal strip handles any total width.
+        val spec = InlinePresentationSpec.Builder(
+            Size(0, 0), Size(Int.MAX_VALUE, Int.MAX_VALUE))
             .setStyle(styles)
             .build()
-        // Android reuses the last presentation spec for additional results.
-        // Request the recommended multi-result count; providers may treat the
-        // unlimited sentinel conservatively and return only one suggestion.
         val request = InlineSuggestionsRequest.Builder(listOf(spec))
-            .setMaxSuggestionCount(5)
+            .setMaxSuggestionCount(InlineSuggestionsRequest.SUGGESTION_COUNT_UNLIMITED)
         if (Build.VERSION.SDK_INT >= 31) {
             val tooltipSpec = InlinePresentationSpec.Builder(
                 Size(chipH, chipH), Size((200 * dm).toInt(), chipH))
@@ -1100,6 +1108,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     /** Kick off the one allowed inflate() per suggestion; the provider view is
      *  cached on arrival and the strip re-renders to pick it up. */
+    private val inlineExecutor = Executor { it.run() }
+
     @SuppressLint("NewApi")
     private fun kickInlineInflate(index: Int, suggestion: InlineSuggestion) {
         if (inlineViews.containsKey(index) || !inlineInflating.add(index)) return
@@ -1109,8 +1119,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             // throws IllegalArgumentException.
             suggestion.inflate(this,
                 Size(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT), mainExecutor) { view ->
+                    (40 * resources.displayMetrics.density).toInt()), inlineExecutor) { view ->
                 if (inlineInflating.remove(index) && view != null) {
+                    if (view is InlineContentView) attachInlineSurface(view)
                     inlineViews[index] = view
                 }
                 renderSuggestionStrip()
@@ -1118,6 +1129,18 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         } catch (e: Exception) {
             inlineInflating.remove(index)
         }
+    }
+
+    @SuppressLint("NewApi")
+    private fun attachInlineSurface(view: InlineContentView) {
+        view.setSurfaceControlCallback(object : InlineContentView.SurfaceControlCallback {
+            override fun onCreated(surfaceControl: SurfaceControl) {
+                val parent = suggestionSurface?.surfaceControl ?: return
+                SurfaceControl.Transaction().reparent(surfaceControl, parent).apply()
+            }
+
+            override fun onDestroyed(surfaceControl: SurfaceControl) = Unit
+        })
     }
 
     @SuppressLint("NewApi")
