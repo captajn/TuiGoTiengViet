@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -586,15 +587,17 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (!UiVersions.getVersions(uiExtras).contains(UiVersions.INLINE_UI_VERSION_1)) return null
         val dm = resources.displayMetrics.density
         val t = KeyboardThemes.current(this)
-        val padH = (14 * dm).toInt()
+        val padH = (10 * dm).toInt()
         val chip = ViewStyle.Builder()
             .setBackgroundColor(t.key)
             .setPadding(padH, 0, padH, 0)
             .build()
         val singleChip = ViewStyle.Builder()
-            .setBackgroundColor(t.key)
+            .setBackgroundColor(Color.TRANSPARENT)
+            .setPadding(0, 0, 0, 0)
             .build()
         val title = TextViewStyle.Builder()
+            .setLayoutMargin((4 * dm).toInt(), 0, (4 * dm).toInt(), 0)
             .setTextColor(t.text)
             .setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             .build()
@@ -602,12 +605,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             .setTextColor(t.spaceText)
             .setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             .build()
-        // Action icons get our glyph tint; provider app icons stay untinted.
-        val actionIcon = ImageViewStyle.Builder()
+        val icon = ImageViewStyle.Builder()
             .setTintList(ColorStateList.valueOf(t.funcText))
-            .build()
-        val appIcon = ImageViewStyle.Builder()
-            .setScaleType(ImageView.ScaleType.FIT_CENTER)
             .build()
         val styles = UiVersions.newStylesBuilder()
             .addStyle(
@@ -616,9 +615,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                     .setSingleIconChipStyle(singleChip)
                     .setTitleStyle(title)
                     .setSubtitleStyle(subtitle)
-                    .setStartIconStyle(appIcon)
-                    .setEndIconStyle(actionIcon)
-                    .setSingleIconChipIconStyle(actionIcon)
+                    .setStartIconStyle(icon)
+                    .setEndIconStyle(icon)
+                    .setSingleIconChipIconStyle(icon)
                     .build()
             )
             .build()
