@@ -1191,8 +1191,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
         val nextStrip = FlexboxLayout(this).apply {
             flexWrap = FlexWrap.NOWRAP
-            justifyContent = JustifyContent.CENTER
+            justifyContent = JustifyContent.FLEX_START
             alignItems = com.google.android.flexbox.AlignItems.CENTER
+            val horizontalPadding = (6 * resources.displayMetrics.density).toInt()
+            setPadding(horizontalPadding, 0, horizontalPadding, 0)
         }
         scrollable.forEach { view ->
             (view.parent as? ViewGroup)?.removeView(view)
