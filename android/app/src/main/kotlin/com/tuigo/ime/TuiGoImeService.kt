@@ -107,6 +107,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var renderedTheme: com.tuigo.KeyTheme? = null
     private var inlineGeneration = 0
     private var hasInlineSuggestions = false
+    private val inlineSuggestions = mutableListOf<InlineSuggestion>()
+    private val inlineSuggestionViews = mutableListOf<InlineContentView?>()
+    private var pinnedInlineSuggestion: InlineSuggestion? = null
 
     private var clipboardManager: ClipboardManager? = null
     private var clipCopiedAtMs = 0L
@@ -638,6 +641,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             }
         }
         scrollableInlineViews.clear()
+        inlineSuggestions.clear()
+        inlineSuggestionViews.clear()
+        pinnedInlineSuggestion = null
         pinnedSuggestionHost?.removeAllViews()
         scroll?.visibility = View.GONE
         suggestionStrip = null
@@ -1094,49 +1100,93 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     @SuppressLint("NewApi")
     private fun showInlineSuggestions(response: InlineSuggestionsResponse) {
-        val generation = ++inlineGeneration
+        val generation = inlineGeneration
         hasInlineSuggestions = true
 
-        var pinned: InlineSuggestion? = null
-        val scrollable = mutableListOf<InlineSuggestion>()
-        var extraPinnedCount = 0
         response.inlineSuggestions.forEach { suggestion ->
             if (suggestion.info.isPinned) {
-                if (pinned == null) {
-                    pinned = suggestion
-                } else {
-                    scrollable.add(extraPinnedCount++, suggestion)
+                if (pinnedInlineSuggestion == null) {
+                    pinnedInlineSuggestion = suggestion
+                    inflateInlineSuggestion(suggestion) { view ->
+                        setPinnedInlineView(view, generation)
+                    }
+                } else if (pinnedInlineSuggestion != suggestion &&
+                    inlineSuggestions.none { it == suggestion }
+                ) {
+                    inlineSuggestions.add(0, suggestion)
+                    inlineSuggestionViews.add(0, null)
+                    inflateAccumulatedInlineSuggestion(suggestion, generation)
                 }
-            } else {
-                scrollable += suggestion
+            } else if (inlineSuggestions.none { it == suggestion }) {
+                inlineSuggestions += suggestion
+                inlineSuggestionViews += null
+                inflateAccumulatedInlineSuggestion(suggestion, generation)
             }
         }
 
-        val pinnedSuggestion = pinned
-        if (pinnedSuggestion == null) {
+        if (pinnedInlineSuggestion == null) {
             setPinnedInlineView(null, generation)
-        } else {
-            inflateInlineSuggestion(pinnedSuggestion) { view ->
-                setPinnedInlineView(view, generation)
-            }
         }
-
-        if (scrollable.isEmpty()) {
+        if (inlineSuggestions.isEmpty()) {
             setScrollableInlineViews(emptyList(), generation)
-            return
         }
-        val views = MutableList<InlineContentView?>(scrollable.size) { null }
-        var completed = 0
-        scrollable.forEachIndexed { index, suggestion ->
-            inflateInlineSuggestion(suggestion) { view ->
-                if (generation != inlineGeneration) return@inflateInlineSuggestion
-                views[index] = view
-                completed++
-                if (completed == scrollable.size) {
-                    setScrollableInlineViews(views, generation)
-                }
+    }
+
+    @SuppressLint("NewApi")
+    private fun inflateAccumulatedInlineSuggestion(
+        suggestion: InlineSuggestion,
+        generation: Int,
+    ) {
+        inflateInlineSuggestion(suggestion) { view ->
+            if (generation != inlineGeneration) return@inflateInlineSuggestion
+            val currentIndex = inlineSuggestions.indexOfFirst { it === suggestion }
+            if (currentIndex < 0) return@inflateInlineSuggestion
+            inlineSuggestionViews[currentIndex] = view
+            if (view != null) insertScrollableInlineView(view, currentIndex, generation)
+        }
+    }
+
+    @SuppressLint("NewApi")
+    private fun insertScrollableInlineView(
+        view: InlineContentView,
+        suggestionIndex: Int,
+        generation: Int,
+    ) {
+        if (generation != inlineGeneration) return
+        val scroll = suggestionScroll ?: return
+        val flexbox = suggestionStrip ?: FlexboxLayout(this).apply {
+            flexWrap = FlexWrap.NOWRAP
+            justifyContent = JustifyContent.CENTER
+            suggestionStrip = this
+            scroll.scrollTo(0, 0)
+            scroll.removeAllViews()
+            scroll.addView(this, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+        }
+        val parentSurfaceControl = suggestionSurface?.surfaceControl ?: return
+        view.setSurfaceControlCallback(object : InlineContentView.SurfaceControlCallback {
+            override fun onCreated(surfaceControl: SurfaceControl) {
+                SurfaceControl.Transaction()
+                    .reparent(surfaceControl, parentSurfaceControl)
+                    .apply()
             }
-        }
+
+            override fun onDestroyed(surfaceControl: SurfaceControl) = Unit
+        })
+        val childIndex = inlineSuggestionViews
+            .take(suggestionIndex)
+            .count { it != null }
+        scrollableInlineViews += view
+        flexbox.addView(view, childIndex.coerceAtMost(flexbox.childCount))
+        view.layoutParams = (view.layoutParams as? FlexboxLayout.LayoutParams
+            ?: FlexboxLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )).apply { flexShrink = 0f }
+        activeClipCandidate = null
+        scroll.visibility = View.VISIBLE
     }
 
     @SuppressLint("NewApi")
