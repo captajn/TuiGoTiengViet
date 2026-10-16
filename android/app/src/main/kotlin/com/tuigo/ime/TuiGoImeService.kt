@@ -56,6 +56,9 @@ import com.tuigo.engine.ImViqr
 import com.tuigo.engine.Result
 import com.tuigo.MacroFiles
 import com.tuigo.engine.loadMacroText
+import com.google.android.flexbox.FlexWrap
+import com.google.android.flexbox.FlexboxLayout
+import com.google.android.flexbox.JustifyContent
 import java.util.concurrent.Executor
 
 /**
@@ -97,7 +100,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     /** Inline-autofill & clipboard suggestion strip (Gboard-style chips above the keys). */
     private var suggestionScroll: HorizontalScrollView? = null
     private var suggestionSurface: SurfaceView? = null
-    private var suggestionStrip: LinearLayout? = null
+    private var suggestionStrip: FlexboxLayout? = null
     private var pinnedSuggestionHost: android.widget.FrameLayout? = null
     private var pendingInline: InlineSuggestionsResponse? = null
     private var renderedInline: InlineSuggestionsResponse? = null
@@ -218,9 +221,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
         val dm = resources.displayMetrics.density
         val pad = (6 * dm).toInt()
-        val strip = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val strip = FlexboxLayout(this).apply {
+            flexWrap = FlexWrap.NOWRAP
+            justifyContent = JustifyContent.FLEX_START
+            alignItems = com.google.android.flexbox.AlignItems.CENTER
             setPadding(pad, (6 * dm).toInt(), pad, (2 * dm).toInt())
         }
         val scroll = HorizontalScrollView(this).apply {
@@ -1211,10 +1215,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderedTheme = keyboard.theme
         scroll.setBackgroundColor(keyboard.theme.bg)
         val gap = (6 * resources.displayMetrics.density).toInt()
-        fun lp(view: View, moreAfter: Boolean) = LinearLayout.LayoutParams(
+        fun lp(view: View, moreAfter: Boolean) = FlexboxLayout.LayoutParams(
             view.layoutParams?.width?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
             view.layoutParams?.height?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply { if (moreAfter) marginEnd = gap }
+        ).apply {
+            flexShrink = 0f
+            if (moreAfter) marginEnd = gap
+        }
         // Provider views that were cached are already inflated — a rebuild is
         // synchronous, so the strip is rewritten within the same frame and
         // never shows a half-built state.
