@@ -11,8 +11,6 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.os.Build
 import android.content.res.ColorStateList
@@ -120,7 +118,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private val inlineViews = HashMap<Int, View>()
     private val inlineInflating = HashSet<Int>()
     private val inlineCompleted = HashSet<Int>()
-    private var editorKey: String? = null
 
     private var clipboardManager: ClipboardManager? = null
     private var clipCopiedAtMs = 0L
@@ -282,13 +279,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
-        // A different editor means any pending autofill suggestions are stale —
-        // the platform issues a fresh request/response for the new field.
-        val key = "${info?.packageName}/${info?.fieldId}/${info?.inputType}"
-        if (key != editorKey) {
-            editorKey = key
-            clearInlineSuggestions()
-        }
+        clearInlineSuggestions()
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -335,8 +326,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        dropToken++
-        pendingInline = null
+        clearInlineSuggestions()
         clipPanel?.dismiss()
         spacePopup?.dismiss()
         engine.resetBuf()
@@ -636,8 +626,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     @SuppressLint("NewApi")
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
         pendingInline = response
-        pendingInlineAt = SystemClock.uptimeMillis()
         if (response.inlineSuggestions.isEmpty()) {
+            clearInlineSuggestions()
             renderSuggestionStrip()
         } else {
             renderInlineResponse(response)
@@ -645,24 +635,34 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         return true
     }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var dropToken = 0
-    private var pendingInlineAt = 0L
-
+    @SuppressLint("NewApi")
     private fun clearInlineSuggestions() {
-        // Don't clear instantly: apps like Firefox/GeckoView re-bind the
-        // editor repeatedly (bug 1715549), which would erase a freshly
-        // rendered inline presentation every time. Give the platform a beat
-        // to deliver the new field's response; only drop a response older
-        // than the editor change.
-        val cutoff = pendingInlineAt
-        val token = ++dropToken
-        mainHandler.postDelayed({
-            if (token == dropToken && pendingInlineAt <= cutoff) {
-                pendingInline = null
-                renderSuggestionStrip()
+        // Invalidate the response first so callbacks from old inflate() calls
+        // cannot publish stale provider views into the new editor.
+        pendingInline = null
+        inlineOwner = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            scrollableInlineViews.forEach { view ->
+                view.surfaceControl?.let { surfaceControl ->
+                    SurfaceControl.Transaction().reparent(surfaceControl, null).apply()
+                }
             }
-        }, 600)
+        }
+        scrollableInlineViews.clear()
+        inlineViews.clear()
+        inlineInflating.clear()
+        inlineCompleted.clear()
+        suggestionStrip?.removeAllViews()
+        pinnedSuggestionHost?.removeAllViews()
+        suggestionScroll?.apply {
+            scrollTo(0, 0)
+            visibility = View.GONE
+        }
+        renderedInline = null
+        renderedClipKey = null
+        renderedHistoryOn = false
+        renderedReadyCount = 0
+        renderedTheme = null
     }
 
     private data class ClipCandidate(
