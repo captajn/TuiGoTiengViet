@@ -114,6 +114,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var inlineOwner: InlineSuggestionsResponse? = null
     private val inlineViews = HashMap<Int, View>()
     private val inlineInflating = HashSet<Int>()
+    private val inlineCompleted = HashSet<Int>()
     private var editorKey: String? = null
 
     private var clipboardManager: ClipboardManager? = null
@@ -579,7 +580,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
         if (!UiVersions.getVersions(uiExtras).contains(UiVersions.INLINE_UI_VERSION_1)) return null
         val dm = resources.displayMetrics.density
-        val chipH = (40 * dm).toInt()
         val t = KeyboardThemes.current(this)
         val padH = (14 * dm).toInt()
         val chip = ViewStyle.Builder()
@@ -626,25 +626,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             .build()
         val request = InlineSuggestionsRequest.Builder(listOf(spec))
             .setMaxSuggestionCount(InlineSuggestionsRequest.SUGGESTION_COUNT_UNLIMITED)
-        if (Build.VERSION.SDK_INT >= 31) {
-            val tooltipSpec = InlinePresentationSpec.Builder(
-                Size(chipH, chipH), Size((200 * dm).toInt(), chipH))
-                .setStyle(styles)
-                .build()
-            request.setInlineTooltipPresentationSpec(tooltipSpec)
-        }
         return request.build()
     }
 
     @SuppressLint("NewApi")
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
-        // Multi-provider autofill (e.g. Credential Manager alongside the
-        // primary service) can forward an EMPTY response milliseconds after
-        // the real one — accepting it would wipe chips that are mid-inflate.
-        // An empty response never replaces visible suggestions; editor
-        // changes and view teardown clear the strip instead.
-        if (response.inlineSuggestions.isEmpty() &&
-            pendingInline?.inlineSuggestions?.isNotEmpty() == true) return true
         pendingInline = response
         pendingInlineAt = SystemClock.uptimeMillis()
         renderSuggestionStrip()
@@ -1121,11 +1107,12 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     @SuppressLint("NewApi")
     private fun kickInlineInflate(
+        owner: InlineSuggestionsResponse,
         index: Int,
         suggestion: InlineSuggestion,
         attachToScrollSurface: Boolean,
     ) {
-        if (inlineViews.containsKey(index) || !inlineInflating.add(index)) return
+        if (inlineCompleted.contains(index) || !inlineInflating.add(index)) return
         try {
             // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a size
             // fully inside the spec's min/max — a mixed wrap/fixed size
@@ -1133,16 +1120,23 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             suggestion.inflate(this,
                 Size(ViewGroup.LayoutParams.WRAP_CONTENT,
                     (40 * resources.displayMetrics.density).toInt()), inlineExecutor) { view ->
-                if (inlineInflating.remove(index) && view != null) {
-                    if (attachToScrollSurface && view is InlineContentView) {
-                        attachInlineSurface(view)
+                if (inlineOwner === owner && inlineInflating.remove(index)) {
+                    inlineCompleted.add(index)
+                    if (view != null) {
+                        if (attachToScrollSurface && view is InlineContentView) {
+                            attachInlineSurface(view)
+                        }
+                        inlineViews[index] = view
                     }
-                    inlineViews[index] = view
+                    renderSuggestionStrip()
                 }
-                renderSuggestionStrip()
             }
         } catch (e: Exception) {
-            inlineInflating.remove(index)
+            if (inlineOwner === owner) {
+                inlineInflating.remove(index)
+                inlineCompleted.add(index)
+                renderSuggestionStrip()
+            }
         }
     }
 
@@ -1168,13 +1162,20 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             // a fresh response gets fresh inflate() calls.
             inlineViews.clear()
             inlineInflating.clear()
+            inlineCompleted.clear()
             inlineOwner = response
         }
         val suggestions =
             if (Build.VERSION.SDK_INT >= 30) response?.inlineSuggestions.orEmpty() else emptyList()
         val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
-        suggestions.forEachIndexed { i, suggestion ->
-            kickInlineInflate(i, suggestion, attachToScrollSurface = i != pinnedIndex)
+        if (response != null) suggestions.forEachIndexed { i, suggestion ->
+            kickInlineInflate(response, i, suggestion, attachToScrollSurface = i != pinnedIndex)
+        }
+        // InlineContentView owns a remote surface. Match fcitx5-android by
+        // attaching the current response as one batch instead of repeatedly
+        // removing and re-adding early views while later inflations complete.
+        if (inlineCompleted.size < suggestions.size) {
+            return
         }
         val pinned = pinnedIndex?.let { inlineViews[it] }
         val ready = suggestions.indices
