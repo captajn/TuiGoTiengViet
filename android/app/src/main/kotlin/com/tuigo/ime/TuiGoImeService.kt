@@ -98,6 +98,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var suggestionScroll: HorizontalScrollView? = null
     private var suggestionSurface: SurfaceView? = null
     private var suggestionStrip: LinearLayout? = null
+    private var pinnedSuggestionHost: android.widget.FrameLayout? = null
     private var pendingInline: InlineSuggestionsResponse? = null
     private var renderedInline: InlineSuggestionsResponse? = null
     private var renderedClipKey: String? = null
@@ -234,6 +235,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             setZOrderOnTop(true)
         }
         suggestionSurface = surface
+        val pinnedHost = android.widget.FrameLayout(this)
+        pinnedSuggestionHost = pinnedHost
         // Edge-to-edge IME windows (API 35+) are laid out full-screen; a
         // wrap_content strip child — e.g. a provider inline view — can claim
         // the whole window height and push the keyboard off-screen. Bound the
@@ -242,8 +245,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(android.widget.FrameLayout(this@TuiGoImeService).apply {
-                addView(scroll, android.widget.FrameLayout.LayoutParams(-1, -1))
-                addView(surface, android.widget.FrameLayout.LayoutParams(-1, -1))
+                addView(LinearLayout(this@TuiGoImeService).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(android.widget.FrameLayout(this@TuiGoImeService).apply {
+                        addView(scroll, android.widget.FrameLayout.LayoutParams(-1, -1))
+                        addView(surface, android.widget.FrameLayout.LayoutParams(-1, -1))
+                    }, LinearLayout.LayoutParams(0, -1, 1f))
+                    addView(pinnedHost, LinearLayout.LayoutParams(-2, -1))
+                }, android.widget.FrameLayout.LayoutParams(-1, -1))
             }, LinearLayout.LayoutParams(-1, stripH))
             addView(keyboard, LinearLayout.LayoutParams(-1, -2))
         }
@@ -1111,7 +1120,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private val inlineExecutor = Executor { it.run() }
 
     @SuppressLint("NewApi")
-    private fun kickInlineInflate(index: Int, suggestion: InlineSuggestion) {
+    private fun kickInlineInflate(
+        index: Int,
+        suggestion: InlineSuggestion,
+        attachToScrollSurface: Boolean,
+    ) {
         if (inlineViews.containsKey(index) || !inlineInflating.add(index)) return
         try {
             // inflate() only accepts WRAP_CONTENT x WRAP_CONTENT or a size
@@ -1121,7 +1134,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 Size(ViewGroup.LayoutParams.WRAP_CONTENT,
                     (40 * resources.displayMetrics.density).toInt()), inlineExecutor) { view ->
                 if (inlineInflating.remove(index) && view != null) {
-                    if (view is InlineContentView) attachInlineSurface(view)
+                    if (attachToScrollSurface && view is InlineContentView) {
+                        attachInlineSurface(view)
+                    }
                     inlineViews[index] = view
                 }
                 renderSuggestionStrip()
@@ -1157,17 +1172,25 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         val suggestions =
             if (Build.VERSION.SDK_INT >= 30) response?.inlineSuggestions.orEmpty() else emptyList()
-        suggestions.forEachIndexed { i, s -> kickInlineInflate(i, s) }
-        val ready = suggestions.indices.mapNotNull { inlineViews[it] }
+        val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
+        suggestions.forEachIndexed { i, suggestion ->
+            kickInlineInflate(i, suggestion, attachToScrollSurface = i != pinnedIndex)
+        }
+        val pinned = pinnedIndex?.let { inlineViews[it] }
+        val ready = suggestions.indices
+            .filter { it != pinnedIndex }
+            .mapNotNull { inlineViews[it] }
         val clipCand = currentClipCandidate()
         activeClipCandidate = clipCand
         val showHistory = Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)
-        if (ready.isEmpty() && clipCand == null && !showHistory) {
+        val hasInline = ready.isNotEmpty() || pinned != null
+        if (!hasInline && clipCand == null && !showHistory) {
             renderedInline = null
             renderedClipKey = null
             renderedHistoryOn = false
             renderedReadyCount = 0
             strip.removeAllViews()
+            pinnedSuggestionHost?.removeAllViews()
             scroll.visibility = View.GONE
             return
         }
@@ -1175,7 +1198,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         // view for no reason can flash it away and back for a frame.
         val clipKey = clipCand?.key
         if (response === renderedInline && clipKey == renderedClipKey &&
-                showHistory == renderedHistoryOn && ready.size == renderedReadyCount &&
+                showHistory == renderedHistoryOn && ready.size + (if (pinned != null) 1 else 0) == renderedReadyCount &&
                 keyboard.theme == renderedTheme && strip.childCount > 0) {
             scroll.visibility = View.VISIBLE
             return
@@ -1183,13 +1206,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         renderedInline = response
         renderedClipKey = clipKey
         renderedHistoryOn = showHistory
-        renderedReadyCount = ready.size
+        renderedReadyCount = ready.size + (if (pinned != null) 1 else 0)
         renderedTheme = keyboard.theme
         scroll.setBackgroundColor(keyboard.theme.bg)
         val gap = (6 * resources.displayMetrics.density).toInt()
-        fun lp(moreAfter: Boolean) = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+        fun lp(view: View, moreAfter: Boolean) = LinearLayout.LayoutParams(
+            view.layoutParams?.width?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+            view.layoutParams?.height?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { if (moreAfter) marginEnd = gap }
         // Provider views that were cached are already inflated — a rebuild is
         // synchronous, so the strip is rewritten within the same frame and
@@ -1198,13 +1221,27 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         // Password/autofill chips own the strip: the recent-clip chip shrinks
         // to a tap-to-paste icon so suggestions stay readable and scrollable.
         val chips = mutableListOf<View>()
-        if (showHistory) chips += buildHistoryChip()
-        if (clipCand != null) chips += buildClipboardChip(clipCand, compact = ready.isNotEmpty())
-        chips += ready
+        if (hasInline) {
+            chips += ready
+        } else {
+            if (showHistory) chips += buildHistoryChip()
+            if (clipCand != null) chips += buildClipboardChip(clipCand, compact = false)
+        }
         chips.forEachIndexed { i, chip ->
             (chip.parent as? ViewGroup)?.removeView(chip)
-            chip.layoutParams = lp(i < chips.lastIndex)
+            chip.layoutParams = lp(chip, i < chips.lastIndex)
             strip.addView(chip)
+        }
+        pinnedSuggestionHost?.apply {
+            removeAllViews()
+            if (pinned != null) {
+                (pinned.parent as? ViewGroup)?.removeView(pinned)
+                addView(pinned, android.widget.FrameLayout.LayoutParams(
+                    pinned.layoutParams?.width?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+                    pinned.layoutParams?.height?.takeIf { it > 0 } ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER_VERTICAL,
+                ).apply { marginEnd = gap })
+            }
         }
         scroll.visibility = View.VISIBLE
     }
