@@ -112,6 +112,13 @@ class KeyboardView @JvmOverloads constructor(
     var capsLock = false
         private set
 
+    fun setAutoShifted(enabled: Boolean) {
+        if (capsLock || shifted == enabled) return
+        shifted = enabled
+        listener?.onShiftChanged(shifted, false)
+        invalidate()
+    }
+
     // ---- layout model ------------------------------------------------------
 
     private object K {

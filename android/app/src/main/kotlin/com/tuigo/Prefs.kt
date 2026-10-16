@@ -21,6 +21,7 @@ object Prefs {
     const val KEY_MACRO = "macro"
     const val KEY_AUTO_NONVN = "auto_nonvn_restore"
     const val KEY_DOUBLE_SPACE = "double_space_period"
+    const val KEY_AUTO_CAPITALIZE = "auto_capitalize"
     const val KEY_VIET_ON = "viet_on"
     const val KEY_NUMBER_ROW = "number_row"
     const val KEY_KEY_HEIGHT = "key_height"
@@ -101,6 +102,8 @@ object Prefs {
     fun vietOn(ctx: Context): Boolean = get(ctx).getBoolean(KEY_VIET_ON, true)
     fun doubleSpacePeriod(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_DOUBLE_SPACE, true)
+    fun autoCapitalize(ctx: Context): Boolean =
+        get(ctx).getBoolean(KEY_AUTO_CAPITALIZE, true)
     fun numberRow(ctx: Context): Boolean =
         get(ctx).getBoolean(KEY_NUMBER_ROW, false)
     fun clipboardSuggest(ctx: Context): Boolean =

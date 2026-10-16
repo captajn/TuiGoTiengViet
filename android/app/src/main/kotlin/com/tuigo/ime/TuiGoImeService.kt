@@ -3,6 +3,7 @@ package com.tuigo.ime
 import android.inputmethodservice.InputMethodService
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
+import android.graphics.drawable.Icon
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
@@ -26,7 +27,6 @@ import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.SurfaceControl
 import android.view.SurfaceView
 import android.view.View
@@ -51,6 +51,7 @@ import androidx.autofill.inline.common.ViewStyle
 import androidx.autofill.inline.v1.InlineSuggestionUi
 import com.tuigo.KeyboardThemes
 import com.tuigo.Prefs
+import com.tuigo.R
 import com.tuigo.engine.Engine
 import com.tuigo.engine.ImTelex
 import com.tuigo.engine.ImVni
@@ -84,6 +85,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
                 suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
                 renderSuggestionStrip()
+                updateAutoCapitalization()
                 applySystemBarTheme()
             }
         }
@@ -111,8 +113,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var inlineGeneration = 0
     private var hasInlineSuggestions = false
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val pendingInlineSuggestions = mutableListOf<InlineSuggestion>()
-    private var publishInlineSuggestions: Runnable? = null
 
     private var clipboardManager: ClipboardManager? = null
     private var clipCopiedAtMs = 0L
@@ -230,10 +230,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         suggestionStrip = strip
         suggestionScroll = scroll
-        val surface = object : SurfaceView(this) {
-            override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
-            override fun onTouchEvent(event: MotionEvent): Boolean = false
-        }.apply {
+        val surface = SurfaceView(this).apply {
             setZOrderOnTop(true)
         }
         suggestionSurface = surface
@@ -296,6 +293,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         expectedSel = if (selStart >= 0 && selEnd >= 0) minOf(selStart, selEnd) else selEnd
         if (expectedSel >= 0) ownSelEchoes.add(expectedSel)
         spacePending = false
+        updateAutoCapitalization()
         applySystemBarTheme()
     }
 
@@ -363,6 +361,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 expectedSel = newSelStart
             }
         }
+        updateAutoCapitalization()
     }
 
     // ---- keyboard events -----------------------------------------------------
@@ -392,6 +391,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ic.commitText(ch.toString(), 1)
             bumpExpected(1)
             spacePending = false
+            scheduleAutoCapitalizationUpdate()
             return
         }
 
@@ -411,6 +411,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 expectEcho(expectedSel)
             }
             engine.resetBuf()
+            scheduleAutoCapitalizationUpdate()
             return
         }
 
@@ -420,6 +421,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             bumpExpected(1)
             spacePending = ch == ' '
             if (spacePending) spaceAt = SystemClock.uptimeMillis()
+            scheduleAutoCapitalizationUpdate()
             return
         }
 
@@ -434,6 +436,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         spacePending = ch == ' '
         if (spacePending) spaceAt = SystemClock.uptimeMillis()
+        scheduleAutoCapitalizationUpdate()
     }
 
     override fun onDelete() {
@@ -455,6 +458,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 selEnd = anchor
                 expectEcho(anchor)
             }
+            scheduleAutoCapitalizationUpdate()
             return
         }
         val res = engine.backspace()
@@ -464,6 +468,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ic.deleteSurroundingText(1, 0)
             bumpExpected(-1)
         }
+        scheduleAutoCapitalizationUpdate()
     }
 
     override fun onEnter() {
@@ -473,11 +478,29 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (!sendDefaultEditorAction(true)) {
             sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
         }
+        scheduleAutoCapitalizationUpdate()
     }
 
     override fun onShiftChanged(shifted: Boolean, capsLock: Boolean) {
         engine.shiftPressed = shifted
         engine.capsLockOn = capsLock
+    }
+
+    private fun scheduleAutoCapitalizationUpdate() {
+        mainHandler.post { updateAutoCapitalization() }
+    }
+
+    private fun updateAutoCapitalization() {
+        if (!::keyboard.isInitialized || keyboard.capsLock) return
+        val info = currentInputEditorInfo
+        val enabled = Prefs.autoCapitalize(this) && !isRestrictedField(info)
+        val ic = currentInputConnection
+        val capsMode = ic?.getCursorCapsMode(TextUtils.CAP_MODE_SENTENCES) ?: 0
+        val textBeforeCursor = ic?.getTextBeforeCursor(2, 0)?.toString().orEmpty()
+        val atTextOrLineStart = textBeforeCursor.isEmpty() || textBeforeCursor.endsWith('\n')
+        val shouldShift = enabled &&
+            (capsMode and TextUtils.CAP_MODE_SENTENCES != 0 || atTextOrLineStart)
+        keyboard.setAutoShifted(shouldShift)
     }
 
     override fun onVietToggle() {
@@ -569,12 +592,19 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     // although Google's own inline-suggestion docs use them — pinned dep, safe.
     @SuppressLint("NewApi", "RestrictedApi") // override is only invoked on API 30+
     override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
-        if (!UiVersions.getVersions(uiExtras).contains(UiVersions.INLINE_UI_VERSION_1)) return null
+        val versions = UiVersions.getVersions(uiExtras)
+        if (!versions.contains(UiVersions.INLINE_UI_VERSION_1)) return null
         val dm = resources.displayMetrics.density
         val t = KeyboardThemes.current(this)
+        val chipDrawable = if (UiTheme.isDark(this)) {
+            R.drawable.bkg_inline_suggestion_dark
+        } else {
+            R.drawable.bkg_inline_suggestion_light
+        }
+        val chipBackground = Icon.createWithResource(this, chipDrawable).setTint(t.text)
         val padH = (10 * dm).toInt()
         val chip = ViewStyle.Builder()
-            .setBackgroundColor(t.key)
+            .setBackground(chipBackground)
             .setPadding(padH, 0, padH, 0)
             .build()
         val singleChip = ViewStyle.Builder()
@@ -602,7 +632,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                     .setSubtitleStyle(subtitle)
                     .setStartIconStyle(icon)
                     .setEndIconStyle(icon)
-                    .setSingleIconChipIconStyle(icon)
                     .build()
             )
             .build()
@@ -620,27 +649,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     @SuppressLint("NewApi")
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
-        if (response.inlineSuggestions.isEmpty()) {
+        val suggestions = response.inlineSuggestions
+        if (suggestions.isEmpty()) {
             clearInlineSuggestions()
             renderSuggestionStrip()
         } else {
-            hasInlineSuggestions = true
-            response.inlineSuggestions.forEach { suggestion ->
-                if (pendingInlineSuggestions.none { it === suggestion }) {
-                    pendingInlineSuggestions += suggestion
-                }
-            }
-            publishInlineSuggestions?.let(mainHandler::removeCallbacks)
             val generation = inlineGeneration
-            val publish = Runnable {
-                if (generation != inlineGeneration) return@Runnable
-                val suggestions = pendingInlineSuggestions.toList()
-                pendingInlineSuggestions.clear()
-                publishInlineSuggestions = null
-                showInlineSuggestions(suggestions, generation)
-            }
-            publishInlineSuggestions = publish
-            mainHandler.postDelayed(publish, 250L)
+            showInlineSuggestions(suggestions, generation)
         }
         return true
     }
@@ -649,9 +664,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private fun clearInlineSuggestions() {
         inlineGeneration++
         hasInlineSuggestions = false
-        publishInlineSuggestions?.let(mainHandler::removeCallbacks)
-        publishInlineSuggestions = null
-        pendingInlineSuggestions.clear()
         val scroll = suggestionScroll
         scroll?.scrollTo(0, 0)
         scroll?.removeAllViews()
@@ -1145,7 +1157,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 scrollable.add(it)
             }
         }
-
         if (pinned != null) {
             inflateInlineSuggestion(pinned) { view ->
                 mainHandler.post {
@@ -1221,6 +1232,18 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val flexbox = FlexboxLayout(this).apply {
             flexWrap = FlexWrap.NOWRAP
             justifyContent = JustifyContent.CENTER
+            alignItems = com.google.android.flexbox.AlignItems.CENTER
+        }
+        if (Prefs.clipboardHistory(this) && ClipboardHistory.hasEntries(this)) {
+            val historyChip = buildHistoryChip()
+            historyChip.layoutParams = FlexboxLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                flexShrink = 0f
+                marginEnd = (6 * resources.displayMetrics.density).toInt()
+            }
+            flexbox.addView(historyChip)
         }
         views.forEach { view ->
             if (view == null) return@forEach

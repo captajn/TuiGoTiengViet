@@ -21,8 +21,8 @@ android {
         applicationId = "com.tuigo.tiengviet"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.1.4"
+        versionCode = 15
+        versionName = "0.1.5"
         testInstrumentationRunner = "com.tuigo.MobileSmokeTest"
     }
 

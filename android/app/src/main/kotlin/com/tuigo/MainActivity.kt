@@ -107,6 +107,7 @@ class MainActivity : Activity() {
                 addView(toggle("Đặt dấu kiểu mới", "Ví dụ: hoà, thuỷ", Prefs.KEY_MODERN_STYLE))
                 addView(toggle("Kiểm tra chính tả", "Giữ cách gõ tiếng Việt hợp lệ", Prefs.KEY_SPELL_CHECK))
                 addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
+                addView(toggle("Viết hoa kí tự đầu tiên", "Tự bật Shift ở đầu câu", Prefs.KEY_AUTO_CAPITALIZE))
                 addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
             })
             addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {

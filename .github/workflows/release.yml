@@ -48,12 +48,12 @@ jobs:
                 exit 1
               fi ;;
           esac
-          ref='${{ github.ref_name }}'
-          if [ -n "$tag" ] && git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" "refs/tags/$tag" >/dev/null 2>&1; then
-            ref="$tag"
-          fi
+          # Always build the exact commit selected when dispatching this workflow.
+          # An existing release tag can point to an older commit; checking it out
+          # would silently rebuild stale source when replacing release assets.
+          ref='${{ github.sha }}'
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "OK: platform=$platform tag=${tag:-<auto>} checkout_ref=$ref"
+          echo "OK: platform=$platform tag=${tag:-<auto>} source_commit=$ref"
 
   build:
     needs: validate
