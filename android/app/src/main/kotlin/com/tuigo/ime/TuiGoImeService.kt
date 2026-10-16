@@ -604,8 +604,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val spec = InlinePresentationSpec.Builder(Size(chipH, chipH), Size(maxW, chipH))
             .setStyle(styles)
             .build()
-        val request = InlineSuggestionsRequest.Builder(mutableListOf(spec))
-            .setMaxSuggestionCount(InlineSuggestionsRequest.SUGGESTION_COUNT_UNLIMITED)
+        // Android reuses the last presentation spec for additional results.
+        // Request the recommended multi-result count; providers may treat the
+        // unlimited sentinel conservatively and return only one suggestion.
+        val request = InlineSuggestionsRequest.Builder(listOf(spec))
+            .setMaxSuggestionCount(5)
         if (Build.VERSION.SDK_INT >= 31) {
             val tooltipSpec = InlinePresentationSpec.Builder(
                 Size(chipH, chipH), Size((200 * dm).toInt(), chipH))
