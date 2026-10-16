@@ -111,6 +111,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var inlineGeneration = 0
     private var hasInlineSuggestions = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingInlineSuggestions = mutableListOf<InlineSuggestion>()
+    private var publishInlineSuggestions: Runnable? = null
 
     private var clipboardManager: ClipboardManager? = null
     private var clipCopiedAtMs = 0L
@@ -622,7 +624,23 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             clearInlineSuggestions()
             renderSuggestionStrip()
         } else {
-            showInlineSuggestions(response)
+            hasInlineSuggestions = true
+            response.inlineSuggestions.forEach { suggestion ->
+                if (pendingInlineSuggestions.none { it === suggestion }) {
+                    pendingInlineSuggestions += suggestion
+                }
+            }
+            publishInlineSuggestions?.let(mainHandler::removeCallbacks)
+            val generation = inlineGeneration
+            val publish = Runnable {
+                if (generation != inlineGeneration) return@Runnable
+                val suggestions = pendingInlineSuggestions.toList()
+                pendingInlineSuggestions.clear()
+                publishInlineSuggestions = null
+                showInlineSuggestions(suggestions, generation)
+            }
+            publishInlineSuggestions = publish
+            mainHandler.postDelayed(publish, 250L)
         }
         return true
     }
@@ -631,6 +649,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private fun clearInlineSuggestions() {
         inlineGeneration++
         hasInlineSuggestions = false
+        publishInlineSuggestions?.let(mainHandler::removeCallbacks)
+        publishInlineSuggestions = null
+        pendingInlineSuggestions.clear()
         val scroll = suggestionScroll
         scroll?.scrollTo(0, 0)
         scroll?.removeAllViews()
@@ -1097,11 +1118,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private val inlineExecutor = Executor { it.run() }
 
     @SuppressLint("NewApi")
-    private fun showInlineSuggestions(response: InlineSuggestionsResponse) {
-        val generation = ++inlineGeneration
+    private fun showInlineSuggestions(
+        suggestions: List<InlineSuggestion>,
+        generation: Int,
+    ) {
+        if (generation != inlineGeneration) return
         hasInlineSuggestions = true
 
-        val suggestions = response.inlineSuggestions
         if (suggestions.isEmpty()) {
             clearInlineSuggestions()
             renderSuggestionStrip()
