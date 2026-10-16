@@ -102,6 +102,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var suggestionSurface: SurfaceView? = null
     private var suggestionStrip: FlexboxLayout? = null
     private var pinnedSuggestionHost: android.widget.FrameLayout? = null
+    private val scrollableInlineViews = mutableListOf<InlineContentView>()
     private var pendingInline: InlineSuggestionsResponse? = null
     private var renderedInline: InlineSuggestionsResponse? = null
     private var renderedClipKey: String? = null
@@ -637,7 +638,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
         pendingInline = response
         pendingInlineAt = SystemClock.uptimeMillis()
-        renderSuggestionStrip()
+        if (response.inlineSuggestions.isEmpty()) {
+            renderSuggestionStrip()
+        } else {
+            renderInlineResponse(response)
+        }
         return true
     }
 
@@ -1110,11 +1115,29 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private val inlineExecutor = Executor { it.run() }
 
     @SuppressLint("NewApi")
+    private fun renderInlineResponse(response: InlineSuggestionsResponse) {
+        val suggestions = response.inlineSuggestions
+        inlineOwner = response
+        inlineViews.clear()
+        inlineInflating.clear()
+        inlineCompleted.clear()
+        renderedInline = null
+
+        val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
+        suggestions.forEachIndexed { index, suggestion ->
+            kickInlineInflate(
+                owner = response,
+                index = index,
+                suggestion = suggestion,
+            )
+        }
+    }
+
+    @SuppressLint("NewApi")
     private fun kickInlineInflate(
         owner: InlineSuggestionsResponse,
         index: Int,
         suggestion: InlineSuggestion,
-        attachToScrollSurface: Boolean,
     ) {
         if (inlineCompleted.contains(index) || !inlineInflating.add(index)) return
         try {
@@ -1127,21 +1150,77 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 if (inlineOwner === owner && inlineInflating.remove(index)) {
                     inlineCompleted.add(index)
                     if (view != null) {
-                        if (attachToScrollSurface && view is InlineContentView) {
-                            attachInlineSurface(view)
-                        }
                         inlineViews[index] = view
                     }
-                    renderSuggestionStrip()
+                    publishInlineResponse(owner)
                 }
             }
         } catch (e: Exception) {
             if (inlineOwner === owner) {
                 inlineInflating.remove(index)
                 inlineCompleted.add(index)
-                renderSuggestionStrip()
+                publishInlineResponse(owner)
             }
         }
+    }
+
+    @SuppressLint("NewApi")
+    private fun publishInlineResponse(response: InlineSuggestionsResponse) {
+        if (inlineOwner !== response) return
+        val suggestions = response.inlineSuggestions
+        if (inlineCompleted.size < suggestions.size) return
+
+        val scroll = suggestionScroll ?: return
+        val strip = suggestionStrip ?: return
+        val pinnedHost = pinnedSuggestionHost ?: return
+        val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
+        val pinned = pinnedIndex?.let(inlineViews::get)
+        val scrollable = suggestions.indices
+            .filter { it != pinnedIndex }
+            .mapNotNull(inlineViews::get)
+
+        scrollableInlineViews.forEach { view ->
+            view.surfaceControl?.let { surfaceControl ->
+                SurfaceControl.Transaction().reparent(surfaceControl, null).apply()
+            }
+        }
+        scrollableInlineViews.clear()
+        scroll.removeAllViews()
+        pinnedHost.removeAllViews()
+        scroll.scrollTo(0, 0)
+
+        val nextStrip = FlexboxLayout(this).apply {
+            flexWrap = FlexWrap.NOWRAP
+            justifyContent = JustifyContent.CENTER
+            alignItems = com.google.android.flexbox.AlignItems.CENTER
+        }
+        scrollable.forEach { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+            if (view is InlineContentView) {
+                attachInlineSurface(view)
+                scrollableInlineViews += view
+            }
+            nextStrip.addView(view)
+            view.layoutParams = (view.layoutParams as? FlexboxLayout.LayoutParams
+                ?: FlexboxLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )).apply { flexShrink = 0f }
+        }
+        suggestionStrip = nextStrip
+        scroll.addView(nextStrip, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        if (pinned != null) {
+            (pinned.parent as? ViewGroup)?.removeView(pinned)
+            pinnedHost.addView(pinned)
+        }
+
+        renderedInline = response
+        renderedReadyCount = scrollable.size + (if (pinned != null) 1 else 0)
+        activeClipCandidate = null
+        scroll.visibility = View.VISIBLE
     }
 
     @SuppressLint("NewApi")
@@ -1161,6 +1240,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val scroll = suggestionScroll ?: return
         val strip = suggestionStrip ?: return
         val response = pendingInline
+        if (response?.inlineSuggestions?.isNotEmpty() == true) {
+            if (inlineOwner !== response) {
+                renderInlineResponse(response)
+            } else {
+                publishInlineResponse(response)
+            }
+            return
+        }
         if (response !== inlineOwner) {
             // Provider views die with their response — drop the whole cache so
             // a fresh response gets fresh inflate() calls.
@@ -1173,7 +1260,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             if (Build.VERSION.SDK_INT >= 30) response?.inlineSuggestions.orEmpty() else emptyList()
         val pinnedIndex = suggestions.indexOfFirst { it.info.isPinned }.takeIf { it >= 0 }
         if (response != null) suggestions.forEachIndexed { i, suggestion ->
-            kickInlineInflate(response, i, suggestion, attachToScrollSurface = i != pinnedIndex)
+            kickInlineInflate(response, i, suggestion)
         }
         // InlineContentView owns a remote surface. Match fcitx5-android by
         // attaching the current response as one batch instead of repeatedly
