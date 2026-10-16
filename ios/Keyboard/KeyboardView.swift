@@ -35,9 +35,14 @@ final class KeyboardView: UIView {
     private var symbolLevel = 0
     private(set) var shifted = false
     private(set) var capsLock = false
+    private var manualShift = false
     private var spaceSliding = false
     private var spaceLastStepX: CGFloat = 0
     private weak var spaceHoldGesture: UILongPressGestureRecognizer?
+
+    func resetManualShift() {
+        manualShift = false
+    }
 
     // ---- layout model -------------------------------------------------------
 
@@ -445,6 +450,7 @@ final class KeyboardView: UIView {
 
     private func startDeleteRepeat() {
         stopDeleteRepeat()
+        manualShift = false
         listener?.onDelete()
         deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
             self?.deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -464,6 +470,7 @@ final class KeyboardView: UIView {
         hintTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
             guard let self = self, self.pressed === key else { return }
             self.clearPress()
+            self.manualShift = false
             self.longPressFeedback.impactOccurred()
             self.listener?.onChar(alt)
         }
@@ -508,6 +515,7 @@ final class KeyboardView: UIView {
         switch g.state {
         case .began:
             spaceSliding = true
+            manualShift = false
             spaceLastStepX = 0
             spaceHoldGesture?.isEnabled = false
             spaceHoldGesture?.isEnabled = true
@@ -516,6 +524,7 @@ final class KeyboardView: UIView {
         case .changed:
             if !spaceSliding {
                 spaceSliding = true
+                manualShift = false
                 spaceLastStepX = 0
                 spaceHoldGesture?.isEnabled = false
                 spaceHoldGesture?.isEnabled = true
@@ -578,11 +587,11 @@ final class KeyboardView: UIView {
         case K.shift:
             let now = Date()
             if capsLock {
-                capsLock = false; shifted = false
+                capsLock = false; shifted = false; manualShift = false
             } else if shifted, now.timeIntervalSince(shiftTapTime) < 0.35 {
-                capsLock = true
+                capsLock = true; manualShift = false
             } else {
-                shifted.toggle()
+                shifted.toggle(); manualShift = true
             }
             shiftTapTime = (shifted || capsLock) ? now : .distantPast
             listener?.onShiftChanged(shifted, capsLock)
@@ -596,12 +605,15 @@ final class KeyboardView: UIView {
             symbolLevel = (symbolLevel + 1) % 3
             rebuildKeys()
         case K.enter:
+            manualShift = false
             listener?.onEnter()
         case K.space:
+            manualShift = false
             listener?.onChar(" ")
         case K.globe:
             listener?.onSwitchIme()
         default:
+            manualShift = false
             listener?.onChar(currentLabel(key.spec).first!)
             if shifted, !capsLock {
                 shifted = false
@@ -613,7 +625,7 @@ final class KeyboardView: UIView {
 
     /// One-shot shift from the host (autocapitalization after ". " etc).
     func setAutoShift(_ on: Bool) {
-        guard !capsLock, shifted != on else { return }
+        guard !capsLock, !manualShift, shifted != on else { return }
         shifted = on
         updateToggleLabels()
         listener?.onShiftChanged(shifted, capsLock)

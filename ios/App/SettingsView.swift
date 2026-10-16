@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.keySpellCheck, store: Prefs.defaults) private var spellCheck = true
     @AppStorage(Prefs.keyMacro, store: Prefs.defaults) private var macro = true
     @AppStorage(Prefs.keyAutoNonVn, store: Prefs.defaults) private var autoNonVn = true
+    @AppStorage(Prefs.keyAutoCapitalize, store: Prefs.defaults) private var autoCapitalize = true
     @AppStorage(Prefs.keyDoubleSpace, store: Prefs.defaults) private var doubleSpace = true
     @AppStorage(Prefs.keyVietOn, store: Prefs.defaults) private var vietOnDefault = true
     @AppStorage(Prefs.keyNumberRow, store: Prefs.defaults) private var numberRow = false
@@ -63,6 +64,8 @@ struct SettingsView: View {
                         Toggle("Kiểm tra chính tả", isOn: $spellCheck)
                         Divider()
                         Toggle("Khôi phục từ ngoại ngữ", isOn: $autoNonVn)
+                        Divider()
+                        Toggle("Viết hoa kí tự đầu tiên", isOn: $autoCapitalize)
                         Divider()
                         Toggle("Hai lần Space → dấu chấm", isOn: $doubleSpace)
                     }
@@ -195,7 +198,7 @@ struct SettingsView: View {
     private func previewCard(title: String, subtitle: String, placeholder: String) -> some View {
         GlassCard(title, subtitle: subtitle) {
             TextField(placeholder, text: $preview)
-                .autocapitalization(.none)
+                .autocapitalization(.sentences)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)

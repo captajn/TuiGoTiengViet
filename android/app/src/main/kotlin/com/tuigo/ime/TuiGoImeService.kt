@@ -293,6 +293,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         expectedSel = if (selStart >= 0 && selEnd >= 0) minOf(selStart, selEnd) else selEnd
         if (expectedSel >= 0) ownSelEchoes.add(expectedSel)
         spacePending = false
+        keyboard.resetManualShift()
         updateAutoCapitalization()
         applySystemBarTheme()
     }
@@ -343,6 +344,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             spacePending = false
             ownSelEchoes.clear()
             expectedSel = minOf(newSelStart, newSelEnd)
+            if (::keyboard.isInitialized) keyboard.resetManualShift()
             return
         }
         if (newSelStart != expectedSel) {
@@ -353,12 +355,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             } else if (ownSelEchoes.remove(newSelStart)) {
                 // Intermediate echo of our own edit: keep expectedSel at the
                 // final position our pending edit will produce.
+                return
             } else {
                 // cursor was moved by the app/user, not by our commits
                 engine.resetBuf()
                 spacePending = false
                 ownSelEchoes.clear()
                 expectedSel = newSelStart
+                if (::keyboard.isInitialized) keyboard.resetManualShift()
             }
         }
         updateAutoCapitalization()
@@ -481,25 +485,35 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         scheduleAutoCapitalizationUpdate()
     }
 
+    private val autoCapRunnable = Runnable { updateAutoCapitalization() }
+
     override fun onShiftChanged(shifted: Boolean, capsLock: Boolean) {
+        mainHandler.removeCallbacks(autoCapRunnable)
         engine.shiftPressed = shifted
         engine.capsLockOn = capsLock
     }
 
     private fun scheduleAutoCapitalizationUpdate() {
-        mainHandler.post { updateAutoCapitalization() }
+        mainHandler.removeCallbacks(autoCapRunnable)
+        mainHandler.post(autoCapRunnable)
     }
 
     private fun updateAutoCapitalization() {
         if (!::keyboard.isInitialized || keyboard.capsLock) return
         val info = currentInputEditorInfo
-        val enabled = Prefs.autoCapitalize(this) && !isRestrictedField(info)
+        val enabled = Prefs.autoCapitalize(this) && isAutoCapField(info)
         val ic = currentInputConnection
         val capsMode = ic?.getCursorCapsMode(TextUtils.CAP_MODE_SENTENCES) ?: 0
-        val textBeforeCursor = ic?.getTextBeforeCursor(2, 0)?.toString().orEmpty()
-        val atTextOrLineStart = textBeforeCursor.isEmpty() || textBeforeCursor.endsWith('\n')
+        val textBeforeCursor = ic?.getTextBeforeCursor(4, 0)?.toString().orEmpty()
+        val atSentenceStart = textBeforeCursor.isEmpty() ||
+            textBeforeCursor.endsWith('\n') ||
+            textBeforeCursor.endsWith(". ") ||
+            textBeforeCursor.endsWith("? ") ||
+            textBeforeCursor.endsWith("! ") ||
+            textBeforeCursor.endsWith("… ") ||
+            TextUtils.getCapsMode(textBeforeCursor, textBeforeCursor.length, TextUtils.CAP_MODE_SENTENCES) != 0
         val shouldShift = enabled &&
-            (capsMode and TextUtils.CAP_MODE_SENTENCES != 0 || atTextOrLineStart)
+            (capsMode and TextUtils.CAP_MODE_SENTENCES != 0 || atSentenceStart)
         keyboard.setAutoShifted(shouldShift)
     }
 
@@ -804,6 +818,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             bumpExpected(cand.rawText.length)
         }
         renderSuggestionStrip()
+        scheduleAutoCapitalizationUpdate()
     }
 
     /** Paste chip for the freshest clip. In compact mode (inline-autofill
@@ -1125,6 +1140,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         ic.commitText(text, 1)
         bumpExpected(text.length)
         renderSuggestionStrip()
+        scheduleAutoCapitalizationUpdate()
     }
 
     private val inlineExecutor = Executor { it.run() }
@@ -1415,5 +1431,16 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (klass == InputType.TYPE_CLASS_PHONE || klass == InputType.TYPE_CLASS_NUMBER ||
             klass == InputType.TYPE_CLASS_DATETIME) return true
         return isPasswordField(info)
+    }
+
+    private fun isAutoCapField(info: EditorInfo?): Boolean {
+        if (isRestrictedField(info)) return false
+        val inputType = info?.inputType ?: return false
+        val klass = inputType and InputType.TYPE_MASK_CLASS
+        if (klass != InputType.TYPE_CLASS_TEXT) return false
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        return variation != InputType.TYPE_TEXT_VARIATION_URI &&
+            variation != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS &&
+            variation != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
     }
 }

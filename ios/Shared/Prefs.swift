@@ -18,6 +18,7 @@ enum Prefs {
     static let keyMacro = "macro"
     static let keyAutoNonVn = "auto_nonvn_restore"
     static let keyDoubleSpace = "double_space_period"
+    static let keyAutoCapitalize = "auto_capitalize"
     static let keyVietOn = "viet_on"
     static let keyNumberRow = "number_row"
     static let keyKeyHeight = "key_height"
@@ -70,6 +71,10 @@ enum Prefs {
 
     static func doubleSpacePeriod() -> Bool {
         defaults.object(forKey: keyDoubleSpace) as? Bool ?? true
+    }
+
+    static func autoCapitalize() -> Bool {
+        defaults.object(forKey: keyAutoCapitalize) as? Bool ?? true
     }
 
     // ---- per-app language memory ----------------------------------------------

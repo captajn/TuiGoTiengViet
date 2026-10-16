@@ -111,9 +111,14 @@ class KeyboardView @JvmOverloads constructor(
         private set
     var capsLock = false
         private set
+    private var manualShift = false
+
+    fun resetManualShift() {
+        manualShift = false
+    }
 
     fun setAutoShifted(enabled: Boolean) {
-        if (capsLock || shifted == enabled) return
+        if (capsLock || manualShift || shifted == enabled) return
         shifted = enabled
         listener?.onShiftChanged(shifted, false)
         invalidate()
@@ -346,6 +351,7 @@ class KeyboardView @JvmOverloads constructor(
         val alt = k.spec.longPressChar ?: return@Runnable
         pressed = null
         pressConsumed = true
+        manualShift = false
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         listener?.onChar(alt)
         invalidate()
@@ -721,6 +727,7 @@ class KeyboardView @JvmOverloads constructor(
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         playSoundEffect(SoundEffectConstants.CLICK)
         if (key.spec.code == K.DEL) {
+            manualShift = false
             listener?.onDelete()
             handler.postDelayed(repeatDelete, 400)
         }
@@ -751,6 +758,7 @@ class KeyboardView @JvmOverloads constructor(
             val dy = y - spaceDownY
             if (!spaceSliding && abs(dx) > spaceSwipeSlop && abs(dx) >= abs(dy)) {
                 spaceSliding = true
+                manualShift = false
                 handler.removeCallbacks(spaceLongPress)
                 invalidate()
             }
@@ -843,11 +851,11 @@ class KeyboardView @JvmOverloads constructor(
             K.SHIFT -> {
                 val now = SystemClock.uptimeMillis()
                 if (capsLock) {
-                    capsLock = false; shifted = false
+                    capsLock = false; shifted = false; manualShift = false
                 } else if (shifted && now - shiftTapTime < 350) {
-                    capsLock = true
+                    capsLock = true; manualShift = false
                 } else {
-                    shifted = !shifted
+                    shifted = !shifted; manualShift = true
                 }
                 shiftTapTime = if (shifted || capsLock) now else 0
                 listener?.onShiftChanged(shifted, capsLock)
@@ -866,11 +874,18 @@ class KeyboardView @JvmOverloads constructor(
                 rows = currentRows()
                 relayout()
             }
-            K.ENTER -> listener?.onEnter()
-            K.SPACE, K.NUM_SPACE -> listener?.onChar(' ')
+            K.ENTER -> {
+                manualShift = false
+                listener?.onEnter()
+            }
+            K.SPACE, K.NUM_SPACE -> {
+                manualShift = false
+                listener?.onChar(' ')
+            }
             K.HIDE -> listener?.onHideKeyboard()
             K.IME -> listener?.onSwitchIme()
             else -> {
+                manualShift = false
                 listener?.onChar(currentLabel(key.spec).first())
                 if (shifted && !capsLock) {
                     shifted = false

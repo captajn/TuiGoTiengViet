@@ -135,6 +135,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         engine.resetBuf()
         spacePending = false
         rememberTail()
+        keyboard.resetManualShift()
         updateAutoShift()
         recordClipboardIfChanged()
         refreshClipSuggestion()
@@ -719,12 +720,14 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
         if let sel = textDocumentProxy.selectedText, !sel.isEmpty {
             engine.resetBuf()
             spacePending = false
+            keyboard.resetManualShift()
             return
         }
         let ctx = textDocumentProxy.documentContextBeforeInput ?? ""
         if !ctx.hasSuffix(expectedTail) {
             engine.resetBuf()
             spacePending = false
+            keyboard.resetManualShift()
         }
     }
 
@@ -745,9 +748,12 @@ final class KeyboardViewController: UIInputViewController, KeyboardView.Listener
     /// Sentence-start detection for one-shot shift (autocapitalization).
     private func updateAutoShift() {
         let proxy = textDocumentProxy
-        guard proxy.autocapitalizationType == .sentences ||
-              proxy.autocapitalizationType == .allCharacters ||
-              proxy.autocapitalizationType == .words else {
+        let enabled = hasFullAccess ? Prefs.autoCapitalize() : (UserDefaults.standard.object(forKey: Prefs.keyAutoCapitalize) as? Bool ?? Prefs.autoCapitalize())
+        guard enabled, !isRestrictedField,
+              proxy.isSecureTextEntry != true,
+              proxy.keyboardType != .URL,
+              proxy.keyboardType != .emailAddress,
+              proxy.autocapitalizationType != UITextAutocapitalizationType.none else {
             keyboard.setAutoShift(false)
             return
         }
