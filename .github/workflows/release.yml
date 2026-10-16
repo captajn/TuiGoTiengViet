@@ -8,13 +8,13 @@ on:
         description: 'Target release'
         type: choice
         required: true
-        default: windows
+        default: desktop
         options:
-          - windows
+          - desktop
           - android
           - mobile
       tag:
-        description: 'Tag release (windows: v0.1.0 — mobile: mobile-v0.0.1 — android: mobile-v0.0.1 hoặc để trống)'
+        description: 'Tag release (desktop: v0.1.0 — mobile: mobile-v0.0.1 — android: mobile-v0.0.1 hoặc để trống)'
         required: false
 
 permissions:
@@ -32,9 +32,9 @@ jobs:
           tag='${{ github.event.inputs.tag }}'
           platform='${{ github.event.inputs.platform }}'
           case "$platform" in
-            windows)
+            desktop)
               if [ -z "$tag" ] || [[ "$tag" == mobile-v* ]]; then
-                echo "::error::Windows release needs a vX.Y.Z tag (got '${tag:-<empty>}')."
+                echo "::error::Desktop release needs a vX.Y.Z tag (got '${tag:-<empty>}')."
                 exit 1
               fi ;;
             mobile)
@@ -55,9 +55,9 @@ jobs:
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "OK: platform=$platform tag=${tag:-<auto>} source_commit=$ref"
 
-  build:
+  desktop-windows:
     needs: validate
-    if: ${{ github.event.inputs.platform == 'windows' }}
+    if: ${{ github.event.inputs.platform == 'desktop' }}
     runs-on: windows-latest
     defaults:
       run:
@@ -104,20 +104,71 @@ jobs:
           Compress-Archive -Path tuigo.exe, tuigo-updater.exe -DestinationPath tuigo-x64.zip -Force
           Compress-Archive -Path tuigo-arm64.exe, tuigo-updater-arm64.exe -DestinationPath tuigo-arm64.zip -Force
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Tui Gõ ${{ github.event.inputs.tag || github.ref_name }}
-          draft: false
-          generate_release_notes: true
-          files: |
+          name: desktop-windows
+          path: |
             app/tuigo-x64.zip
             app/tuigo-arm64.zip
             app/tuigo.exe
             app/tuigo-arm64.exe
             app/tuigo-updater.exe
             app/tuigo-updater-arm64.exe
+          if-no-files-found: error
+
+  desktop-fcitx5:
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'desktop' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fcitx5/go/go.mod
+      - name: Dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake g++ pkg-config rpm libfcitx5core-dev libfcitx5config-dev
+      - name: Build + test
+        run: |
+          cmake -S fcitx5 -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DTUIGO_VERSION='${{ github.event.inputs.tag }}'
+          cmake --build build -j
+          ctest --test-dir build --output-on-failure
+      - name: Package .deb + .rpm
+        run: |
+          cd build && cpack -G DEB && cpack -G RPM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-fcitx5
+          path: |
+            build/*.deb
+            build/*.rpm
+          if-no-files-found: error
+
+  desktop-release:
+    needs: [validate, desktop-windows, desktop-fcitx5]
+    if: ${{ github.event.inputs.platform == 'desktop' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: dist
+      - name: Verify desktop assets
+        run: |
+          test -s dist/tuigo-x64.zip
+          test -s dist/tuigo-arm64.zip
+          compgen -G 'dist/*.deb' > /dev/null
+          compgen -G 'dist/*.rpm' > /dev/null
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: Tui Gõ ${{ github.event.inputs.tag }}
+          draft: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/*
 
   apk:
     needs: validate
@@ -136,7 +187,9 @@ jobs:
           args=""
           [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
           echo "TAGARG=$args" >> "$GITHUB_ENV"
-          python3 -P scripts/mobile-release.py metadata $args
+          metadata=$(python3 -P scripts/mobile-release.py metadata $args)
+          echo "$metadata"
+          echo "TUIGO_VERSION=$(printf '%s' "$metadata" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')" >> "$GITHUB_ENV"
           python3 -P scripts/check-palette.py
       - uses: actions/setup-java@v4
         with:
@@ -164,9 +217,9 @@ jobs:
         run: |
           chmod +x gradlew
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            ./gradlew :engine:test :app:assembleRelease :app:lintRelease --console=plain
+            ./gradlew -PtuigoVersion="$TUIGO_VERSION" :engine:test :app:assembleRelease :app:lintRelease --console=plain
           else
-            ./gradlew :engine:test :app:assembleDebug :app:lintDebug --console=plain
+            ./gradlew -PtuigoVersion="$TUIGO_VERSION" :engine:test :app:assembleDebug :app:lintDebug --console=plain
           fi
       - name: Package exact APK variant
         run: |
@@ -203,13 +256,17 @@ jobs:
           args=""
           [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
           echo "TAGARG=$args" >> "$GITHUB_ENV"
-          python3 -P scripts/mobile-release.py metadata $args
+          metadata=$(python3 -P scripts/mobile-release.py metadata $args)
+          echo "$metadata"
+          echo "TUIGO_VERSION=$(printf '%s' "$metadata" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')" >> "$GITHUB_ENV"
       - name: Verify palette, engine and simulator build
         run: |
           brew install xcodegen
-          sh scripts/check-ios.sh
+          TUIGO_VERSION="$TUIGO_VERSION" sh scripts/check-ios.sh
       - name: Build app + keyboard extension (unsigned, device)
         working-directory: ios
+        env:
+          TUIGO_VERSION: ${{ env.TUIGO_VERSION }}
         run: >-
           xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
           -destination 'generic/platform=iOS' -configuration Release

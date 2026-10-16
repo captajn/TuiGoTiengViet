@@ -1,0 +1,17 @@
+[Addon]
+Name=Tui Go For Fcitx5
+Category=InputMethod
+Version=0.0.9
+Enabled=True
+Library=libtuigo
+Type=SharedLibrary
+OnDemand=True
+Configurable=False
+[Addon/Dependencies]
+0=core:5.0.0
+[InputMethod]
+Name=Tui Gõ
+Icon=fcitx-tuigo-vi
+LangCode=vi
+Addon=tuigo
+Configurable=False

@@ -22,7 +22,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 15
-        versionName = "0.1.5"
+        versionName = providers.gradleProperty("tuigoVersion").orElse("0.1.5").get()
         testInstrumentationRunner = "com.tuigo.MobileSmokeTest"
     }
 

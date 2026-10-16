@@ -31,7 +31,7 @@ Windows có app portable; Android và iOS có app cài đặt cùng bàn phím; 
 | Android | App cài đặt + InputMethodService | Android 8.0+; JDK 17, Android SDK khi build |
 | iOS / iPadOS | App cài đặt + Keyboard Extension | iOS 15+; macOS, Xcode và XcodeGen khi build |
 | macOS | InputMethodKit + cài đặt SwiftUI | macOS 12+; Xcode và XcodeGen khi build |
-| Linux | Engine IBus + cài đặt Fyne | IBus; Go 1.23+ và thư viện GL/X11 khi build GUI |
+| Linux | Engine IBus hoặc addon fcitx5 (Sen, không preedit) + cài đặt Fyne | IBus hoặc fcitx5; Go 1.23+ và thư viện GL/X11 khi build GUI |
 
 [Bản phát hành](https://github.com/captajn/TuiGoTiengViet/releases) · [Build trên GitHub Actions](https://github.com/captajn/TuiGoTiengViet/actions)
 
@@ -43,7 +43,7 @@ Source có đủ năm nền tảng. Bản tải sẵn, chữ ký và kết quả
 - **Gõ tắt (macro)** lưu cục bộ; Backspace hoàn tác theo engine.
 - **Windows:** thêm Telex đơn giản, Telex + VNI, MS-VI và keymap tùy chỉnh; Unicode/TCVN3, SendInput/Clipboard, ứng dụng loại trừ, phím tắt, khay hệ thống, HUD và giao diện sáng/tối.
 - **Android/iOS:** ba kiểu gõ Telex/VNI/VIQR, theme, hàng số, tùy chọn gợi ý dán nhanh từ bộ nhớ tạm, điều chỉnh kích thước/khoảng cách phím và màn hình quản lý macro. Vuốt ngang Space để di chuyển con trỏ; giữ Space để mở menu ngôn ngữ/kiểu gõ/chuyển bàn phím.
-- **macOS/Linux:** chọn kiểu gõ trong cài đặt, bật/tắt tiếng Việt bằng menu hoặc phím tắt. Từ đang soạn được giữ trong marked text/preedit cho đến ranh giới từ.
+- **macOS/Linux:** chọn kiểu gõ trong cài đặt, bật/tắt tiếng Việt bằng menu hoặc phím tắt. Từ đang soạn được giữ trong marked text/preedit cho đến ranh giới từ. Linux có thêm addon **fcitx5** (`fcitx5/`, chế độ Sen kiểu Gõ Sen của Ngó Sen): chữ commit ngay khi gõ, không preedit, sửa dấu bằng xóa chữ đã commit rồi commit lại.
 
 ### Gõ tắt
 

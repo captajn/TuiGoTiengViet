@@ -154,6 +154,16 @@ class EngineTest {
     }
 
     @Test
+    fun autoCapWStaysLatin() {
+        val e = newEngine(defaultOpts)
+        e.shiftPressed = true
+        e.autoCapShifted = true
+        val d = DocSim()
+        d.feed(e, 'W')
+        assertEquals("W", d.toString())
+    }
+
+    @Test
     fun vni() {
         val e = newEngine(defaultOpts)
         e.setInputMethod(ImVni)

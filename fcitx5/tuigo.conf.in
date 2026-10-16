@@ -1,0 +1,6 @@
+[InputMethod]
+Name=Tui Gõ
+Icon=fcitx-tuigo-vi
+LangCode=vi
+Addon=tuigo
+Configurable=False

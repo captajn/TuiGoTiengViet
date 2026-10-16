@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import androidx.core.view.WindowCompat
 import android.widget.*
 
 /** Lightweight translucent surfaces; no blur/render pass in the IME. */
@@ -440,7 +441,7 @@ class MobileUi(private val context: Context) {
             }
         }
         if (Build.VERSION.SDK_INT >= 30) {
-            activity.window.setDecorFitsSystemWindows(false)
+            WindowCompat.setDecorFitsSystemWindows(activity.window, false)
             val appearance = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
             activity.window.insetsController?.setSystemBarsAppearance(if (UiTheme.isDark(context)) 0 else appearance, appearance)
         } else {

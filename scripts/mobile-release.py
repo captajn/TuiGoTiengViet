@@ -13,13 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def metadata(tag=None):
-    android = re.search(r'versionName\s*=\s*"([^"]+)"', (ROOT / 'android/app/build.gradle.kts').read_text()).group(1)
+    android_text = (ROOT / 'android/app/build.gradle.kts').read_text()
+    android_match = re.search(r'versionName\s*=.*?orElse\("([^"]+)"\)', android_text)
+    android = android_match.group(1) if android_match else re.search(r'versionName\s*=\s*"([^"]+)"', android_text).group(1)
     ios = re.search(r'MARKETING_VERSION:\s*"([^"]+)"', (ROOT / 'ios/project.yml').read_text()).group(1)
-    if android != ios or not re.fullmatch(r'\d+\.\d+\.\d+', android):
+    if not re.fullmatch(r'\d+\.\d+\.\d+', android) or ios != '$(TUIGO_VERSION)':
         raise ValueError('Android/iOS versions must match and use major.minor.patch')
-    if tag and tag != f'mobile-v{android}':
-        raise ValueError(f'Tag {tag!r} does not match mobile version {android}')
-    return dict(version=android, apk_name=f'tuigo-v{android}.apk', ipa_name=f'tuigo-v{android}.ipa', release_name=f'Tui Gõ Mobile v{android}')
+    version = tag.removeprefix('mobile-v') if tag else '0.1.5'
+    if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+        raise ValueError(f'Mobile version must use major.minor.patch (got {version!r})')
+    return dict(version=version, apk_name=f'tuigo-v{version}.apk', ipa_name=f'tuigo-v{version}.ipa', release_name=f'Tui Gõ Mobile v{version}')
 
 
 def check_ipa(path, version):

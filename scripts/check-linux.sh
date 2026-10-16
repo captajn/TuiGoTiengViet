@@ -49,4 +49,14 @@ else
   echo "check-linux: SKIP ibus e2e (ibus-daemon/xvfb/python-gi missing)"
 fi
 
+# fcitx5 addon (Sen mode) — builds when fcitx5 dev files exist; the Sen
+# machine + test build regardless, the addon target skips without them.
+if command -v cmake >/dev/null && pkg-config --exists fcitx5core 2>/dev/null; then
+  cmake -S "$repo/fcitx5" -B "$repo/fcitx5/build" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$repo/fcitx5/build" -j
+  (cd "$repo/fcitx5/build" && ctest --output-on-failure)
+else
+  echo "check-linux: SKIP fcitx5 addon (fcitx5 dev files not installed)"
+fi
+
 echo "check-linux: PASS"

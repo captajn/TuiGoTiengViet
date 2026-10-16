@@ -491,6 +491,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         mainHandler.removeCallbacks(autoCapRunnable)
         engine.shiftPressed = shifted
         engine.capsLockOn = capsLock
+        engine.autoCapShifted = false
     }
 
     private fun scheduleAutoCapitalizationUpdate() {
@@ -515,6 +516,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val shouldShift = enabled &&
             (capsMode and TextUtils.CAP_MODE_SENTENCES != 0 || atSentenceStart)
         keyboard.setAutoShifted(shouldShift)
+        engine.autoCapShifted = shouldShift
     }
 
     override fun onVietToggle() {

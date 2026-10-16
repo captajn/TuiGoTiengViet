@@ -87,6 +87,7 @@ class Engine {
     // keyboard state (replaces m_keyCheckFunc)
     var shiftPressed = false
     var capsLockOn = false
+    var autoCapShifted = false
 
     private val out = ArrayList<Char>(MaxUkEngine)
 
@@ -805,6 +806,11 @@ class Engine {
 
     // ----------------------------------------------------------
     private fun processTelexW(ev: KeyEvent): Int {
+        if (autoCapShifted && shiftPressed && isUpper(ev.keyCode and 0xFF) && atWordBeginning()) {
+            autoCapShifted = false
+            ev.evType = VneNormal
+            return processAppend(ev)
+        }
         if (!vietKey) {
             return processAppend(ev)
         }
@@ -1314,6 +1320,7 @@ class Engine {
                 keyStrokes[keyCurrent].converted = ret != 0 && !keyRestored
             }
         }
+        autoCapShifted = false
 
         val res = Result()
         res.keyOut = outType == OutKey
