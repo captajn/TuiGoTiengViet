@@ -53,10 +53,12 @@ extension Engine {
     // UTF-8 macro file; lines "key:text", ';' comments,
     // header ";[DO NOT DELETE THIS LINE]***version=n" tolerated.
     func loadMacroFileImpl(_ fname: String) -> Bool {
+        // Clear before the early return: a removed/unreadable file must not
+        // leave the previous macro list active (reloaded on activation).
+        macStore.items.removeAll()
         guard let raw = try? String(contentsOfFile: fname, encoding: .utf8) else {
             return false
         }
-        macStore.items.removeAll()
         for var line in raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
             // strip UTF-8 BOM on first line if present
             if line.hasPrefix("\u{FEFF}") { line.removeFirst() }

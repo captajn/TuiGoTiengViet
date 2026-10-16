@@ -32,12 +32,10 @@ if command -v ibus-daemon >/dev/null && command -v xvfb-run >/dev/null \
    'import gi; gi.require_version("IBus","1.0")' 2>/dev/null; then
   cp data/logo.jpg dist/logo.jpg
   xvfb-run -a dbus-run-session -- sh -c '
+    export XDG_CONFIG_HOME="$(mktemp -d)"   # keep e2e macro/ini writes out of the real config
     mkdir -p "$HOME/.local/share/ibus/component"
     sed "s|@PREFIX@|'"$repo"'/linux/dist|g" data/tuigo.xml \
       > "$HOME/.local/share/ibus/component/tuigo.xml"
-    if command -v sudo >/dev/null; then
-      sudo cp "$HOME/.local/share/ibus/component/tuigo.xml" /usr/share/ibus/component/
-    fi
     ibus-daemon -rv &
     sleep 3
     ibus list-engine 2>/dev/null | grep -i tuigo || echo "no tuigo engine listed"

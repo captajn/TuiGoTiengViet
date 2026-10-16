@@ -25,15 +25,20 @@ if command -v go >/dev/null 2>&1; then
 	echo "==> building tuigo-ibus"
 	go build -trimpath -ldflags "-s -w" -o dist/tuigo-ibus ./cmd/tuigo-ibus
 	echo "==> building tuigo-settings"
-	(cd settings && go build -trimpath -ldflags "-s -w" -o ../dist/tuigo-settings .)
+	(cd settings && go build -trimpath -ldflags "-s -w" -o ../dist/tuigo-settings .) ||
+		echo "warn: tuigo-settings build failed (missing GL headers?) — installing without the settings GUI"
 else
 	echo "==> go not found; using prebuilt binaries in ./dist"
 fi
 test -x dist/tuigo-ibus || { echo "missing dist/tuigo-ibus"; exit 1; }
 
 $SUDO mkdir -p "$PREFIX" "$COMPONENT_DIR"
-$SUDO cp dist/tuigo-ibus "$PREFIX/tuigo-ibus"
-if [ -x dist/tuigo-settings ]; then $SUDO cp dist/tuigo-settings "$PREFIX/tuigo-settings"; fi
+# install via rename: cp over a running binary fails with ETXTBSY, mv
+# replaces it cleanly on the next upgrade
+$SUDO cp dist/tuigo-ibus "$PREFIX/tuigo-ibus.new" && $SUDO mv -f "$PREFIX/tuigo-ibus.new" "$PREFIX/tuigo-ibus"
+if [ -x dist/tuigo-settings ]; then
+	$SUDO cp dist/tuigo-settings "$PREFIX/tuigo-settings.new" && $SUDO mv -f "$PREFIX/tuigo-settings.new" "$PREFIX/tuigo-settings"
+fi
 $SUDO cp data/logo.jpg "$PREFIX/logo.jpg"
 sed "s|@PREFIX@|$PREFIX|g" data/tuigo.xml | $SUDO tee "$COMPONENT_DIR/tuigo.xml" >/dev/null
 

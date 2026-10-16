@@ -45,13 +45,16 @@ func (m *macroStore) addItem(item string) bool {
 // loadFromFile: UTF-8 macro file; lines "key:text", ';' comments,
 // header ";[DO NOT DELETE THIS LINE]***version=n" tolerated.
 func (e *Engine) loadMacroFile(fname string) bool {
+	// Clear first. The IME reloads macro.txt on every activation, and a
+	// removed, renamed or unreadable file must leave no stale macros —
+	// returning early before the reset kept the previous list alive.
+	e.macStore.items = make(map[string][]StdVnChar)
+
 	f, err := os.Open(fname)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
-
-	e.macStore.items = make(map[string][]StdVnChar)
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024)

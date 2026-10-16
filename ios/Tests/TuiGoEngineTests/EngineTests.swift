@@ -265,6 +265,20 @@ final class EngineTests: XCTestCase {
         XCTAssertNil(macroValidationError("abcdefghijklmno:x"))
     }
 
+    func testMacroFileRemovedClearsList() {
+        // Reload on activation: a removed file must drop the previous list
+        // instead of keeping stale expansions (Settings -> delete macro.txt).
+        let opts = Options(); opts.macroEnabled = 1
+        let e = newEngine(opts)
+        let path = NSTemporaryDirectory() + "tuigo-macro-\(UUID().uuidString).txt"
+        try! "ko:không\n".write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertTrue(e.loadMacroFile(path))
+        try! FileManager.default.removeItem(atPath: path)
+        XCTAssertFalse(e.loadMacroFile(path))
+        let d = DocSim(); d.typeKeys(e, "ko ")
+        XCTAssertEqual(d.string, "ko ")
+    }
+
     func testViqr() {
         let e = newEngine(defaultOpts())
         e.setInputMethod(ImViqr)

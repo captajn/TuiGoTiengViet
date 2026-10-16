@@ -218,3 +218,137 @@ func TestAutoCap(t *testing.T) {
 		t.Fatalf("autocap document = %q, want %q", got, "ok. Ban")
 	}
 }
+
+// TestMacroClearedWhenFileRemoved: the IME reloads macro.txt on every
+// activation, so an emptied or removed file must drop the previous list
+// instead of keeping stale expansions.
+func TestMacroClearedWhenFileRemoved(t *testing.T) {
+	dir := t.TempDir()
+	mp := filepath.Join(dir, "macro.txt")
+	if err := os.WriteFile(mp, []byte("ko:không\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	eng := engine.New()
+	if !eng.LoadMacroFile(mp) {
+		t.Fatal("initial LoadMacroFile failed")
+	}
+
+	// simulate Settings -> edit macro to an empty list, then remove it
+	if err := os.Remove(mp); err != nil {
+		t.Fatal(err)
+	}
+	if eng.LoadMacroFile(mp) {
+		t.Fatal("LoadMacroFile must report failure for a missing file")
+	}
+
+	s := New(eng, true)
+	var d doc
+	feedString(&d, s, "ko")
+	a := d.feed(s, ' ')
+	if !a.Forward {
+		t.Fatal("macro must be gone after the file was removed")
+	}
+	if got := d.visible(); got != "ko " {
+		t.Fatalf("document = %q, want %q", got, "ko ")
+	}
+}
+
+// TestMacroClearedWhenFileEmptied covers the same reload path with an
+// existing but empty file (Settings -> clear the macro box -> Save).
+func TestMacroClearedWhenFileEmptied(t *testing.T) {
+	dir := t.TempDir()
+	mp := filepath.Join(dir, "macro.txt")
+	if err := os.WriteFile(mp, []byte("ko:không\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	eng := engine.New()
+	if !eng.LoadMacroFile(mp) {
+		t.Fatal("initial LoadMacroFile failed")
+	}
+	if err := os.WriteFile(mp, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if !eng.LoadMacroFile(mp) {
+		t.Fatal("LoadMacroFile failed on an empty file")
+	}
+
+	s := New(eng, true)
+	var d doc
+	feedString(&d, s, "ko")
+	if a := d.feed(s, ' '); !a.Forward {
+		t.Fatal("macro must be gone after the file was emptied")
+	}
+}
+
+// TestAstralCodepointStaysInPreedit (N4): a codepoint above the BMP is
+// encoded as a UTF-16 surrogate pair in the model — uint16(ch) silently
+// truncated it.
+func TestAstralCodepointStaysInPreedit(t *testing.T) {
+	s := newSession(t, true)
+	var d doc
+	d.feed(s, 'a')
+	a := d.feed(s, 0x1F600) // U+1F600 -> D83D DE00
+	want := []uint16{'a', 0xD83D, 0xDE00}
+	if len(a.Preedit) != len(want) {
+		t.Fatalf("preedit = %v, want %v", a.Preedit, want)
+	}
+	for i := range want {
+		if a.Preedit[i] != want[i] {
+			t.Fatalf("preedit = %v, want %v", a.Preedit, want)
+		}
+	}
+	d.feed(s, ' ')
+	if got := d.visible(); got != "a\U0001F600 " {
+		t.Fatalf("document = %q, want %q", got, "a\U0001F600 ")
+	}
+}
+
+// TestAlwaysMacroExpandsInEnglish (N5): with "Gõ tắt cả khi tắt Tiếng
+// Việt" on, macros expand even in English mode — the word still lives in
+// preedit because the host cannot edit committed text.
+func TestAlwaysMacroExpandsInEnglish(t *testing.T) {
+	dir := t.TempDir()
+	mp := filepath.Join(dir, "macro.txt")
+	if err := os.WriteFile(mp, []byte("ko:không\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	eng := engine.New()
+	if !eng.LoadMacroFile(mp) {
+		t.Fatal("LoadMacroFile failed")
+	}
+	s := New(eng, false) // English mode
+	s.AlwaysMacro = true
+
+	var d doc
+	feedString(&d, s, "ko")
+	d.feed(s, ' ')
+	if got := d.visible(); got != "không " {
+		t.Fatalf("document = %q, want %q", got, "không ")
+	}
+}
+
+// TestEnglishWithoutAlwaysMacroForwards (N5): the default stays pure
+// pass-through in English mode — keys reach the app immediately and the
+// macro does not expand.
+func TestEnglishWithoutAlwaysMacroForwards(t *testing.T) {
+	dir := t.TempDir()
+	mp := filepath.Join(dir, "macro.txt")
+	if err := os.WriteFile(mp, []byte("ko:không\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	eng := engine.New()
+	if !eng.LoadMacroFile(mp) {
+		t.Fatal("LoadMacroFile failed")
+	}
+	s := New(eng, false)
+
+	var d doc
+	a := d.feed(s, 'k')
+	if !a.Forward {
+		t.Fatal("English mode must forward keys immediately")
+	}
+	feedString(&d, s, "o ")
+	if got := d.visible(); got != "ko " {
+		t.Fatalf("document = %q, want %q", got, "ko ")
+	}
+}

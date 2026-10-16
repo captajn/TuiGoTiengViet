@@ -138,7 +138,45 @@ func writeIniAtomic(path, content string) error {
 }
 
 func saveSettingsTo(path string) error {
-	return writeIniAtomic(path, formatSettingsIni())
+	existing, _ := os.ReadFile(path)
+	return writeIniAtomic(path, mergeIniPreserve(string(existing), formatSettingsIni()))
+}
+
+// mergeIniPreserve keeps lines whose keys this build does not write (e.g.
+// Linux-owned ToggleKeyNames in a tuigo.ini shared between platforms) plus
+// comments, so saving on one platform never wipes the other's settings.
+// AppMode.* is fully managed — stale entries are dropped and rewritten.
+func mergeIniPreserve(existing, generated string) string {
+	written := map[string]bool{}
+	for _, line := range strings.Split(generated, "\n") {
+		if k, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			written[strings.TrimSpace(k)] = true
+		}
+	}
+	var preserved []string
+	for _, line := range strings.Split(existing, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || t[0] == '[' {
+			continue // section headers are cosmetic; generated writes its own
+		}
+		if t[0] == ';' || t[0] == '#' {
+			preserved = append(preserved, line)
+			continue
+		}
+		if k, _, ok := strings.Cut(t, "="); ok {
+			key := strings.TrimSpace(k)
+			if written[key] || strings.HasPrefix(key, "AppMode.") {
+				continue
+			}
+			preserved = append(preserved, line)
+		}
+	}
+	if len(preserved) == 0 {
+		return generated
+	}
+	// splice preserved lines directly under the [TuiGo] header
+	lines := strings.SplitN(generated, "\n", 2)
+	return lines[0] + "\n" + strings.Join(preserved, "\n") + "\n" + lines[1]
 }
 
 func loadRememberedAppModes(vals map[string]string) {

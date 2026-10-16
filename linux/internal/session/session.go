@@ -10,7 +10,11 @@
 // whole word is still editable.
 package session
 
-import "tuigo/engine"
+import (
+	"unicode/utf16"
+
+	"tuigo/engine"
+)
 
 // Action is the full list of things the host must do after one key event,
 // in order:
@@ -29,7 +33,12 @@ type Session struct {
 	model   []uint16 // rendered form of the current composing word
 	viet    bool
 	AutoCap bool // capitalise the first letter after ". ", "! ", "? "
-	capNext bool
+	// AlwaysMacro ("Gõ tắt cả khi tắt Tiếng Việt") routes typing through
+	// the engine even in English mode so macros can expand. The word still
+	// lives in preedit — hosts cannot edit committed text — but without
+	// Vietnamese transformations since the engine is in pass-through mode.
+	AlwaysMacro bool
+	capNext     bool
 }
 
 // New creates a session. viet=false means English pass-through mode.
@@ -52,7 +61,7 @@ func (s *Session) SetViet(v bool) Action {
 // Feed processes one printable character (ASCII 0x20–0x7E, or a Unicode
 // codepoint for precomposed input). Returns the Action to perform.
 func (s *Session) Feed(ch uint32) Action {
-	if !s.viet {
+	if !s.viet && !s.AlwaysMacro {
 		return s.forward()
 	}
 
@@ -86,14 +95,15 @@ func (s *Session) Feed(ch uint32) Action {
 	// Engine recorded the char but passed it through (e.g. the first
 	// letter of a word, or a non-letter mid-word). Swallow it into the
 	// preedit — forwarding it would commit text the engine may still
-	// rewrite at word end (macro, non-Vn restore).
-	s.model = append(s.model, uint16(ch))
+	// rewrite at word end (macro, non-Vn restore). Codepoints above the
+	// BMP become UTF-16 surrogate pairs (N4).
+	s.model = append(s.model, utf16.Encode([]rune{rune(ch)})...)
 	return Action{Preedit: append([]uint16(nil), s.model...)}
 }
 
 // Backspace forwards one delete press through the engine.
 func (s *Session) Backspace() Action {
-	if !s.viet {
+	if !s.viet && !s.AlwaysMacro {
 		return s.forward()
 	}
 	res := s.eng.Backspace()

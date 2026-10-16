@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"unicode/utf16"
 )
@@ -192,6 +194,30 @@ func TestVni(t *testing.T) {
 	}
 }
 
+// TestViqrWord documents the VIQR sequence used by the Linux e2e suite
+// (G6): "^" adds the roof, "." the dot-below tone.
+func TestViqrWord(t *testing.T) {
+	e := newEngine(defaultOpts)
+	e.SetInputMethod(ImViqr)
+	d := &docSim{}
+	d.typeKeys(e, "vie^.t ")
+	if got := d.String(); got != "việt " {
+		t.Errorf("viqr: got %q, want %q", got, "việt ")
+	}
+}
+
+// TestVniWord documents the VNI sequence used by the Linux e2e suite
+// (G6): "6" adds the roof, "5" the dot-below tone.
+func TestVniWord(t *testing.T) {
+	e := newEngine(defaultOpts)
+	e.SetInputMethod(ImVni)
+	d := &docSim{}
+	d.typeKeys(e, "vie65t ")
+	if got := d.String(); got != "việt " {
+		t.Errorf("vni: got %q, want %q", got, "việt ")
+	}
+}
+
 func TestBackspaceToneMove(t *testing.T) {
 	// "toanf" -> "toàn"; backspace removes 'n' -> tone moves to 'o'
 	e := newEngine(defaultOpts)
@@ -283,6 +309,55 @@ func TestMacro(t *testing.T) {
 	d.typeKeys(e, "vn ")
 	if got := d.String(); got != "Viet Nam " {
 		t.Errorf("macro: got %q, want %q", got, "Viet Nam ")
+	}
+}
+
+// TestMacroFileRemovedClearsList (PLAN G1): the IME reloads macro.txt on
+// every activation — a removed or unreadable file must drop the previous
+// list instead of keeping stale expansions.
+func TestMacroFileRemovedClearsList(t *testing.T) {
+	e := newEngine(&Options{MacroEnabled: 1})
+	path := filepath.Join(t.TempDir(), "macro.txt")
+	if err := os.WriteFile(path, []byte("ko:không\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if !e.LoadMacroFile(path) {
+		t.Fatal("LoadMacroFile failed")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if e.LoadMacroFile(path) {
+		t.Fatal("LoadMacroFile must report failure for a missing file")
+	}
+	d := &docSim{}
+	d.typeKeys(e, "ko ")
+	if got := d.String(); got != "ko " {
+		t.Fatalf("stale macro survived a removed file: got %q, want %q", got, "ko ")
+	}
+}
+
+// TestMacroFileEmptiedClearsList covers the same reload path with an
+// existing but empty file (Settings -> clear the macro box -> Save).
+func TestMacroFileEmptiedClearsList(t *testing.T) {
+	e := newEngine(&Options{MacroEnabled: 1})
+	path := filepath.Join(t.TempDir(), "macro.txt")
+	if err := os.WriteFile(path, []byte("ko:không\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if !e.LoadMacroFile(path) {
+		t.Fatal("LoadMacroFile failed")
+	}
+	if err := os.WriteFile(path, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if !e.LoadMacroFile(path) {
+		t.Fatal("LoadMacroFile failed on an empty file")
+	}
+	d := &docSim{}
+	d.typeKeys(e, "ko ")
+	if got := d.String(); got != "ko " {
+		t.Fatalf("stale macro survived an emptied file: got %q, want %q", got, "ko ")
 	}
 }
 
