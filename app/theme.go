@@ -49,6 +49,68 @@ type palette struct {
 	aSwitchOn, aSwitchOff, aKeycap                       uint32
 }
 
+// Cơ bản — plain flat theme: solid surfaces, no gradient blooms, no glass
+// translucency. Neutral Windows grays with the jade brand accent.
+var palBasicDark = palette{
+	bg:          0x202020, // #202020
+	card:        0x383838, // #383838 — matches Win32 dark-combo face tone
+	border:      0x4A4A4A, // #4A4A4A
+	text:        0xF0F0F0, // #F0F0F0
+	gold:        0xB8D33E, // #3ED3B8
+	amber:       0xB8D33E, // #3ED3B8
+	jade:        0xB8D33E, // #3ED3B8
+	vermilion:   0x4444EF, // #EF4444
+	muted:       0xA0A0A0, // #A0A0A0
+	pill:        0x4A4A4A, // #4A4A4A
+	goldDim:     0x404040, // #404040
+	btnBg:       0x333333, // #333333
+	btnHover:    0x3D3D3D, // #3D3D3D
+	btnBorder:   0x4A4A4A, // #4A4A4A
+	btnText:     0xF0F0F0, // #F0F0F0
+	navActiveBg: 0x383838, // #383838
+	navActiveBd: 0xB8D33E, // #3ED3B8
+
+	aBg:        0xFF202020,
+	aCard:      0xFF383838,
+	aBorder:    0xFF4A4A4A,
+	aText:      0xFFF0F0F0,
+	aMuted:     0xFFA0A0A0,
+	aAccent:    0xFF3ED3B8,
+	aSwitchOn:  0xFF3ED3B8,
+	aSwitchOff: 0xFF4A4A4A,
+	aKeycap:    0xFF333333,
+}
+
+var palBasicLight = palette{
+	bg:          0xF3F3F3, // #F3F3F3
+	card:        0xFFFFFF, // #FFFFFF
+	border:      0xD9D9D9, // #D9D9D9
+	text:        0x1B1B1B, // #1B1B1B
+	gold:        0x647F19, // #197F64
+	amber:       0x647F19, // #197F64
+	jade:        0x647F19, // #197F64
+	vermilion:   0x2626DC, // #DC2626
+	muted:       0x6B6B6B, // #6B6B6B
+	pill:        0xD1D1D1, // #D1D1D1
+	goldDim:     0xE0E0E0, // #E0E0E0
+	btnBg:       0xFFFFFF, // #FFFFFF
+	btnHover:    0xF0F0F0, // #F0F0F0
+	btnBorder:   0xD1D1D1, // #D1D1D1
+	btnText:     0x1B1B1B, // #1B1B1B
+	navActiveBg: 0xE0E0E0, // #E0E0E0
+	navActiveBd: 0x647F19, // #197F64
+
+	aBg:        0xFFF3F3F3,
+	aCard:      0xFFFFFFFF,
+	aBorder:    0xFFD9D9D9,
+	aText:      0xFF1B1B1B,
+	aMuted:     0xFF6B6B6B,
+	aAccent:    0xFF197F64,
+	aSwitchOn:  0xFF197F64,
+	aSwitchOff: 0xFFD1D1D1,
+	aKeycap:    0xFFF0F0F0,
+}
+
 // Minimal Obsidian / Deep Zinc Dark Mode (Liquid Glass với tông xanh lá ngọc bích theo logo)
 var palDark = palette{
 	bg:          0x15110F, // #0F1115
@@ -373,7 +435,8 @@ const (
 )
 
 const (
-	styleJade = iota
+	styleBasic = iota
+	styleJade
 	styleIosPure
 	styleCyberNeon
 	styleMatchaLatte
@@ -415,6 +478,11 @@ func isDark() bool {
 func curPalette() palette {
 	dark := isDark()
 	switch cfg.Style {
+	case styleBasic:
+		if dark {
+			return palBasicDark
+		}
+		return palBasicLight
 	case styleIosPure:
 		if dark {
 			return palIosDark
@@ -467,6 +535,15 @@ func applyTheme() {
 	argbBg, argbCard, argbBorder = p.aBg, p.aCard, p.aBorder
 	argbText, argbMuted, argbAccent = p.aText, p.aMuted, p.aAccent
 	argbSwitchOn, argbSwitchOff, argbKeycap = p.aSwitchOn, p.aSwitchOff, p.aKeycap
+
+	// Cơ bản lets the user recolor the accent (Giao diện → Màu nền).
+	if cfg.Style == styleBasic && cfg.Accent >= 0 {
+		rgb := cfg.Accent
+		c := uintptr(rgb&0xFF)<<16 | uintptr(rgb&0xFF00) | uintptr((rgb>>16)&0xFF)
+		colGold, colAmber, colJade = c, c, c
+		argbAccent = 0xFF000000 | uint32(rgb)
+		argbSwitchOn = argbAccent
+	}
 
 	// clean up existing brushes/pens
 	deleteGdiObj(&brBg)

@@ -7,18 +7,42 @@ import (
 	"unsafe"
 )
 
-// trayBadgeColors shares the HUD's jade accent. English is an outlined neutral
-// keycap, so shape and letter distinguish the modes even without color.
-func trayBadgeColors(on bool, p palette) (fill, ink, border uintptr) {
+// rgb2ref converts a stored 0xRRGGBB to a COLORREF (0x00BBGGRR).
+func rgb2ref(rgb int) uintptr {
+	return uintptr(rgb&0xFF)<<16 | uintptr(rgb&0xFF00) | uintptr((rgb>>16)&0xFF)
+}
+
+// Tray icon colors are fixed — jade badge + white V, outlined neutral E —
+// so the badge stays recognizable whatever UI theme is active.
+// cfg.Tray*/Tray*Bg (-1 = unset) are the user's overrides from Settings.
+const (
+	trayDefV    = 0xFFFFFF // V letter: white
+	trayDefVBg  = 0x197F64 // V badge: deep jade
+	trayDefE    = 0x94A3B8 // E glyph: muted slate
+	trayDefEBg  = 0x1E293B // E badge: dark slate keycap
+	trayDefERim = 0x94A3B8
+)
+
+func trayBadgeColors(on bool, _ palette) (fill, ink, border uintptr) {
 	if on {
-		ink = palDark.bg
-		if p.bg == palLight.bg || p.bg == palIosLight.bg || p.bg == palIosDark.bg ||
-			p.bg == palMatchaLight.bg || p.bg == palCyberLight.bg || p.bg == palMaterialLight.bg {
-			ink = palLight.card
+		fill, ink = rgb2ref(trayDefVBg), rgb2ref(trayDefV)
+		if cfg.TrayVBg >= 0 {
+			fill = rgb2ref(cfg.TrayVBg)
 		}
-		return p.jade, ink, p.jade
+		if cfg.TrayV >= 0 {
+			ink = rgb2ref(cfg.TrayV)
+		}
+		return fill, ink, fill
 	}
-	return p.bg, p.text, p.muted
+	fill, ink, border = rgb2ref(trayDefEBg), rgb2ref(trayDefE), rgb2ref(trayDefERim)
+	if cfg.TrayEBg >= 0 {
+		fill = rgb2ref(cfg.TrayEBg)
+	}
+	if cfg.TrayE >= 0 {
+		ink = rgb2ref(cfg.TrayE)
+		border = ink // keep the outline visible against a custom fill
+	}
+	return fill, ink, border
 }
 
 // renderTrayIcon draws on a 16-unit grid, supersampled at the actual tray size.

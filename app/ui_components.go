@@ -137,6 +137,41 @@ func drawSmoothCheckbox(dc uintptr, rc rect, id int, checked bool) {
 	pSelectObject.Call(dc, oldF)
 }
 
+// solidAccentSelected reports whether the active style draws a solid accent
+// fill under selected cards. Only Cơ bản does — every other style uses a
+// translucent light tint where normal colText/colGold inks are correct.
+func solidAccentSelected() bool {
+	return cfg.Style == styleBasic
+}
+
+// accentOnCol picks the ink that reads on top of argbAccent: near-black on
+// light accents (mint #3ED3B8, user picks), white on dark accents (#197F64).
+// cfg.AccentText overrides the auto choice (RGB stored, return as COLORREF).
+func accentOnCol() uintptr {
+	if cfg.AccentText >= 0 {
+		return rgb2ref(cfg.AccentText)
+	}
+	c := argbAccent & 0x00FFFFFF
+	lum := 0.299*float64(c>>16&0xFF) + 0.587*float64(c>>8&0xFF) + 0.114*float64(c&0xFF)
+	if lum > 140 {
+		return 0x15110F // #0F1115
+	}
+	return 0xFFFFFF
+}
+
+// accentOnArgb is accentOnCol for GDI+ ARGB (nav icons, badge glyphs).
+func accentOnArgb() uint32 {
+	if cfg.AccentText >= 0 {
+		return 0xFF000000 | uint32(cfg.AccentText&0x00FFFFFF)
+	}
+	c := argbAccent & 0x00FFFFFF
+	lum := 0.299*float64(c>>16&0xFF) + 0.587*float64(c>>8&0xFF) + 0.114*float64(c&0xFF)
+	if lum > 140 {
+		return 0xFF0F1115
+	}
+	return 0xFFFFFFFF
+}
+
 // drawSmoothRadioCard renders an anti-aliased radio selection card with Liquid Glass styling.
 func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
 	fillParentBg(dc, rc, ctlHnd[id])
@@ -157,18 +192,31 @@ func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
 	cx := x + float32(dp(18))
 	cy := y + h/2.0
 	outerR := float32(dp(7))
+	solid := selected && solidAccentSelected()
+	bulletCol := argbAccent
+	if solid {
+		bulletCol = accentOnArgb()
+	}
 
 	if selected {
 		// Radiant jade ring + glowing center
-		gfx.DrawCircle(cx, cy, outerR, argbAccent, 1.6)
-		gfx.FillCircle(cx, cy, float32(dp(4)), argbAccent)
-		gfx.FillCircle(cx, cy, float32(dp(2)), 0xFFFFFFFF)
+		gfx.DrawCircle(cx, cy, outerR, bulletCol, 1.6)
+		gfx.FillCircle(cx, cy, float32(dp(4)), bulletCol)
+		if !solid {
+			gfx.FillCircle(cx, cy, float32(dp(2)), 0xFFFFFFFF)
+		}
 	} else {
 		gfx.DrawCircle(cx, cy, outerR, argbMuted, 1.2)
 	}
 
+	titleCol := colText
+	subCol := colMuted
+	if solid {
+		titleCol = accentOnCol()
+		subCol = accentOnCol()
+	}
 	pSetBkMode.Call(dc, TRANSPARENT)
-	pSetTextColor.Call(dc, colText)
+	pSetTextColor.Call(dc, titleCol)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
 	sub := radioSubtitle[id]
 	if sub == "" {
@@ -182,7 +230,7 @@ func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
 			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-		pSetTextColor.Call(dc, colMuted)
+		pSetTextColor.Call(dc, subCol)
 		pSelectObject.Call(dc, fontHint)
 		drc := rect{int32(cx + outerR + float32(dp(12))), rc.top + dp(24), rc.right - dp(4), rc.bottom - dp(4)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(sub))),
@@ -222,6 +270,92 @@ func drawSmoothButton(dc uintptr, rc rect, id int, pressed bool) {
 	pSelectObject.Call(dc, oldF)
 }
 
+// traySwatchColor resolves the effective RGB for a tray swatch button:
+// cfg value when set, else the fixed icon default.
+func traySwatchColor(id int) int {
+	switch id {
+	case cTrayV:
+		if cfg.TrayV >= 0 {
+			return cfg.TrayV
+		}
+		return trayDefV
+	case cTrayVBg:
+		if cfg.TrayVBg >= 0 {
+			return cfg.TrayVBg
+		}
+		return trayDefVBg
+	case cTrayE:
+		if cfg.TrayE >= 0 {
+			return cfg.TrayE
+		}
+		return trayDefE
+	case cTrayEBg:
+		if cfg.TrayEBg >= 0 {
+			return cfg.TrayEBg
+		}
+		return trayDefEBg
+	case cAccent:
+		if cfg.Accent >= 0 {
+			return cfg.Accent
+		}
+		return int(argbAccent & 0x00FFFFFF)
+	case cAccentText:
+		if cfg.AccentText >= 0 {
+			return cfg.AccentText
+		}
+		// show the auto-picked ink color (not the accent fill)
+		c := argbAccent & 0x00FFFFFF
+		lum := 0.299*float64(c>>16&0xFF) + 0.587*float64(c>>8&0xFF) + 0.114*float64(c&0xFF)
+		if lum > 140 {
+			return 0x0F1115
+		}
+		return 0xFFFFFF
+	}
+	return 0
+}
+
+// drawTraySwatch renders a color-picker button: color square + label.
+func drawTraySwatch(dc uintptr, rc rect, id int, pressed bool) {
+	fillParentBg(dc, rc, ctlHnd[id])
+
+	gfx := NewGfx(dc)
+	if gfx == nil {
+		return
+	}
+	defer gfx.Destroy()
+
+	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
+	r := float32(dp(8))
+	gfx.DrawGlassPill(x, y, w, h, r, isDark(), false, pressed)
+
+	// Color square
+	rgb := traySwatchColor(id)
+	argb := uint32(0xFF000000) | uint32(rgb)
+	sq := float32(dp(16))
+	sx := x + float32(dp(9))
+	sy := y + (h-sq)/2.0
+	gfx.FillRoundedRect(sx, sy, sq, sq, float32(dp(4)), argb)
+	gfx.DrawRoundedRect(sx, sy, sq, sq, float32(dp(4)), HexAlphaARGB(0xA0, argbBorder&0x00FFFFFF), 1.0)
+	if cfg.TrayV < 0 && id == cTrayV || cfg.TrayVBg < 0 && id == cTrayVBg ||
+		cfg.TrayE < 0 && id == cTrayE || cfg.TrayEBg < 0 && id == cTrayEBg ||
+		cfg.Accent < 0 && id == cAccent || cfg.AccentText < 0 && id == cAccentText {
+		// Unset — small "auto" dot so the user sees it follows the theme
+		gfx.FillCircle(sx+sq-float32(dp(2)), sy+float32(dp(2)), float32(dp(3)), argbMuted)
+	}
+
+	pSetBkMode.Call(dc, TRANSPARENT)
+	pSetTextColor.Call(dc, colText)
+	oldF, _, _ := pSelectObject.Call(dc, fontNormal)
+	trc := rect{rc.left + dp(30), rc.top, rc.right - dp(4), rc.bottom}
+	if pressed {
+		trc.top += dp(1)
+	}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	pSelectObject.Call(dc, oldF)
+}
+
 // drawSmoothModifierKeycap renders a modern mechanical keycap badge with liquid glass depth.
 func drawSmoothModifierKeycap(dc uintptr, rc rect, id int, selected, pressed bool) {
 	fillParentBg(dc, rc, ctlHnd[id])
@@ -241,6 +375,9 @@ func drawSmoothModifierKeycap(dc uintptr, rc rect, id int, selected, pressed boo
 	txtCol := colText
 	if selected {
 		txtCol = colGold
+		if solidAccentSelected() {
+			txtCol = accentOnCol()
+		}
 	}
 	pSetTextColor.Call(dc, txtCol)
 	oldFont, _, _ := pSelectObject.Call(dc, fontBold)
@@ -431,9 +568,13 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	gfx.DrawGlassCardExt(x, y, w, h, r, isDark(), pressed, selected)
 
 	// Draw Icon
+	solid := selected && solidAccentSelected()
 	iconCol := argbMuted
 	if selected {
 		iconCol = argbAccent
+	}
+	if solid {
+		iconCol = accentOnArgb()
 	}
 	iconX := x + float32(dp(18))
 	iconY := y + h/2.0
@@ -469,13 +610,20 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	case themeDark: // Moon crescent icon
 		mr := iconSz * 0.40
 		gfx.DrawCircle(iconX, iconY, mr, iconCol, thk)
-		gfx.FillCircle(iconX+float32(dp(3)), iconY-float32(dp(2)), mr*0.75, argbCard)
+		moonBg := argbCard
+		if solid {
+			moonBg = argbSwitchOn // card fill is the accent — cut crescent from it
+		}
+		gfx.FillCircle(iconX+float32(dp(3)), iconY-float32(dp(2)), mr*0.75, moonBg)
 	}
 
 	pSetBkMode.Call(dc, TRANSPARENT)
 	titleCol := colText
 	if selected {
 		titleCol = colGold
+		if solid {
+			titleCol = accentOnCol()
+		}
 	}
 	pSetTextColor.Call(dc, titleCol)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
@@ -512,6 +660,8 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 
 	styleID := styleJade
 	switch id {
+	case cThemeBasic:
+		styleID = styleBasic
 	case cThemeIosPure:
 		styleID = styleIosPure
 	case cThemeCyberNeon:
@@ -536,6 +686,14 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 	sub := tr("Mặc định", "Default")
 
 	switch styleID {
+	case styleBasic:
+		title = tr("Cơ bản", "Basic")
+		sub = tr("Đơn giản", "Flat & simple")
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF202020, 0xFF333333, 0xFF2B2B2B, 0xFF3ED3B8, 0xFF3ED3B8
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFF3F3F3, 0xFFFFFFFF, 0xFFE0E0E0, 0xFF197F64, 0xFF197F64
+		}
 	case styleJade:
 		title = tr("Ngọc Bích", "Jade Glass")
 		sub = "Liquid Glass"
@@ -621,19 +779,28 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 
 	// Active checkmark badge in top-right of swatch
 	if selected {
-		 badgeR := float32(dp(6))
-		 bx := swX + swW - badgeR + float32(dp(1))
-		 byc := swY + badgeR - float32(dp(1))
-		 gfx.FillCircle(bx, byc, badgeR, pvBorder)
-		 gfx.DrawLine(bx-float32(dp(3)), byc, bx-float32(dp(1)), byc+float32(dp(2)), 0xFFFFFFFF, 1.5)
-		 gfx.DrawLine(bx-float32(dp(1)), byc+float32(dp(2)), bx+float32(dp(3)), byc-float32(dp(2)), 0xFFFFFFFF, 1.5)
+		badgeR := float32(dp(6))
+		bx := swX + swW - badgeR + float32(dp(1))
+		byc := swY + badgeR - float32(dp(1))
+		gfx.FillCircle(bx, byc, badgeR, pvBorder)
+		tick := uint32(0xFFFFFFFF)
+		if pvBorder&0x00FFFFFF == 0x3ED3B8 {
+			tick = 0xFF0F1115
+		}
+		gfx.DrawLine(bx-float32(dp(3)), byc, bx-float32(dp(1)), byc+float32(dp(2)), tick, 1.5)
+		gfx.DrawLine(bx-float32(dp(1)), byc+float32(dp(2)), bx+float32(dp(3)), byc-float32(dp(2)), tick, 1.5)
 	}
 
 	// Title & Subtitle below swatch
 	pSetBkMode.Call(dc, TRANSPARENT)
 	titleCol := colText
+	subCol := colMuted
 	if selected {
 		titleCol = colGold
+	}
+	if selected && solidAccentSelected() {
+		titleCol = accentOnCol()
+		subCol = accentOnCol()
 	}
 	pSetTextColor.Call(dc, titleCol)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
@@ -646,7 +813,7 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-	pSetTextColor.Call(dc, colMuted)
+	pSetTextColor.Call(dc, subCol)
 	pSelectObject.Call(dc, fontHint)
 	drc := rect{rc.left + dp(2), rc.top + dp(46), rc.right - dp(2), rc.bottom - dp(3)}
 	if pressed {

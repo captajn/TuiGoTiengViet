@@ -146,8 +146,8 @@ var tabItems = []struct {
 	{"Tổng quan", "Trạng thái và tùy chọn chung", "Overview", "Status and general options"},
 	{"Gõ tiếng Việt", "Telex, VNI và nâng cao", "Typing", "Telex, VNI and macros"},
 	{"Phím tắt", "Tùy chỉnh tổ hợp phím", "Shortcuts", "Customize toggle & hotkeys"},
-	{"Giao diện", "Chủ đề và hiển thị", "Appearance", "Color mode & theme styles"},
 	{"Hệ thống", "Hệ thống và ứng dụng loại trừ", "System", "System & app exclusions"},
+	{"Giao diện", "Chủ đề và hiển thị", "Appearance", "Color mode & theme styles"},
 	{"Giới thiệu", "Thông tin ứng dụng", "About", "Application information"},
 }
 
@@ -165,6 +165,8 @@ var (
 	stSwitchSection, stLbHotkey, stHotkeyHint, stFKeySection                                     int
 	stMacroSection, stMacroHint1, stMacroHint2                                                   int
 	stThemeModeSection, stStyleSection, stSysSection, stLbTheme, stExcludeSection, stExcludeHint int
+	stTraySection, stTrayHint                                                                 int
+	stAccentLabel                                                                             int
 )
 
 // control IDs
@@ -217,6 +219,15 @@ const (
 	cThemeCyberNeon
 	cThemeMatchaLatte
 	cThemeMaterialTeal
+	cThemeBasic
+	cTrayV
+	cTrayVBg
+	cTrayE
+	cTrayEBg
+	cTrayReset
+	cAccent
+	cAccentText
+	cAccentReset
 )
 
 var imList = []int{ImTelex, ImTelexSimple, ImVni, ImViqr, ImTelexVni, ImMsVi, ImUsrKeymap}
@@ -544,8 +555,13 @@ func drawNavClipped(dc uintptr, clip rect) {
 		if active {
 			if gfx != nil {
 				gfx.DrawGlassPill(x, y, w, h, radius, dark, true, false)
-				// Left indicator bar in active style accent
-				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(9)), float32(dp(4)), h-float32(dp(18)), 2.0, argbAccent)
+				// Left indicator bar in active style accent; on a solid-accent
+				// pill (Cơ bản) flip it to the on-accent ink.
+				barCol := argbAccent
+				if cfg.Style == styleBasic {
+					barCol = accentOnArgb()
+				}
+				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(9)), float32(dp(4)), h-float32(dp(18)), 2.0, barCol)
 			}
 		} else if hover {
 			if gfx != nil {
@@ -647,6 +663,19 @@ func drawNavClipped(dc uintptr, clip rect) {
 				}
 
 			default:
+				if cfg.Style == styleBasic {
+					// Cơ bản: flat badge — solid accent when active, card tint otherwise
+					br = float32(dp(6))
+					if active {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbAccent)
+						iconCol = accentOnArgb()
+					} else {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbKeycap)
+						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, argbBorder, 1.0)
+						iconCol = argbMuted
+					}
+					break
+				}
 				// Default Ngọc Bích Liquid Glass squircle
 				if active {
 					gfx.FillRoundedRectGradient(bx, by, bsz, bsz, br, argbAccent, HexAlphaARGB(0xD8, argbSwitchOn&0x00FFFFFF))
@@ -662,13 +691,28 @@ func drawNavClipped(dc uintptr, clip rect) {
 				}
 			}
 
-			drawSmoothVectorIcon(gfx, bx+bsz/2.0, by+bsz/2.0, float32(dp(15)), i, iconCol)
+			// Icon kind is positional (3=sliders, 4=gear); sidebar order now
+			// puts System (gear) at index 3 and Appearance (sliders) at 4.
+			iconKind := i
+			switch i {
+			case 3:
+				iconKind = 4
+			case 4:
+				iconKind = 3
+			}
+			drawSmoothVectorIcon(gfx, bx+bsz/2.0, by+bsz/2.0, float32(dp(15)), iconKind, iconCol)
 		}
 
 		pSetBkMode.Call(dc, TRANSPARENT)
 		titleColor := colText
+		descColor := colMuted
 		if active {
 			titleColor = colGold
+			if cfg.Style == styleBasic {
+				// Pill is filled solid accent — draw ink on top of it
+				titleColor = accentOnCol()
+				descColor = accentOnCol()
+			}
 		}
 		pSetTextColor.Call(dc, titleColor)
 		oldF, _, _ := pSelectObject.Call(dc, fontBold)
@@ -677,7 +721,7 @@ func drawNavClipped(dc uintptr, clip rect) {
 			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-		pSetTextColor.Call(dc, colMuted)
+		pSetTextColor.Call(dc, descColor)
 		pSelectObject.Call(dc, fontHint)
 		drc := rect{r.left + dp(46), r.top + dp(24), r.right - dp(4), r.bottom - dp(4)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabDesc(i)))),
@@ -736,12 +780,18 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 			gfx.DrawRoundedRect(fx, fy, fw, fh, float32(dp(6)), argbAccent, 1.2)
 			gfx.Destroy()
 		}
-	case 3: // Appearance: color mode & theme style
-		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(94)})
-		drawSettingsCard(dc, rect{cx, ct + dp(106), cx + cw, ct + dp(224)})
-	case 4: // System & app exclusions
+	case 3: // System & app exclusions
 		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(214)})
 		drawSettingsCard(dc, rect{cx, ct + dp(226), cx + cw, ct + dp(374)})
+	case 4: // Appearance: color mode & theme style + tray icon customizer
+		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(94)})
+		// Style card grows an extra row for the accent pickers on Cơ bản
+		card2Bot, card3Top := dp(224), dp(236)
+		if cfg.Style == styleBasic {
+			card2Bot, card3Top = dp(272), dp(284)
+		}
+		drawSettingsCard(dc, rect{cx, ct + dp(106), cx + cw, ct + card2Bot})
+		drawSettingsCard(dc, rect{cx, ct + card3Top, cx + cw, ct + card3Top + dp(104)})
 	}
 }
 
@@ -757,16 +807,24 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 		gfx.Destroy()
 	}
 
-	// Hero Card text — status display only (no master switch, EVKey-style)
+	// Hero Card text — status display only (no master switch, EVKey-style).
+	// On solid-fill styles the active hero is painted in accent — flip all
+	// its inks to the on-accent color or text drowns on the mint fill.
+	heroSolid := effectiveViet() && solidAccentSelected()
+	heroText, heroSub := colText, colMuted
+	if heroSolid {
+		heroText = accentOnCol()
+		heroSub = accentOnCol()
+	}
 	textX := cx + dp(18)
-	pSetTextColor.Call(dc, colText)
+	pSetTextColor.Call(dc, heroText)
 	pSelectObject.Call(dc, fontBold)
 	htrc := rect{textX, ct + dp(8), cx + cw - dp(140), ct + dp(30)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Chế độ gõ hiện tại", "Current input mode")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&htrc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-	pSetTextColor.Call(dc, colMuted)
+	pSetTextColor.Call(dc, heroSub)
 	pSelectObject.Call(dc, fontHint)
 	hdrc := rect{textX, ct + dp(30), cx + cw - dp(140), ct + dp(48)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Bấm phím tắt để chuyển Tiếng Việt / English", "Press shortcut to toggle Vietnamese / English")))),
@@ -779,6 +837,9 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	if !effectiveViet() {
 		modeTxt = "● English"
 		modeCol = colMuted
+	}
+	if heroSolid {
+		modeCol = accentOnCol()
 	}
 	pSetTextColor.Call(dc, modeCol)
 	pSelectObject.Call(dc, fontBold)
@@ -1442,27 +1503,8 @@ func buildControls(h uintptr) {
 	addSw(cF9, tr("F9 — Bật/tắt gõ tắt", "F9 — Toggle macros"))
 	addSw(cF12, tr("F12 — Xóa bộ đệm gõ", "F12 — Clear typing buffer"))
 
-	// ---- Tab 3: Giao diện ----
+	// ---- Tab 3: Hệ thống ----
 	curTab = 3
-	stThemeModeSection = addSection(tr("CHẾ ĐỘ MÀU", "COLOR MODE"))
-	stStyleSection = addSection(tr("PHONG CÁCH CHỦ ĐỀ", "THEME STYLE"))
-	for _, tid := range []int{
-		cThemeAuto, cThemeLight, cThemeDark,
-		cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
-	} {
-		btnIDs[tid] = true
-	}
-	mkCtl(h, ctlDef{cThemeAuto, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Hệ thống", "System"), 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeLight, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Sáng", "Light"), 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeDark, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Tối", "Dark"), 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeJade, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Ngọc Bích", "Jade Glass"), 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeIosPure, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "iOS 18 Pro", 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeCyberNeon, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Cyber Neon", 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeMatchaLatte, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Matcha Latte", 0, 0, 10, 10})
-	mkCtl(h, ctlDef{cThemeMaterialTeal, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Material 3", 0, 0, 10, 10})
-
-	// ---- Tab 4: Hệ thống ----
-	curTab = 4
 	stSysSection = addSection(tr("TÙY CHỌN HỆ THỐNG", "SYSTEM OPTIONS"))
 	addSw(cShowHud, tr("Hiện nút trạng thái nổi (V/E)", "Show mini floating badge (V/E)"))
 	addSw(cSound, tr("Âm thanh khi chuyển chế độ", "Play sound when toggling mode"))
@@ -1475,6 +1517,51 @@ func buildControls(h uintptr) {
 	addBtn(cExcludeEdit, tr("Danh sách loại trừ…", "Exclusion list…"))
 	stExcludeSection = addSection(tr("ỨNG DỤNG LOẠI TRỪ", "EXCLUDED APPLICATIONS"))
 	stExcludeHint = addHint(tr("Tự nhớ: chuyển V/E trong app, lần sau giữ nguyên.\nChọn app để loại trừ thủ công · |lock |clip |tcvn |vni", "Per-app memory: remembers your last V/E state per app.\nOr add manual rules in exclude.txt · |lock |clip |tcvn |vni"))
+
+	// ---- Tab 4: Giao diện ----
+	curTab = 4
+	stThemeModeSection = addSection(tr("CHẾ ĐỘ MÀU", "COLOR MODE"))
+	stStyleSection = addSection(tr("PHONG CÁCH CHỦ ĐỀ", "THEME STYLE"))
+	for _, tid := range []int{
+		cThemeAuto, cThemeLight, cThemeDark,
+		cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
+	} {
+		btnIDs[tid] = true
+	}
+	mkCtl(h, ctlDef{cThemeAuto, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Hệ thống", "System"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeLight, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Sáng", "Light"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeDark, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Tối", "Dark"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeBasic, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Cơ bản", "Basic"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeJade, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, tr("Ngọc Bích", "Jade Glass"), 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeIosPure, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "iOS 18 Pro", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeCyberNeon, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Cyber Neon", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeMatchaLatte, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Matcha Latte", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeMaterialTeal, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Material 3", 0, 0, 10, 10})
+	stTraySection = addSection(tr("BIỂU TƯỢNG KHAY HỆ THỐNG", "TRAY ICON"))
+	for _, tid := range []int{cTrayV, cTrayVBg, cTrayE, cTrayEBg} {
+		btnIDs[tid] = true
+	}
+	mkCtl(h, ctlDef{cTrayV, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cTrayVBg, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cTrayE, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cTrayEBg, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "", 0, 0, 10, 10})
+	btnText[cTrayV] = tr("Chữ V", "V letter")
+	btnText[cTrayVBg] = tr("Nền V", "V bg")
+	btnText[cTrayE] = tr("Chữ E", "E letter")
+	btnText[cTrayEBg] = tr("Nền E", "E bg")
+	addBtn(cTrayReset, tr("Mặc định", "Reset"))
+	stTrayHint = addHint(tr("Bấm ô màu để đổi màu biểu tượng khay V/E", "Click a swatch to recolor the V/E tray icon"))
+	if cfg.Style == styleBasic {
+		// Accent picker — only meaningful on the flat Cơ bản style
+		stAccentLabel = addLabel(tr("Màu nhấn", "Accent color"))
+		btnIDs[cAccent] = true
+		mkCtl(h, ctlDef{cAccent, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "", 0, 0, 10, 10})
+		btnText[cAccent] = tr("Nền", "Fill")
+		btnIDs[cAccentText] = true
+		mkCtl(h, ctlDef{cAccentText, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "", 0, 0, 10, 10})
+		btnText[cAccentText] = tr("Chữ", "Text")
+		addBtn(cAccentReset, tr("Mặc định", "Reset"))
+	}
 
 	// ---- Tab 5: Giới thiệu ----
 	curTab = 5
@@ -1561,26 +1648,7 @@ func layoutAll() {
 	place(cF9, cx+dp(16), ct+dp(315), cw-dp(32), dp(26))
 	place(cF12, cx+dp(16), ct+dp(342), cw-dp(32), dp(26))
 
-	// Tab 3 — Giao diện
-	place(stThemeModeSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
-	btnW := (cw - dp(32) - dp(16)) / 3
-	place(cThemeAuto, cx+dp(16), ct+dp(40), btnW, dp(38))
-	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(40), btnW, dp(38))
-	themeX3 := cx + dp(16) + 2*(btnW+dp(8))
-	place(cThemeDark, themeX3, ct+dp(40), cx+cw-dp(16)-themeX3, dp(38))
-
-	place(stStyleSection, cx+dp(16), ct+dp(118), cw-dp(32), dp(20))
-	btn5W := (cw - dp(32) - 4*dp(6)) / 5
-	for i, tid := range []int{cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal} {
-		tx := cx + dp(16) + int32(i)*(btn5W+dp(6))
-		tw := btn5W
-		if i == 4 {
-			tw = cx + cw - dp(16) - tx
-		}
-		place(tid, tx, ct+dp(146), tw, dp(64))
-	}
-
-	// Tab 4 — Hệ thống
+	// Tab 3 — Hệ thống
 	place(stSysSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
 	sysSw := []int{cShowHud, cSound, cSkipLayout, cClipboard, cAdmin, cShowDlg}
 	for row, id := range sysSw {
@@ -1591,6 +1659,47 @@ func layoutAll() {
 	place(cExcludeBrowse, cx+dp(16), ct+dp(298), dp(120), dp(28))
 	place(cExcludeEdit, cx+dp(144), ct+dp(298), dp(170), dp(28))
 	place(stExcludeHint, cx+dp(16), ct+dp(332), cw-dp(32), dp(32))
+
+	// Tab 4 — Giao diện
+	place(stThemeModeSection, cx+dp(16), ct+dp(12), cw-dp(32), dp(20))
+	btnW := (cw - dp(32) - dp(16)) / 3
+	place(cThemeAuto, cx+dp(16), ct+dp(40), btnW, dp(38))
+	place(cThemeLight, cx+dp(16)+btnW+dp(8), ct+dp(40), btnW, dp(38))
+	themeX3 := cx + dp(16) + 2*(btnW+dp(8))
+	place(cThemeDark, themeX3, ct+dp(40), cx+cw-dp(16)-themeX3, dp(38))
+
+	place(stStyleSection, cx+dp(16), ct+dp(118), cw-dp(32), dp(20))
+	styleIDs := []int{cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal}
+	btnNW := (cw - dp(32) - int32(len(styleIDs)-1)*dp(6)) / int32(len(styleIDs))
+	for i, tid := range styleIDs {
+		tx := cx + dp(16) + int32(i)*(btnNW+dp(6))
+		tw := btnNW
+		if i == len(styleIDs)-1 {
+			tw = cx + cw - dp(16) - tx
+		}
+		place(tid, tx, ct+dp(146), tw, dp(64))
+	}
+	// Accent pickers live at the bottom of the style card — Cơ bản only.
+	// The card grows dp(48) when visible, so everything below shifts by accOff.
+	accOff := int32(0)
+	if ctlHnd[cAccent] != 0 {
+		accOff = dp(48)
+		place(stAccentLabel, cx+dp(16), ct+dp(218), cw-dp(32), dp(20))
+		aw := dp(110)
+		place(cAccent, cx+dp(16), ct+dp(240), aw, dp(28))
+		place(cAccentText, cx+dp(16)+aw+dp(8), ct+dp(240), aw, dp(28))
+		place(cAccentReset, cx+dp(24)+aw*2+dp(8), ct+dp(240), dp(72), dp(28))
+	}
+	place(stTraySection, cx+dp(16), ct+dp(248)+accOff, cw-dp(32), dp(20))
+	trayY := ct + dp(272) + accOff
+	trayW := (cw - dp(32) - dp(16) - 3*dp(8) - dp(80)) / 4
+	trayIDs := []int{cTrayV, cTrayVBg, cTrayE, cTrayEBg}
+	for i, id := range trayIDs {
+		tx := cx + dp(16) + int32(i)*(trayW+dp(8))
+		place(id, tx, trayY, trayW, dp(34))
+	}
+	place(cTrayReset, cx+cw-dp(16)-dp(72), trayY, dp(72), dp(34))
+	place(stTrayHint, cx+dp(16), ct+dp(310)+accOff, cw-dp(32), dp(20))
 
 	// Tab 5 — Giới thiệu (button sits inside the second card)
 	place(cUpdateBtn, cx+cw-dp(20)-dp(170), ct+dp(317), dp(170), dp(32))
@@ -1796,7 +1905,7 @@ func syncControls() {
 	pSendMessage.Call(ctlHnd[cCharset], CB_SETCURSEL, uintptr(cfg.Charset), 0)
 	for _, tid := range []int{
 		cThemeAuto, cThemeLight, cThemeDark,
-		cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
+		cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
 	} {
 		if ctlHnd[tid] != 0 {
 			pInvalidateRect.Call(ctlHnd[tid], 0, 1)
@@ -1893,6 +2002,45 @@ func utf16buf(s string) *uint16 {
 }
 
 var pGetOpenFileName = comdlg32.NewProc("GetOpenFileNameW")
+var pChooseColor = comdlg32.NewProc("ChooseColorW")
+
+// chooseColorW mirrors Win32 CHOOSECOLORW (36 bytes on 64-bit).
+type chooseColorW struct {
+	lStructSize  uint32
+	hwndOwner    uintptr
+	hInstance    uintptr
+	rgbResult    uint32
+	lpCustColors *uint32
+	flags        uint32
+	lCustData    uintptr
+	lpfnHook     uintptr
+	lpTemplate   *uint16
+}
+
+var gCustColors [16]uint32 // custom-color slots persist for the session
+
+// pickColor opens the standard color dialog seeded with the given RGB
+// (0xRRGGBB). Returns the chosen RGB and false on cancel.
+func pickColor(seed int) (int, bool) {
+	cc := chooseColorW{
+		lStructSize:  uint32(unsafe.Sizeof(chooseColorW{})),
+		hwndOwner:    gSettingsHwnd,
+		lpCustColors: &gCustColors[0],
+		flags:        0x0001 | 0x0002, // CC_INIT | CC_FULLOPEN
+	}
+	if seed >= 0 {
+		cc.rgbResult = uint32(rgb2ref(seed))
+	} else {
+		cc.flags &^= 0x0001
+	}
+	r, _, _ := pChooseColor.Call(uintptr(unsafe.Pointer(&cc)))
+	if r == 0 {
+		return 0, false
+	}
+	// ChooseColor returns COLORREF (BGR) — flip back to stored RGB.
+	c := int(cc.rgbResult)
+	return (c&0xFF)<<16 | (c & 0xFF00) | (c>>16)&0xFF, true
+}
 
 func browseExe() string {
 	var buf [1024]uint16
@@ -2118,6 +2266,74 @@ func settingsCommand(id int) {
 	case cExcludeEdit:
 		editFile("exclude.txt")
 		loadExclusions(exeDir())
+	case cTrayV, cTrayVBg, cTrayE, cTrayEBg:
+		slot := &cfg.TrayV
+		seed := cfg.TrayV
+		switch id {
+		case cTrayVBg:
+			slot, seed = &cfg.TrayVBg, cfg.TrayVBg
+		case cTrayE:
+			slot, seed = &cfg.TrayE, cfg.TrayE
+		case cTrayEBg:
+			slot, seed = &cfg.TrayEBg, cfg.TrayEBg
+		}
+		if seed < 0 {
+			seed = traySwatchColor(id) // start picker at the effective color
+		}
+		if rgb, ok := pickColor(seed); ok {
+			*slot = rgb
+			saveSettings()
+			syncTrayState()
+			pInvalidateRect.Call(ctlHnd[id], 0, 1)
+		}
+		return
+	case cTrayReset:
+		cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = -1, -1, -1, -1
+		saveSettings()
+		syncTrayState()
+		for _, tid := range []int{cTrayV, cTrayVBg, cTrayE, cTrayEBg} {
+			pInvalidateRect.Call(ctlHnd[tid], 0, 1)
+		}
+		return
+	case cAccent:
+		seed := cfg.Accent
+		if seed < 0 {
+			seed = int(argbAccent & 0x00FFFFFF)
+		}
+		if rgb, ok := pickColor(seed); ok {
+			cfg.Accent = rgb
+			saveSettings()
+			rethemed = true
+			pDestroyWindow.Call(gSettingsHwnd)
+		}
+		return
+	case cAccentText:
+		seed := cfg.AccentText
+		if seed < 0 {
+			// seed with the auto-picked ink so the dialog opens at current
+			ac := argbAccent & 0x00FFFFFF
+			lum := 0.299*float64(ac>>16&0xFF) + 0.587*float64(ac>>8&0xFF) + 0.114*float64(ac&0xFF)
+			if lum > 140 {
+				seed = 0x0F1115
+			} else {
+				seed = 0xFFFFFF
+			}
+		}
+		if rgb, ok := pickColor(seed); ok {
+			cfg.AccentText = rgb
+			saveSettings()
+			rethemed = true
+			pDestroyWindow.Call(gSettingsHwnd)
+		}
+		return
+	case cAccentReset:
+		if cfg.Accent >= 0 || cfg.AccentText >= 0 {
+			cfg.Accent, cfg.AccentText = -1, -1
+			saveSettings()
+			rethemed = true
+			pDestroyWindow.Call(gSettingsHwnd)
+		}
+		return
 	case cThemeAuto, cThemeLight, cThemeDark:
 		newTheme := themeAuto
 		switch id {
@@ -2133,9 +2349,11 @@ func settingsCommand(id int) {
 			pDestroyWindow.Call(gSettingsHwnd)
 			return
 		}
-	case cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal:
-		newStyle := styleJade
+	case cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal:
+		newStyle := styleBasic
 		switch id {
+		case cThemeJade:
+			newStyle = styleJade
 		case cThemeIosPure:
 			newStyle = styleIosPure
 		case cThemeCyberNeon:
@@ -2409,9 +2627,12 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			case id == cThemeAuto || id == cThemeLight || id == cThemeDark:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothThemeButton(di.hDC, di.rcItem, id, pressed)
-			case id == cThemeJade || id == cThemeIosPure || id == cThemeCyberNeon || id == cThemeMatchaLatte || id == cThemeMaterialTeal:
+			case id == cThemeBasic || id == cThemeJade || id == cThemeIosPure || id == cThemeCyberNeon || id == cThemeMatchaLatte || id == cThemeMaterialTeal:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothStyleCard(di.hDC, di.rcItem, id, pressed)
+			case id == cTrayV || id == cTrayVBg || id == cTrayE || id == cTrayEBg || id == cAccent || id == cAccentText:
+				pressed := di.itemState&ODS_SELECTED != 0
+				drawTraySwatch(di.hDC, di.rcItem, id, pressed)
 			case btnIDs[id]:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothButton(di.hDC, di.rcItem, id, pressed)

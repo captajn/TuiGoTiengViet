@@ -41,14 +41,22 @@ func wndProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case WM_TRAYICON:
 		switch uint32(lp) {
 		case WM_RBUTTONUP, WM_CONTEXTMENU:
+			gTrayDblclkArmed = false
 			showTrayMenu()
 		case WM_LBUTTONUP:
+			if gTrayDblclkArmed {
+				// Second click of a double-click — settings already opened.
+				gTrayDblclkArmed = false
+				pKillTimer.Call(gHwnd, 4)
+				break
+			}
 			// Defer the toggle past the double-click window: a following
 			// DBLCLK opens settings instead — firing now would toggle twice.
 			gTrayToggleApp = currentInputApp()
 			t, _, _ := pGetDoubleClickTime.Call()
 			pSetTimer.Call(gHwnd, 4, t, 0)
 		case WM_LBUTTONDBLCLK:
+			gTrayDblclkArmed = true
 			pKillTimer.Call(gHwnd, 4)
 			openSettings()
 		}

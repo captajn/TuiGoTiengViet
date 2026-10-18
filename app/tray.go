@@ -29,10 +29,19 @@ var (
 var trayDark bool
 var trayTheme = -1
 var trayStyle = -1
+var trayCols [4]int
 var traySize int
 var trayLastViet bool
 var gTrayToggleApp inputAppContext // target captured before the deferred single click
 var gTrayMenuApp inputAppContext
+
+// Double-click sequence is LBUTTONUP → DBLCLK → LBUTTONUP: the second UP must
+// not re-arm the deferred toggle, or settings opens AND V/E still flips.
+var gTrayDblclkArmed bool
+
+func trayCustom() [4]int {
+	return [4]int{cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg}
+}
 
 func refreshTrayIcons() {
 	dark := isDark()
@@ -40,7 +49,8 @@ func refreshTrayIcons() {
 	if size < 16 || size > 128 {
 		size = 16
 	}
-	if gIconVn != 0 && gIconEn != 0 && trayDark == dark && trayTheme == cfg.Theme && trayStyle == cfg.Style && traySize == int(size) {
+	cols := trayCustom()
+	if gIconVn != 0 && gIconEn != 0 && trayDark == dark && trayTheme == cfg.Theme && trayStyle == cfg.Style && trayCols == cols && traySize == int(size) {
 		return
 	}
 	p := curPalette()
@@ -48,6 +58,7 @@ func refreshTrayIcons() {
 	if vn == 0 || en == 0 {
 		pDestroyIcon.Call(vn)
 		pDestroyIcon.Call(en)
+	trayCols = cols
 		return // retain the previous pair if allocation failed
 	}
 	oldVn, oldEn := gIconVn, gIconEn
@@ -66,7 +77,7 @@ func refreshTrayIcons() {
 
 // Runs on the UI thread, including when focus changes without a keystroke.
 func syncTrayState() {
-	changed := effectiveViet() != trayLastViet
+	changed := effectiveViet() != trayLastViet || trayCols != trayCustom()
 	themeChanged := trayDark != isDark() || trayTheme != cfg.Theme || trayStyle != cfg.Style
 	refreshTrayIcons()
 	if changed || themeChanged {

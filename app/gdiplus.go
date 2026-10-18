@@ -353,8 +353,8 @@ func (g *Gfx) DrawGlassCardExt(x, y, w, h, radius float32, isDark bool, hover, a
 		}
 	}
 
-	// 1. Ambient soft drop shadow or outer neon halo
-	if h > 8 && w > 8 {
+	// 1. Ambient soft drop shadow or outer neon halo (Cơ bản stays flat)
+	if h > 8 && w > 8 && cfg.Style != styleBasic {
 		if cfg.Style == styleCyberNeon {
 			glowCol := uint32(0x00F2FE)
 			if !isDark {
@@ -380,6 +380,24 @@ func (g *Gfx) DrawGlassCardExt(x, y, w, h, radius float32, isDark bool, hover, a
 	var borderW float32 = 1.1
 
 	switch cfg.Style {
+	case styleBasic:
+		// Cơ bản: opaque flat card, solid accent fill when selected — no
+		// glass translucency or tinted wash (hard to read on light gray).
+		bgTop = HexAlphaARGB(0xFF, argbCard&0x00FFFFFF)
+		bgBottom = bgTop
+		border = HexAlphaARGB(0xFF, argbBorder&0x00FFFFFF)
+		sheen = 0
+		if active {
+			bgTop = argbSwitchOn
+			bgBottom = argbSwitchOn
+			border = argbSwitchOn
+			borderW = 1.2
+		} else if hover {
+			bgTop = HexAlphaARGB(0xFF, argbKeycap&0x00FFFFFF)
+			bgBottom = bgTop
+			border = HexAlphaARGB(0xFF, argbMuted&0x00FFFFFF)
+		}
+
 	case styleIosPure:
 		if isDark {
 			// Apple iOS 18 Pro Dark: Elevated #1C1C1E charcoal card over pure #000000 OLED black
@@ -583,6 +601,22 @@ func (g *Gfx) DrawGlassPill(x, y, w, h, radius float32, isDark, active, hover bo
 		return
 	}
 
+	if cfg.Style == styleBasic {
+		// Cơ bản: flat opaque pill — solid accent only for the active nav tab.
+		fill := argbKeycap
+		border := argbBorder
+		if active {
+			fill = argbSwitchOn
+			border = argbSwitchOn
+		} else if hover {
+			fill = HexAlphaARGB(0xFF, argbSwitchOff&0x00FFFFFF)
+			border = argbSwitchOff
+		}
+		g.FillRoundedRect(x, y, w, h, radius, fill)
+		g.DrawRoundedRect(x, y, w, h, radius, border, 1.0)
+		return
+	}
+
 	if cfg.Style == styleMaterialTeal && radius >= 6 {
 		radius = h / 2.0 // Material 3 Expressive full-capsule pill
 	} else if cfg.Style == styleCyberNeon && radius > 6 {
@@ -654,6 +688,11 @@ func (g *Gfx) FillAtmosphericGlassBg(w, h float32, isDark bool) {
 
 	var colTop, colBottom, glow1, glow2 uint32
 	switch cfg.Style {
+	case styleBasic:
+		// Cơ bản: flat solid background, no gradient, no ambient blooms.
+		colTop = HexAlphaARGB(0xFF, argbBg&0x00FFFFFF)
+		colBottom = colTop
+		glow1, glow2 = 0, 0
 	case styleIosPure:
 		if isDark {
 			colTop = HexARGB(0x000000)

@@ -114,6 +114,12 @@ func formatSettingsIni() string {
 	fmt.Fprintf(&b, "UILang=%d\n", cfg.UILang)
 	fmt.Fprintf(&b, "HudX=%d\n", cfg.HudX)
 	fmt.Fprintf(&b, "HudY=%d\n", cfg.HudY)
+	fmt.Fprintf(&b, "TrayV=%d\n", cfg.TrayV)
+	fmt.Fprintf(&b, "TrayVBg=%d\n", cfg.TrayVBg)
+	fmt.Fprintf(&b, "TrayE=%d\n", cfg.TrayE)
+	fmt.Fprintf(&b, "TrayEBg=%d\n", cfg.TrayEBg)
+	fmt.Fprintf(&b, "Accent=%d\n", cfg.Accent)
+	fmt.Fprintf(&b, "AccentText=%d\n", cfg.AccentText)
 	names := make([]string, 0, len(gRememberedAppViet))
 	for name := range gRememberedAppViet {
 		names = append(names, name)
@@ -276,7 +282,7 @@ func loadSettings() bool {
 		cfg.Style = cfg.Theme - 2
 		cfg.Theme = 0
 	}
-	if cfg.Style < 0 || cfg.Style > 4 {
+	if cfg.Style < 0 || cfg.Style > 5 {
 		cfg.Style = 0
 	}
 	if cfg.Theme < 0 || cfg.Theme > 2 {
@@ -290,6 +296,27 @@ func loadSettings() bool {
 	}
 	if v, ok := getI("HudY"); ok {
 		cfg.HudY = v
+	}
+	cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = -1, -1, -1, -1
+	if v, ok := getI("TrayV"); ok {
+		cfg.TrayV = v
+	}
+	if v, ok := getI("TrayVBg"); ok {
+		cfg.TrayVBg = v
+	}
+	if v, ok := getI("TrayE"); ok {
+		cfg.TrayE = v
+	}
+	if v, ok := getI("TrayEBg"); ok {
+		cfg.TrayEBg = v
+	}
+	cfg.Accent = -1
+	if v, ok := getI("Accent"); ok {
+		cfg.Accent = v
+	}
+	cfg.AccentText = -1
+	if v, ok := getI("AccentText"); ok {
+		cfg.AccentText = v
 	}
 	if migrated {
 		saveSettings()
