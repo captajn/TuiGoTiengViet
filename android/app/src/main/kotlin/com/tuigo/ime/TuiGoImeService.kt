@@ -102,6 +102,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var spacePopup: PopupWindow? = null
 
     /** Inline-autofill & clipboard suggestion strip (Gboard-style chips above the keys). */
+    private var suggestionBar: android.widget.FrameLayout? = null
     private var suggestionScroll: HorizontalScrollView? = null
     private var suggestionSurface: SurfaceView? = null
     private var suggestionStrip: FlexboxLayout? = null
@@ -237,10 +238,14 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val pinnedHost = android.widget.FrameLayout(this)
         pinnedSuggestionHost = pinnedHost
         // Fixed row height (40dp) matching Fcitx inline suggestion bar.
+        // The whole bar starts hidden — showing the container while the inner
+        // scroll is GONE leaves a blank strip above the keys.
         val stripH = (40 * dm).toInt()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(android.widget.FrameLayout(this@TuiGoImeService).apply {
+                suggestionBar = this
+                visibility = View.GONE
                 addView(LinearLayout(this@TuiGoImeService).apply {
                     orientation = LinearLayout.HORIZONTAL
                     addView(android.widget.FrameLayout(this@TuiGoImeService).apply {
@@ -693,10 +698,18 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         scrollableInlineViews.clear()
         pinnedSuggestionHost?.removeAllViews()
         scroll?.visibility = View.GONE
+        suggestionBar?.visibility = View.GONE
         suggestionStrip = null
         renderedClipKey = null
         renderedHistoryOn = false
         renderedTheme = null
+    }
+
+    /** Show the suggestion bar only when some chip row is actually visible. */
+    private fun syncSuggestionBarVisibility() {
+        val hasContent = suggestionScroll?.visibility == View.VISIBLE ||
+            (pinnedSuggestionHost?.childCount ?: 0) > 0
+        suggestionBar?.visibility = if (hasContent) View.VISIBLE else View.GONE
     }
 
     private data class ClipCandidate(
@@ -1290,6 +1303,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         ))
         activeClipCandidate = null
         scroll.visibility = View.VISIBLE
+        syncSuggestionBarVisibility()
     }
 
     @SuppressLint("NewApi")
@@ -1309,6 +1323,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 rightMargin = margin
             }
         }
+        syncSuggestionBarVisibility()
     }
 
     @SuppressLint("NewApi")
@@ -1324,6 +1339,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             suggestionStrip?.removeAllViews()
             pinnedSuggestionHost?.removeAllViews()
             scroll.visibility = View.GONE
+            syncSuggestionBarVisibility()
             return
         }
         val clipKey = clipCand?.key
@@ -1331,6 +1347,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         if (clipKey == renderedClipKey && showHistory == renderedHistoryOn &&
                 keyboard.theme == renderedTheme && (currentStrip?.childCount ?: 0) > 0) {
             scroll.visibility = View.VISIBLE
+            syncSuggestionBarVisibility()
             return
         }
         renderedClipKey = clipKey
@@ -1368,6 +1385,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         }
         pinnedSuggestionHost?.removeAllViews()
         scroll.visibility = View.VISIBLE
+        syncSuggestionBarVisibility()
     }
 
     override fun onHideKeyboard() {
