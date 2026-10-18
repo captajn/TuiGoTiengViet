@@ -188,6 +188,9 @@ func loadRegistrySettings() map[string]string {
 // loadSettings reads persisted config. Reports whether config already
 // existed — false means first run (show the panel once for onboarding).
 func loadSettings() bool {
+	// Color overrides default to "unset" (-1) — zero value would render black.
+	cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = -1, -1, -1, -1
+	cfg.Accent, cfg.AccentText = -1, -1
 	vals, err := readIni(iniPath())
 	migrated := false
 	if err != nil {
