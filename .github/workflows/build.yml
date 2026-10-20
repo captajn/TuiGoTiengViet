@@ -1,0 +1,323 @@
+name: Build
+
+# Manual only — builds artifacts, uploads them, no GitHub release.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target build'
+        type: choice
+        required: true
+        default: desktop
+        options:
+          - desktop
+          - android
+          - mobile
+      tag:
+        description: 'Version tag (desktop: v0.1.0 — mobile: mobile-v0.0.1 — android: mobile-v0.0.1 hoặc để trống)'
+        required: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.check.outputs.ref }}
+    steps:
+      - name: Check tag matches selected platform
+        id: check
+        run: |
+          tag='${{ github.event.inputs.tag }}'
+          platform='${{ github.event.inputs.platform }}'
+          case "$platform" in
+            desktop)
+              if [ -z "$tag" ] || [[ "$tag" == mobile-v* ]]; then
+                echo "::error::Desktop build needs a vX.Y.Z tag (got '${tag:-<empty>}')."
+                exit 1
+              fi ;;
+            mobile)
+              if [ -n "$tag" ] && [[ "$tag" != mobile-v* ]]; then
+                echo "::error::Android+iOS build takes a mobile-vX.Y.Z tag, or an empty tag to auto-derive mobile-v<version> (got '$tag')."
+                exit 1
+              fi ;;
+            android)
+              if [ -n "$tag" ] && [[ "$tag" != mobile-v* ]]; then
+                echo "::error::Android build takes a mobile-vX.Y.Z tag, or an empty tag to auto-derive mobile-v<version> (got '$tag')."
+                exit 1
+              fi ;;
+          esac
+          ref='${{ github.sha }}'
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "OK: platform=$platform tag=${tag:-<auto>} source_commit=$ref"
+
+  desktop-windows:
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'desktop' }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache-dependency-path: app/go.sum
+
+      - name: Test app and engine
+        run: go test ./... -v
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Resolve version
+        working-directory: .
+        run: |
+          $v = "${{ github.event.inputs.tag || github.ref_name }}" -replace '^v',''
+          echo "APP_VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Build x64
+        run: go build -ldflags "-H windowsgui -s -w -X main.appVersion=$env:APP_VERSION" -o tuigo.exe .
+
+      - name: Build ARM64
+        run: go build -ldflags "-H windowsgui -s -w -X main.appVersion=$env:APP_VERSION" -o tuigo-arm64.exe .
+        env:
+          GOARCH: arm64
+
+      - name: Build updater x64
+        run: go build -ldflags "-H windowsgui -s -w" -o tuigo-updater.exe ./updater
+
+      - name: Build updater ARM64
+        run: go build -ldflags "-H windowsgui -s -w" -o tuigo-updater-arm64.exe ./updater
+        env:
+          GOARCH: arm64
+
+      - name: Package
+        working-directory: app
+        run: |
+          Compress-Archive -Path tuigo.exe, tuigo-updater.exe -DestinationPath tuigo-x64.zip -Force
+          Compress-Archive -Path tuigo-arm64.exe, tuigo-updater-arm64.exe -DestinationPath tuigo-arm64.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            app/tuigo-x64.zip
+            app/tuigo-arm64.zip
+            app/tuigo.exe
+            app/tuigo-arm64.exe
+            app/tuigo-updater.exe
+            app/tuigo-updater-arm64.exe
+          if-no-files-found: error
+
+  desktop-fcitx5:
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'desktop' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fcitx5/go/go.mod
+      - name: Dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake g++ pkg-config rpm libfcitx5core-dev libfcitx5config-dev
+      - name: Build + test
+        run: |
+          cmake -S fcitx5 -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DTUIGO_VERSION='${{ github.event.inputs.tag }}'
+          cmake --build build -j
+          ctest --test-dir build --output-on-failure
+      - name: Package .deb + .rpm
+        run: |
+          cd build && cpack -G DEB && cpack -G RPM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-fcitx5
+          path: |
+            build/*.deb
+            build/*.rpm
+          if-no-files-found: error
+
+  desktop-verify:
+    needs: [desktop-windows, desktop-fcitx5]
+    if: ${{ github.event.inputs.platform == 'desktop' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: dist
+      - name: Verify desktop assets
+        run: |
+          test -s dist/tuigo-x64.zip
+          test -s dist/tuigo-arm64.zip
+          compgen -G 'dist/*.deb' > /dev/null
+          compgen -G 'dist/*.rpm' > /dev/null
+          ls -lh dist
+
+  apk:
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'mobile' || github.event.inputs.platform == 'android' }}
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+      - name: Mobile metadata and palette
+        id: meta
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          echo "TAGARG=$args" >> "$GITHUB_ENV"
+          metadata=$(python3 -P scripts/mobile-release.py metadata $args)
+          echo "$metadata"
+          echo "TUIGO_VERSION=$(printf '%s' "$metadata" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')" >> "$GITHUB_ENV"
+          python3 -P scripts/check-palette.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: android
+        env:
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore/tuigo-release.jks
+          {
+            echo "storeFile=keystore/tuigo-release.jks"
+            echo "storePassword=$KEYSTORE_STORE_PASSWORD"
+            echo "keyAlias=$KEYSTORE_KEY_ALIAS"
+            echo "keyPassword=$KEYSTORE_KEY_PASSWORD"
+          } > keystore.properties
+      - name: Test, lint and build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            ./gradlew -PtuigoVersion="$TUIGO_VERSION" :engine:test :app:assembleRelease :app:lintRelease --console=plain
+          else
+            ./gradlew -PtuigoVersion="$TUIGO_VERSION" :engine:test :app:assembleDebug :app:lintDebug --console=plain
+          fi
+      - name: Package exact APK variant
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            src=android/app/build/outputs/apk/release/app-release.apk
+            echo 'APK signing: release key'
+          else
+            src=android/app/build/outputs/apk/debug/app-debug.apk
+            echo 'APK signing: debug key (no release secret configured)'
+          fi
+          python3 -P scripts/mobile-release.py apk $TAGARG --source "$src" --output dist
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          signer=$(find "$sdk/build-tools" -name apksigner | sort -V | tail -n 1)
+          "$signer" verify --verbose "dist/${{ steps.meta.outputs.apk_name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-apk
+          path: dist/${{ steps.meta.outputs.apk_name }}
+          if-no-files-found: error
+
+  ipa:
+    needs: validate
+    if: ${{ github.event.inputs.platform == 'mobile' }}
+    runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+      - name: Mobile metadata
+        id: meta
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          echo "TAGARG=$args" >> "$GITHUB_ENV"
+          metadata=$(python3 -P scripts/mobile-release.py metadata $args)
+          echo "$metadata"
+          echo "TUIGO_VERSION=$(printf '%s' "$metadata" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')" >> "$GITHUB_ENV"
+      - name: Verify palette, engine and simulator build
+        run: |
+          brew install xcodegen
+          TUIGO_VERSION="$TUIGO_VERSION" sh scripts/check-ios.sh
+      - name: Build app + keyboard extension (unsigned, device)
+        working-directory: ios
+        env:
+          TUIGO_VERSION: ${{ env.TUIGO_VERSION }}
+        run: >-
+          xcodebuild -project TuiGo.xcodeproj -scheme TuiGo
+          -destination 'generic/platform=iOS' -configuration Release
+          -derivedDataPath build build
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Package and inspect unsigned IPA
+        run: >-
+          python3 -P scripts/mobile-release.py ipa $TAGARG
+          --source ios/build/Build/Products/Release-iphoneos --output dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ipa
+          path: dist/${{ steps.meta.outputs.ipa_name }}
+          if-no-files-found: error
+
+  mobile-verify:
+    needs: [apk, ipa]
+    if: ${{ github.event.inputs.platform == 'mobile' }}
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+      - name: Mobile metadata
+        id: meta
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          echo "TAGARG=$args" >> "$GITHUB_ENV"
+          python3 -P scripts/mobile-release.py metadata $args
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mobile-*
+          merge-multiple: true
+          path: dist
+      - name: Verify mobile assets
+        run: |
+          test -s "dist/${{ steps.meta.outputs.apk_name }}"
+          python3 -P scripts/mobile-release.py check-ipa $TAGARG --source "dist/${{ steps.meta.outputs.ipa_name }}"
+          ls -lh dist
+
+  apk-verify:
+    needs: [apk]
+    if: ${{ github.event.inputs.platform == 'android' }}
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+      - name: Mobile metadata
+        id: meta
+        run: |
+          args=""
+          [ -n "$RELEASE_TAG" ] && args="--tag $RELEASE_TAG"
+          python3 -P scripts/mobile-release.py metadata $args
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-apk
+          path: dist
+      - name: Verify APK asset
+        run: |
+          test -s "dist/${{ steps.meta.outputs.apk_name }}"
+          ls -lh dist
