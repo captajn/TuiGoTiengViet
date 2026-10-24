@@ -369,6 +369,50 @@ func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 	}
 }
 
+// The 500 ms tray timer must reuse the existing HICONs when nothing changed.
+// A missing trayCols update made the cache check miss on every tick, so both
+// icons were rebuilt and the old handles destroyed twice per second.
+func TestTrayIconCacheReuse(t *testing.T) {
+	oldCfg := cfg
+	oldDark, oldTheme, oldStyle, oldSize, oldCols := trayDark, trayTheme, trayStyle, traySize, trayCols
+	oldVn, oldEn, oldAdded := gIconVn, gIconEn, gTrayAdded
+	defer func() {
+		pDestroyIcon.Call(gIconVn)
+		pDestroyIcon.Call(gIconEn)
+		cfg = oldCfg
+		trayDark, trayTheme, trayStyle, traySize, trayCols = oldDark, oldTheme, oldStyle, oldSize, oldCols
+		gIconVn, gIconEn, gTrayAdded = oldVn, oldEn, oldAdded
+	}()
+
+	cfg.Theme, cfg.Style = 1, 0
+	cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = 0x112233, 0x445566, 0x778899, 0xAABBCC
+	gIconVn, gIconEn, gTrayAdded = 0, 0, false
+	trayCols = [4]int{}
+
+	refreshTrayIcons()
+	if gIconVn == 0 || gIconEn == 0 {
+		t.Fatal("first refresh did not create both icons")
+	}
+
+	vn, en := gIconVn, gIconEn
+	refreshTrayIcons()
+	if gIconVn != vn || gIconEn != en {
+		t.Fatal("unchanged state rebuilt the tray icons")
+	}
+	if trayCols != trayCustom() {
+		t.Fatalf("trayCols = %v, want %v", trayCols, trayCustom())
+	}
+
+	cfg.TrayV = 0x010203
+	refreshTrayIcons()
+	if gIconVn == vn || gIconEn == en {
+		t.Fatal("color change did not rebuild the tray icons")
+	}
+	if trayCols != trayCustom() {
+		t.Fatalf("trayCols after change = %v, want %v", trayCols, trayCustom())
+	}
+}
+
 func TestUILangAndMiniHudAndWin10Corners(t *testing.T) {
 	oldLang := cfg.UILang
 	oldRound := gDwmRoundCorners
