@@ -37,7 +37,7 @@ type config struct {
 	UseCtrlShift    bool // extra Ctrl+Shift chord besides the custom hotkey
 	FKeys           int  // bit0 F1=VN on, bit1 F2=VN off, bit2 F5=settings, bit3 F9=macro, bit4 F12=reset
 	Theme           int  // 0=auto, 1=dark, 2=light
-	Style           int  // 0=jade, 1=ios_pure, 2=cyber_neon, 3=matcha_latte, 4=material_teal
+	Style           int  // 0=basic, 1=jade, 2=ios_pure, 3=cyber_neon, 4=matcha_latte, 5=material_teal, 6=minimal
 	UILang          int  // 0=Tiếng Việt, 1=English
 	HudX, HudY      int
 	// Tray icon overrides: RGB (0xRRGGBB); -1 = follow the active style.

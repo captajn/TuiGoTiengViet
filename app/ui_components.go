@@ -7,9 +7,50 @@ import (
 // ui_components.go provides smooth, zero-aliasing UI controls powered by GDI+
 // with modern Minimalist and Liquid Glass styling.
 
+// drawTuiRule underlines a Terminal row with a hairline so the flat list
+// reads as a scannable table (htop/tmux style) instead of floating text.
+func drawTuiRule(gfx *Gfx, rc rect) {
+	gfx.DrawLine(float32(rc.left)+2, float32(rc.bottom)-1, float32(rc.right)-2, float32(rc.bottom)-1,
+		HexAlphaARGB(0xFF, argbBorder&0x00FFFFFF), 1.0)
+}
+
+// drawTuiMark draws a console-style marker ("[x]", "( )"…) followed by a
+// label — the Terminal style's only control visuals.
+func drawTuiMark(dc uintptr, rc rect, mark string, markCol, labelCol uintptr, label string, labelFont uintptr) {
+	if g := NewGfx(dc); g != nil {
+		drawTuiRule(g, rc)
+		g.Destroy()
+	}
+	pSetBkMode.Call(dc, TRANSPARENT)
+	pSetTextColor.Call(dc, markCol)
+	oldF, _, _ := pSelectObject.Call(dc, fontBold)
+	mrc := rect{rc.left + dp(4), rc.top, rc.left + dp(40), rc.bottom}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(mark))),
+		^uintptr(0), uintptr(unsafe.Pointer(&mrc)),
+		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	pSelectObject.Call(dc, oldF)
+	pSetTextColor.Call(dc, labelCol)
+	oldF2, _, _ := pSelectObject.Call(dc, labelFont)
+	trc := rect{rc.left + dp(40), rc.top, rc.right, rc.bottom}
+	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(label))),
+		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	pSelectObject.Call(dc, oldF2)
+}
+
 // drawSmoothSwitch renders a modern iOS/Fluent-style pill toggle switch with Liquid Glass GDI+.
 func drawSmoothSwitch(dc uintptr, rc rect, id int, on bool) {
 	fillParentBg(dc, rc, ctlHnd[id])
+
+	if cfg.Style == styleMinimal {
+		// Terminal: [x]/[ ] text marker — no track, no knob.
+		mark, markCol := "[ ]", colMuted
+		if on {
+			mark, markCol = "[x]", colText
+		}
+		drawTuiMark(dc, rc, mark, markCol, colText, swText[id], fontNormal)
+		return
+	}
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -90,6 +131,16 @@ func drawSmoothSwitch(dc uintptr, rc rect, id int, on bool) {
 func drawSmoothCheckbox(dc uintptr, rc rect, id int, checked bool) {
 	fillParentBg(dc, rc, ctlHnd[id])
 
+	if cfg.Style == styleMinimal {
+		// Terminal: [x]/[ ] text marker — no box graphics.
+		mark, markCol := "[ ]", colMuted
+		if checked {
+			mark, markCol = "[x]", colText
+		}
+		drawTuiMark(dc, rc, mark, markCol, colText, btnText[id], fontNormal)
+		return
+	}
+
 	gfx := NewGfx(dc)
 	if gfx == nil {
 		return
@@ -138,10 +189,10 @@ func drawSmoothCheckbox(dc uintptr, rc rect, id int, checked bool) {
 }
 
 // solidAccentSelected reports whether the active style draws a solid accent
-// fill under selected cards. Only Cơ bản does — every other style uses a
-// translucent light tint where normal colText/colGold inks are correct.
+// fill under selected cards. Cơ bản and Terminal do — every other style uses
+// a translucent light tint where normal colText/colGold inks are correct.
 func solidAccentSelected() bool {
-	return cfg.Style == styleBasic
+	return cfg.Style == styleBasic || cfg.Style == styleMinimal
 }
 
 // accentOnCol picks the ink that reads on top of argbAccent: near-black on
@@ -175,6 +226,49 @@ func accentOnArgb() uint32 {
 // drawSmoothRadioCard renders an anti-aliased radio selection card with Liquid Glass styling.
 func drawSmoothRadioCard(dc uintptr, rc rect, id int, selected bool) {
 	fillParentBg(dc, rc, ctlHnd[id])
+
+	if cfg.Style == styleMinimal {
+		// Terminal: (x)/( ) marker + plain text — no card, no bullet ring.
+		if g := NewGfx(dc); g != nil {
+			drawTuiRule(g, rc)
+			g.Destroy()
+		}
+		mark, markCol := "( )", colMuted
+		if selected {
+			mark, markCol = "(x)", colText
+		}
+		pSetBkMode.Call(dc, TRANSPARENT)
+		pSetTextColor.Call(dc, markCol)
+		oldF, _, _ := pSelectObject.Call(dc, fontBold)
+		mrc := rect{rc.left + dp(4), rc.top, rc.left + dp(36), rc.bottom}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(mark))),
+			^uintptr(0), uintptr(unsafe.Pointer(&mrc)),
+			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		pSelectObject.Call(dc, oldF)
+
+		pSetTextColor.Call(dc, colText)
+		oldF2, _, _ := pSelectObject.Call(dc, fontBold)
+		if sub := radioSubtitle[id]; sub != "" {
+			trc := rect{rc.left + dp(36), rc.top + dp(2), rc.right - dp(4), rc.top + dp(24)}
+			pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+				^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+				DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+			pSetTextColor.Call(dc, colMuted)
+			pSelectObject.Call(dc, fontHint)
+			drc := rect{rc.left + dp(36), rc.top + dp(25), rc.right - dp(4), rc.bottom - dp(2)}
+			pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(sub))),
+				^uintptr(0), uintptr(unsafe.Pointer(&drc)),
+				DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+			pSelectObject.Call(dc, oldF2)
+		} else {
+			trc := rect{rc.left + dp(36), rc.top, rc.right - dp(4), rc.bottom}
+			pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(btnText[id]))),
+				^uintptr(0), uintptr(unsafe.Pointer(&trc)),
+				DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+			pSelectObject.Call(dc, oldF2)
+		}
+		return
+	}
 
 	gfx := NewGfx(dc)
 	if gfx == nil {
@@ -254,9 +348,17 @@ func drawSmoothButton(dc uintptr, rc rect, id int, pressed bool) {
 	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
 	r := float32(dp(8))
 
-	gfx.DrawGlassPill(x, y, w, h, r, isDark(), false, pressed)
+	if cfg.Style != styleMinimal {
+		gfx.DrawGlassPill(x, y, w, h, r, isDark(), false, pressed)
+	} else {
+		drawTuiRule(gfx, rc)
+	}
 
 	txt := btnText[id]
+	if cfg.Style == styleMinimal {
+		// Terminal: bracketed text button — no pill fill or border.
+		txt = "[ " + btnText[id] + " ]"
+	}
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontNormal)
@@ -325,8 +427,12 @@ func drawTraySwatch(dc uintptr, rc rect, id int, pressed bool) {
 	defer gfx.Destroy()
 
 	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
-	r := float32(dp(8))
-	gfx.DrawGlassPill(x, y, w, h, r, isDark(), false, pressed)
+	if cfg.Style != styleMinimal {
+		r := float32(dp(8))
+		gfx.DrawGlassPill(x, y, w, h, r, isDark(), false, pressed)
+	} else {
+		drawTuiRule(gfx, rc)
+	}
 
 	// Color square
 	rgb := traySwatchColor(id)
@@ -334,8 +440,9 @@ func drawTraySwatch(dc uintptr, rc rect, id int, pressed bool) {
 	sq := float32(dp(16))
 	sx := x + float32(dp(9))
 	sy := y + (h-sq)/2.0
-	gfx.FillRoundedRect(sx, sy, sq, sq, float32(dp(4)), argb)
-	gfx.DrawRoundedRect(sx, sy, sq, sq, float32(dp(4)), HexAlphaARGB(0xA0, argbBorder&0x00FFFFFF), 1.0)
+	sqR := styleRadius(float32(dp(4)))
+	gfx.FillRoundedRect(sx, sy, sq, sq, sqR, argb)
+	gfx.DrawRoundedRect(sx, sy, sq, sq, sqR, HexAlphaARGB(0xA0, argbBorder&0x00FFFFFF), 1.0)
 	if cfg.TrayV < 0 && id == cTrayV || cfg.TrayVBg < 0 && id == cTrayVBg ||
 		cfg.TrayE < 0 && id == cTrayE || cfg.TrayEBg < 0 && id == cTrayEBg ||
 		cfg.Accent < 0 && id == cAccent || cfg.AccentText < 0 && id == cAccentText {
@@ -368,6 +475,28 @@ func drawSmoothModifierKeycap(dc uintptr, rc rect, id int, selected, pressed boo
 
 	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
 	r := float32(dp(8))
+
+	if cfg.Style == styleMinimal {
+		// Terminal: bracketed keycap text — inverted block when selected.
+		if selected {
+			gfx.FillRoundedRect(x, y, w, h, 0, argbSwitchOn)
+		}
+		txtCol := colText
+		if selected {
+			txtCol = accentOnCol()
+		}
+		pSetBkMode.Call(dc, TRANSPARENT)
+		pSetTextColor.Call(dc, txtCol)
+		oldFont, _, _ := pSelectObject.Call(dc, fontBold)
+		textRc := rc
+		if pressed {
+			textRc.top += dp(1)
+		}
+		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("["+swText[id]+"]"))),
+			^uintptr(0), uintptr(unsafe.Pointer(&textRc)), DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		pSelectObject.Call(dc, oldFont)
+		return
+	}
 
 	gfx.DrawGlassCardExt(x, y, w, h, r, isDark(), pressed, selected)
 
@@ -476,7 +605,9 @@ func drawMinimalBrandMark(gfx *Gfx, x, y, size float32) {
 	}
 	r := float32(dp(8))
 	// Soft drop shadow
-	gfx.FillRoundedRect(x, y+1.5, size, size, r, HexAlphaARGB(0x35, 0x000000))
+	if cfg.Style != styleMinimal {
+		gfx.FillRoundedRect(x, y+1.5, size, size, r, HexAlphaARGB(0x35, 0x000000))
+	}
 
 	// Rich solid gradient badge so the [V] mark pops crisply in both Light and Dark modes
 	accRGB := argbAccent & 0x00FFFFFF
@@ -486,6 +617,11 @@ func drawMinimalBrandMark(gfx *Gfx, x, y, size float32) {
 	glyphCol := uint32(0xFFFFFFFF)
 
 	switch cfg.Style {
+	case styleMinimal:
+		// Terminal: flat square badge, neutral fill, no shadow/specular.
+		r = 0
+		bgBottom = bgTop
+		glyphCol = accentOnArgb()
 	case styleCyberNeon:
 		if isDark() {
 			bgTop = 0xFF0B111E
@@ -523,14 +659,20 @@ func drawMinimalBrandMark(gfx *Gfx, x, y, size float32) {
 		}
 	}
 
-	gfx.FillRoundedRectGradient(x, y, size, size, r, bgTop, bgBottom)
-	borderCol := HexAlphaARGB(0x90, 0xFFFFFF)
-	if cfg.Style == styleCyberNeon && isDark() {
-		borderCol = 0xFF00F2FE
+	if cfg.Style == styleMinimal {
+		// Terminal: flat fill with a plain border — no gradient, sheen or rim.
+		gfx.FillRoundedRect(x, y, size, size, r, bgTop)
+		gfx.DrawRoundedRect(x, y, size, size, r, HexAlphaARGB(0xFF, argbBorder&0x00FFFFFF), 1.0)
+	} else {
+		gfx.FillRoundedRectGradient(x, y, size, size, r, bgTop, bgBottom)
+		borderCol := HexAlphaARGB(0x90, 0xFFFFFF)
+		if cfg.Style == styleCyberNeon && isDark() {
+			borderCol = 0xFF00F2FE
+		}
+		gfx.DrawRoundedRect(x, y, size, size, r, borderCol, 1.3)
+		// Top specular highlight
+		gfx.DrawLine(x+r, y+1.2, x+size-r, y+1.2, HexAlphaARGB(0x80, 0xFFFFFF), 1.0)
 	}
-	gfx.DrawRoundedRect(x, y, size, size, r, borderCol, 1.3)
-	// Top specular highlight
-	gfx.DrawLine(x+r, y+1.2, x+size-r, y+1.2, HexAlphaARGB(0x80, 0xFFFFFF), 1.0)
 
 	// Minimal geometric "V" symbol
 	thk := float32(max(int32(2), dp(2))) + 0.4
@@ -565,56 +707,65 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
 	r := float32(dp(8))
 
-	gfx.DrawGlassCardExt(x, y, w, h, r, isDark(), pressed, selected)
+	if cfg.Style != styleMinimal {
+		gfx.DrawGlassCardExt(x, y, w, h, r, isDark(), pressed, selected)
+	} else {
+		drawTuiRule(gfx, rc)
+	}
 
-	// Draw Icon
+	// Draw Icon (Terminal is text-only — no mode icons)
 	solid := selected && solidAccentSelected()
-	iconCol := argbMuted
-	if selected {
-		iconCol = argbAccent
-	}
-	if solid {
-		iconCol = accentOnArgb()
-	}
-	iconX := x + float32(dp(18))
-	iconY := y + h/2.0
-	iconSz := float32(dp(16))
-	thk := float32(max(int32(1), dp(2)))
-
-	switch themeMode {
-	case themeAuto: // System / Monitor icon
-		sw := iconSz * 0.9
-		sh := iconSz * 0.65
-		sx := iconX - sw/2.0
-		sy := iconY - sh/2.0 - float32(dp(2))
-		gfx.DrawRoundedRect(sx, sy, sw, sh, float32(dp(2)), iconCol, thk)
-		gfx.DrawLine(iconX, sy+sh, iconX, sy+sh+float32(dp(3)), iconCol, thk)
-		gfx.DrawLine(iconX-float32(dp(4)), sy+sh+float32(dp(3)), iconX+float32(dp(4)), sy+sh+float32(dp(3)), iconCol, thk)
-
-	case themeLight: // Sun icon (circle + rays)
-		sr := iconSz * 0.28
-		gfx.DrawCircle(iconX, iconY, sr, iconCol, thk)
-		rayLen := float32(dp(2))
-		rayDist := sr + float32(dp(2))
-		gfx.DrawLine(iconX, iconY-rayDist-rayLen, iconX, iconY-rayDist, iconCol, thk)
-		gfx.DrawLine(iconX, iconY+rayDist, iconX, iconY+rayDist+rayLen, iconCol, thk)
-		gfx.DrawLine(iconX-rayDist-rayLen, iconY, iconX-rayDist, iconY, iconCol, thk)
-		gfx.DrawLine(iconX+rayDist, iconY, iconX+rayDist+rayLen, iconY, iconCol, thk)
-		d := rayDist * 0.707
-		dl := (rayDist + rayLen) * 0.707
-		gfx.DrawLine(iconX-dl, iconY-dl, iconX-d, iconY-d, iconCol, thk)
-		gfx.DrawLine(iconX+d, iconY+d, iconX+dl, iconY+dl, iconCol, thk)
-		gfx.DrawLine(iconX-dl, iconY+dl, iconX-d, iconY+d, iconCol, thk)
-		gfx.DrawLine(iconX+d, iconY-d, iconX+dl, iconY-dl, iconCol, thk)
-
-	case themeDark: // Moon crescent icon
-		mr := iconSz * 0.40
-		gfx.DrawCircle(iconX, iconY, mr, iconCol, thk)
-		moonBg := argbCard
-		if solid {
-			moonBg = argbSwitchOn // card fill is the accent — cut crescent from it
+	textLeft := int32(x) + dp(12)
+	if cfg.Style != styleMinimal {
+		iconCol := argbMuted
+		if selected {
+			iconCol = argbAccent
 		}
-		gfx.FillCircle(iconX+float32(dp(3)), iconY-float32(dp(2)), mr*0.75, moonBg)
+		if solid {
+			iconCol = accentOnArgb()
+		}
+		iconX := x + float32(dp(18))
+		iconY := y + h/2.0
+		iconSz := float32(dp(16))
+		thk := float32(max(int32(1), dp(2)))
+
+		switch themeMode {
+		case themeAuto: // System / Monitor icon
+			sw := iconSz * 0.9
+			sh := iconSz * 0.65
+			sx := iconX - sw/2.0
+			sy := iconY - sh/2.0 - float32(dp(2))
+			gfx.DrawRoundedRect(sx, sy, sw, sh, float32(dp(2)), iconCol, thk)
+			gfx.DrawLine(iconX, sy+sh, iconX, sy+sh+float32(dp(3)), iconCol, thk)
+			gfx.DrawLine(iconX-float32(dp(4)), sy+sh+float32(dp(3)), iconX+float32(dp(4)), sy+sh+float32(dp(3)), iconCol, thk)
+
+		case themeLight: // Sun icon (circle + rays)
+			sr := iconSz * 0.28
+			gfx.DrawCircle(iconX, iconY, sr, iconCol, thk)
+			rayLen := float32(dp(2))
+			rayDist := sr + float32(dp(2))
+			gfx.DrawLine(iconX, iconY-rayDist-rayLen, iconX, iconY-rayDist, iconCol, thk)
+			gfx.DrawLine(iconX, iconY+rayDist, iconX, iconY+rayDist+rayLen, iconCol, thk)
+			gfx.DrawLine(iconX-rayDist-rayLen, iconY, iconX-rayDist, iconY, iconCol, thk)
+			gfx.DrawLine(iconX+rayDist, iconY, iconX+rayDist+rayLen, iconY, iconCol, thk)
+			d := rayDist * 0.707
+			dl := (rayDist + rayLen) * 0.707
+			gfx.DrawLine(iconX-dl, iconY-dl, iconX-d, iconY-d, iconCol, thk)
+			gfx.DrawLine(iconX+d, iconY+d, iconX+dl, iconY+dl, iconCol, thk)
+			gfx.DrawLine(iconX-dl, iconY+dl, iconX-d, iconY+d, iconCol, thk)
+			gfx.DrawLine(iconX+d, iconY-d, iconX+dl, iconY-dl, iconCol, thk)
+
+		case themeDark: // Moon crescent icon
+			mr := iconSz * 0.40
+			gfx.DrawCircle(iconX, iconY, mr, iconCol, thk)
+			moonBg := argbCard
+			if solid {
+				moonBg = argbSwitchOn // card fill is the accent — cut crescent from it
+			}
+			gfx.FillCircle(iconX+float32(dp(3)), iconY-float32(dp(2)), mr*0.75, moonBg)
+		}
+
+		textLeft = int32(iconX + iconSz/2.0 + float32(dp(8)))
 	}
 
 	pSetBkMode.Call(dc, TRANSPARENT)
@@ -625,9 +776,6 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 			titleCol = accentOnCol()
 		}
 	}
-	pSetTextColor.Call(dc, titleCol)
-	oldF, _, _ := pSelectObject.Call(dc, fontBold)
-
 	title := tr("Hệ thống (Tự động)", "System (Auto)")
 	switch themeMode {
 	case themeLight:
@@ -635,8 +783,30 @@ func drawSmoothThemeButton(dc uintptr, rc rect, id int, pressed bool) {
 	case themeDark:
 		title = tr("Chế độ Tối (Dark)", "Dark Mode")
 	}
+	if cfg.Style == styleMinimal {
+		// Terminal: short labels + radio marker — the parenthetical would
+		// overflow the narrow third-width button next to the marker.
+		switch themeMode {
+		case themeAuto:
+			title = tr("Hệ thống", "System")
+		case themeLight:
+			title = tr("Sáng", "Light")
+		case themeDark:
+			title = tr("Tối", "Dark")
+		}
+		// No fill sits behind these rows, so the on-accent ink used by the
+		// carded styles would be near-invisible — pick plain text tones.
+		titleCol = colText
+		if selected {
+			title = "(x) " + title
+		} else {
+			title = "( ) " + title
+			titleCol = colMuted
+		}
+	}
+	pSetTextColor.Call(dc, titleCol)
+	oldF, _, _ := pSelectObject.Call(dc, fontBold)
 
-	textLeft := int32(iconX + iconSz/2.0 + float32(dp(8)))
 	trc := rect{textLeft, rc.top, rc.right - dp(6), rc.bottom}
 	if pressed {
 		trc.top += dp(1)
@@ -670,6 +840,8 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 		styleID = styleMatchaLatte
 	case cThemeMaterialTeal:
 		styleID = styleMaterialTeal
+	case cThemeMinimal:
+		styleID = styleMinimal
 	}
 
 	selected := (cfg.Style == styleID)
@@ -678,7 +850,15 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 	x, y, w, h := float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top)
 	r := float32(dp(10))
 
-	gfx.DrawGlassCardExt(x, y, w, h, r, dark, pressed, selected)
+	if cfg.Style == styleMinimal {
+		// Terminal: no card frame — a solid inverted block marks the active style.
+		if selected {
+			gfx.FillRoundedRect(x, y, w, h, 0, argbSwitchOn)
+		}
+		drawTuiRule(gfx, rc)
+	} else {
+		gfx.DrawGlassCardExt(x, y, w, h, r, dark, pressed, selected)
+	}
 
 	// Mini preview colors for this style in the current Light/Dark mode
 	var pvBg, pvKey, pvFunc, pvBorder, pvAccent uint32
@@ -734,64 +914,85 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 		} else {
 			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFE0F7F4, 0xFFFFFFFF, 0xFFCCFBF1, 0xFF0D9488, 0xFF0D9488
 		}
-	}
-
-	// Draw Miniature Keyboard/UI Swatch at top of card
-	padX := float32(dp(8))
-	swX := x + padX
-	swY := y + float32(dp(6))
-	swW := w - padX*2
-	swH := float32(dp(24))
-	swR := float32(dp(5))
-
-	gfx.FillRoundedRect(swX, swY, swW, swH, swR, pvBg)
-	bdThk := float32(1.0)
-	if selected {
-		bdThk = 1.5
-	}
-	gfx.DrawRoundedRect(swX, swY, swW, swH, swR, pvBorder, bdThk)
-
-	// Top row of 4 mini keycaps inside swatch
-	kGap := float32(dp(2))
-	kPad := float32(dp(3))
-	kw := (swW - kPad*2 - kGap*3) / 4.0
-	kh := (swH - kPad*2 - kGap) / 2.0
-	kr := float32(dp(2))
-	if styleID == styleMaterialTeal {
-		kr = kh / 2.0
-	}
-	for k := 0; k < 4; k++ {
-		kx := swX + kPad + float32(k)*(kw+kGap)
-		gfx.FillRoundedRect(kx, swY+kPad, kw, kh, kr, pvKey)
-		if styleID == styleCyberNeon {
-			gfx.DrawRoundedRect(kx, swY+kPad, kw, kh, kr, pvBorder, 0.7)
+	case styleMinimal:
+		title = "Terminal"
+		sub = "Console"
+		if dark {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFF202020, 0xFF383838, 0xFF2B2B2B, 0xFFF0F0F0, 0xFFF0F0F0
+		} else {
+			pvBg, pvKey, pvFunc, pvBorder, pvAccent = 0xFFF3F3F3, 0xFFFFFFFF, 0xFFE0E0E0, 0xFF1B1B1B, 0xFF1B1B1B
 		}
 	}
-	// Bottom row: func key + spacebar + glowing accent Enter pill
-	by := swY + kPad + kh + kGap
-	gfx.FillRoundedRect(swX+kPad, by, kw*0.85, kh, kr, pvFunc)
-	spX := swX + kPad + kw*0.85 + kGap
-	spW := swW - kPad*2 - kw*1.95 - kGap*2
-	gfx.FillRoundedRect(spX, by, spW, kh, kr, pvKey)
-	enX := spX + spW + kGap
-	enW := swW - kPad - (enX - swX)
-	gfx.FillRoundedRect(enX, by, enW, kh, kr, pvAccent)
 
-	// Active checkmark badge in top-right of swatch
-	if selected {
-		badgeR := float32(dp(6))
-		bx := swX + swW - badgeR + float32(dp(1))
-		byc := swY + badgeR - float32(dp(1))
-		gfx.FillCircle(bx, byc, badgeR, pvBorder)
-		tick := uint32(0xFFFFFFFF)
-		if pvBorder&0x00FFFFFF == 0x3ED3B8 {
-			tick = 0xFF0F1115
+	// Terminal renders the picker as a text-only list — no preview mockups,
+	// no floating checkmark: the inverted block marks the active style.
+	if cfg.Style != styleMinimal {
+		// Draw Miniature Keyboard/UI Swatch at top of card
+		padX := float32(dp(8))
+		swX := x + padX
+		swY := y + float32(dp(6))
+		swW := w - padX*2
+		swH := float32(dp(24))
+		swR := float32(dp(5))
+		if styleID == styleMinimal {
+			swR = 0 // preview the style's own square corners
 		}
-		gfx.DrawLine(bx-float32(dp(3)), byc, bx-float32(dp(1)), byc+float32(dp(2)), tick, 1.5)
-		gfx.DrawLine(bx-float32(dp(1)), byc+float32(dp(2)), bx+float32(dp(3)), byc-float32(dp(2)), tick, 1.5)
+
+		gfx.FillRoundedRect(swX, swY, swW, swH, swR, pvBg)
+		bdThk := float32(1.0)
+		if selected {
+			bdThk = 1.5
+		}
+		gfx.DrawRoundedRect(swX, swY, swW, swH, swR, pvBorder, bdThk)
+
+		// Top row of 4 mini keycaps inside swatch
+		kGap := float32(dp(2))
+		kPad := float32(dp(3))
+		kw := (swW - kPad*2 - kGap*3) / 4.0
+		kh := (swH - kPad*2 - kGap) / 2.0
+		kr := float32(dp(2))
+		if styleID == styleMaterialTeal {
+			kr = kh / 2.0
+		}
+		if styleID == styleMinimal {
+			kr = 0
+		}
+		for k := 0; k < 4; k++ {
+			kx := swX + kPad + float32(k)*(kw+kGap)
+			gfx.FillRoundedRect(kx, swY+kPad, kw, kh, kr, pvKey)
+			if styleID == styleCyberNeon {
+				gfx.DrawRoundedRect(kx, swY+kPad, kw, kh, kr, pvBorder, 0.7)
+			}
+		}
+		// Bottom row: func key + spacebar + glowing accent Enter pill
+		by := swY + kPad + kh + kGap
+		gfx.FillRoundedRect(swX+kPad, by, kw*0.85, kh, kr, pvFunc)
+		spX := swX + kPad + kw*0.85 + kGap
+		spW := swW - kPad*2 - kw*1.95 - kGap*2
+		gfx.FillRoundedRect(spX, by, spW, kh, kr, pvKey)
+		enX := spX + spW + kGap
+		enW := swW - kPad - (enX - swX)
+		gfx.FillRoundedRect(enX, by, enW, kh, kr, pvAccent)
+
+		// Active checkmark badge in top-right of swatch
+		if selected {
+			badgeR := float32(dp(6))
+			bx := swX + swW - badgeR + float32(dp(1))
+			byc := swY + badgeR - float32(dp(1))
+			gfx.FillCircle(bx, byc, badgeR, pvBorder)
+			// Ink picked by badge luminance (dark tick on jade/white badges).
+			tick := uint32(0xFFFFFFFF)
+			brd := pvBorder & 0x00FFFFFF
+			lum := 0.299*float64(brd>>16&0xFF) + 0.587*float64(brd>>8&0xFF) + 0.114*float64(brd&0xFF)
+			if lum > 140 {
+				tick = 0xFF0F1115
+			}
+			gfx.DrawLine(bx-float32(dp(3)), byc, bx-float32(dp(1)), byc+float32(dp(2)), tick, 1.5)
+			gfx.DrawLine(bx-float32(dp(1)), byc+float32(dp(2)), bx+float32(dp(3)), byc-float32(dp(2)), tick, 1.5)
+		}
 	}
 
-	// Title & Subtitle below swatch
+	// Title & Subtitle below swatch (centered block on the text-only Terminal)
 	pSetBkMode.Call(dc, TRANSPARENT)
 	titleCol := colText
 	subCol := colMuted
@@ -805,24 +1006,29 @@ func drawSmoothStyleCard(dc uintptr, rc rect, id int, pressed bool) {
 	pSetTextColor.Call(dc, titleCol)
 	oldF, _, _ := pSelectObject.Call(dc, fontBold)
 
+	titleAlign := uintptr(DT_CENTER)
 	trc := rect{rc.left + dp(2), rc.top + dp(31), rc.right - dp(2), rc.top + dp(47)}
+	drc := rect{rc.left + dp(2), rc.top + dp(46), rc.right - dp(2), rc.bottom - dp(3)}
+	if cfg.Style == styleMinimal {
+		titleAlign = DT_LEFT
+		trc = rect{rc.left + dp(12), rc.top + dp(2), rc.right - dp(12), rc.top + dp(22)}
+		drc = rect{rc.left + dp(12), rc.top + dp(21), rc.right - dp(12), rc.bottom - dp(3)}
+	}
 	if pressed {
 		trc.top += dp(1)
 	}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(title))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
-		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		titleAlign|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX|DT_END_ELLIPSIS)
 
 	pSetTextColor.Call(dc, subCol)
 	pSelectObject.Call(dc, fontHint)
-	drc := rect{rc.left + dp(2), rc.top + dp(46), rc.right - dp(2), rc.bottom - dp(3)}
 	if pressed {
 		drc.top += dp(1)
 	}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(sub))),
 		^uintptr(0), uintptr(unsafe.Pointer(&drc)),
-		DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		titleAlign|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX|DT_END_ELLIPSIS)
 
 	pSelectObject.Call(dc, oldF)
 }
-

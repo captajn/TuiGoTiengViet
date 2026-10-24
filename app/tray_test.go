@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 	"unsafe"
@@ -36,6 +37,8 @@ func TestTrayIconHandles(t *testing.T) {
 		{"matcha_dark", palMatchaDark},
 		{"material_dark", palMaterialDark},
 		{"material_light", palMaterialLight},
+		{"minimal_dark", palMinimalDark},
+		{"minimal_light", palMinimalLight},
 	} {
 		for _, size := range []int{16, 20, 24, 32, 48} {
 			for _, on := range []bool{true, false} {
@@ -286,6 +289,7 @@ func TestModsMatchTrackedState(t *testing.T) {
 func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 	oldDpi, oldRailW := gDpi, railW
 	oldActive, oldHovered := gActiveTab, gHoveredTab
+	oldCfg := cfg
 	defer func() {
 		releaseBgCache()
 		deleteGdiObj(&fontNormal)
@@ -296,11 +300,12 @@ func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 		deleteGdiObj(&fontTagline)
 		gDpi, railW = oldDpi, oldRailW
 		gActiveTab, gHoveredTab = oldActive, oldHovered
+		cfg = oldCfg
+		applyTheme()
 	}()
 
 	gDpi = 96
 	railW = dp(232)
-	applyTheme()
 	applySettingsFont()
 
 	// Verify continuous vertical sweep across all 5 tabs has no -1 dead-zone in the 6dp gaps
@@ -325,7 +330,7 @@ func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 		t.Fatalf("below last tab: got %d, want -1", got)
 	}
 
-	// Benchmark cached hover repaint on Tab 4 (About tab with 1024x1024 mascot)
+	// Benchmark cached hover repaint on the last tab (About tab with 1024x1024 mascot)
 	winW, winH := dp(840), dp(560)
 	screen, _, _ := pGetDC.Call(0)
 	if screen == 0 {
@@ -343,29 +348,92 @@ func TestSidebarHoverPerformanceAndHitTest(t *testing.T) {
 	}()
 
 	gActiveTab = len(tabItems) - 1
-	gHoveredTab = -1
-	paintSettingsCached(dc, 0, winW, winH, rect{0, 0, winW, winH})
 
-	// Sweep hover up and down 20 times across all 5 tabs
-	start := time.Now()
-	steps := 0
-	for pass := 0; pass < 4; pass++ {
-		for i := 0; i < len(tabItems); i++ {
-			oldH := gHoveredTab
-			gHoveredTab = i
-			dirty := navDirtyRect(i)
-			if oldH >= 0 {
-				dirty = rectUnion(dirty, navDirtyRect(oldH))
+	// Sweep hover across all tabs: full paint once, then dirty-rect repaints
+	// (4 passes x all tabs = 20 steps).
+	sweep := func() time.Duration {
+		gHoveredTab = -1
+		paintSettingsCached(dc, 0, winW, winH, rect{0, 0, winW, winH})
+		start := time.Now()
+		steps := 0
+		for pass := 0; pass < 4; pass++ {
+			for i := 0; i < len(tabItems); i++ {
+				oldH := gHoveredTab
+				gHoveredTab = i
+				dirty := navDirtyRect(i)
+				if oldH >= 0 {
+					dirty = rectUnion(dirty, navDirtyRect(oldH))
+				}
+				paintSettingsCached(dc, 0, winW, winH, dirty)
+				steps++
 			}
-			paintSettingsCached(dc, 0, winW, winH, dirty)
-			steps++
+		}
+		return time.Since(start) / time.Duration(steps)
+	}
+
+	// Heaviest visual path first (Jade dark glass), then the flat Terminal
+	// mode — both must stay under the same dirty-rect repaint budget.
+	cfg.Theme, cfg.Style = themeDark, styleJade
+	applyTheme()
+	if avg := sweep(); avg > 5*time.Millisecond {
+		t.Fatalf("jade sidebar hover repaint too slow: avg %v/step (want < 5ms)", avg)
+	} else {
+		t.Logf("jade dark hover repaint: avg %v/step", avg)
+	}
+
+	cfg.Theme, cfg.Style = themeDark, styleMinimal
+	applyTheme()
+	if avg := sweep(); avg > 5*time.Millisecond {
+		t.Fatalf("minimal sidebar hover repaint too slow: avg %v/step (want < 5ms)", avg)
+	} else {
+		t.Logf("minimal dark hover repaint: avg %v/step", avg)
+	}
+}
+
+// Terminal is a flat, neutral, square-cornered style: its palettes carry no
+// jade brand tokens, applyTheme plumbs them into the GDI+ globals, radii
+// collapse to zero and selected cards take the solid-accent code path.
+func TestMinimalStyleFlat(t *testing.T) {
+	oldCfg := cfg
+	defer func() {
+		cfg = oldCfg
+		applyTheme()
+	}()
+
+	for _, tc := range []struct {
+		name  string
+		theme int
+		pal   palette
+	}{
+		{"light", themeLight, palMinimalLight},
+		{"dark", themeDark, palMinimalDark},
+	} {
+		cfg.Theme, cfg.Style = tc.theme, styleMinimal
+		applyTheme()
+		if got := curPalette(); got != tc.pal {
+			t.Fatalf("%s: curPalette() did not return the minimal palette", tc.name)
+		}
+		if argbAccent != tc.pal.aAccent || argbSwitchOn != tc.pal.aSwitchOn {
+			t.Fatalf("%s: applyTheme did not plumb minimal tokens: accent %#x switch %#x",
+				tc.name, argbAccent, argbSwitchOn)
+		}
+		for _, rgb := range []uint32{tc.pal.aAccent & 0x00FFFFFF, tc.pal.aSwitchOn & 0x00FFFFFF} {
+			if rgb == 0x197F64 || rgb == 0x3ED3B8 {
+				t.Fatalf("%s: minimal accent token is jade %#x — the style must stay neutral", tc.name, rgb)
+			}
 		}
 	}
-	elapsed := time.Since(start)
-	avg := elapsed / time.Duration(steps)
-	t.Logf("20 sidebar hover repaints took %v (avg %v/step)", elapsed, avg)
-	if avg > 5*time.Millisecond {
-		t.Fatalf("sidebar hover repaint too slow: avg %v/step (want < 5ms)", avg)
+
+	cfg.Theme, cfg.Style = themeDark, styleMinimal
+	if r := styleRadius(float32(dp(8))); r != 0 {
+		t.Fatalf("styleRadius under minimal = %v, want 0", r)
+	}
+	if !solidAccentSelected() {
+		t.Fatal("minimal selected cards must use the solid-accent path")
+	}
+	cfg.Style = styleJade
+	if r := styleRadius(8.0); r != 8.0 {
+		t.Fatalf("styleRadius(8) under jade = %v, want 8", r)
 	}
 }
 
@@ -443,4 +511,96 @@ func TestUILangAndMiniHudAndWin10Corners(t *testing.T) {
 	}
 }
 
+// Steady-state memory guard: repeated paint cycles (full static rebuilds +
+// dirty-rect fast paths) must not grow the process — neither the Win32 GDI
+// handle count nor the Go heap beyond GC headroom. Covers a carded style and
+// Terminal so neither rendering path can regress into a slow leak.
+func TestPaintCycleMemoryStability(t *testing.T) {
+	oldDpi, oldRailW := gDpi, railW
+	oldActive, oldHovered := gActiveTab, gHoveredTab
+	oldCfg := cfg
+	defer func() {
+		releaseBgCache()
+		deleteGdiObj(&fontNormal)
+		deleteGdiObj(&fontBold)
+		deleteGdiObj(&fontTitle)
+		deleteGdiObj(&fontSection)
+		deleteGdiObj(&fontHint)
+		deleteGdiObj(&fontTagline)
+		gDpi, railW = oldDpi, oldRailW
+		gActiveTab, gHoveredTab = oldActive, oldHovered
+		cfg = oldCfg
+		applyTheme()
+	}()
 
+	gDpi = 96
+	railW = dp(232)
+	applySettingsFont()
+
+	getGuiResources := user32.NewProc("GetGuiResources")
+	curProc, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetCurrentProcess").Call()
+	const grGdiObjects = 0
+	gdiCount := func() uint32 {
+		v, _, _ := getGuiResources.Call(curProc, grGdiObjects)
+		return uint32(v)
+	}
+
+	winW, winH := dp(840), dp(560)
+	screen, _, _ := pGetDC.Call(0)
+	if screen == 0 {
+		t.Skip("no screen DC available")
+	}
+	defer pReleaseDC.Call(0, screen)
+	dc, bmp, old := allocOffscreenDC(screen, winW, winH)
+	if dc == 0 {
+		t.Fatal("failed to allocate test DC")
+	}
+	defer func() {
+		pSelectObject.Call(dc, old)
+		pDeleteDC.Call(dc)
+		pDeleteObject.Call(bmp)
+	}()
+
+	gActiveTab = 0
+	full := rect{0, 0, winW, winH}
+	for _, tc := range []struct {
+		name  string
+		style int
+	}{
+		{"jade", styleJade},
+		{"terminal", styleMinimal},
+	} {
+		cfg.Theme, cfg.Style = themeDark, tc.style
+		applyTheme()
+		paintSettingsCached(dc, 0, winW, winH, full) // warm every cache layer
+
+		runtime.GC()
+		before := gdiCount()
+		var memBefore runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
+
+		for i := 0; i < 30; i++ {
+			gStaticValid = false // force the full static-layer rebuild path
+			paintSettingsCached(dc, 0, winW, winH, full)
+			// dirty-rect fast path (sidebar hover region)
+			paintSettingsCached(dc, 0, winW, winH, rect{dp(10), dp(56), railW - dp(10), dp(110)})
+		}
+
+		runtime.GC()
+		after := gdiCount()
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memAfter)
+
+		gdiDelta := int64(after) - int64(before)
+		heapDelta := int64(memAfter.HeapAlloc) - int64(memBefore.HeapAlloc)
+		t.Logf("%s: GDI %d→%d (%+d), heap %d→%d (%+d)",
+			tc.name, before, after, gdiDelta, memBefore.HeapAlloc, memAfter.HeapAlloc, heapDelta)
+		if gdiDelta > 0 {
+			t.Fatalf("%s: GDI object leak — %d → %d across 30 paint cycles", tc.name, before, after)
+		}
+		const heapTolerance = 4 << 20 // 4 MB GC headroom
+		if heapDelta > heapTolerance {
+			t.Fatalf("%s: heap grew %+d bytes across 30 cycles (want ≤ %d)", tc.name, heapDelta, heapTolerance)
+		}
+	}
+}

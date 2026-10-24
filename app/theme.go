@@ -421,6 +421,69 @@ var palMaterialLight = palette{
 	aKeycap:    0xFFCCFBF1,
 }
 
+// Terminal — absolute flat: Win32-like neutral grays, no brand accent, no
+// glass, no rounding. Selection states invert (black on light, white on dark)
+// like a classic dialog instead of using a colored accent.
+var palMinimalDark = palette{
+	bg:          0x202020, // #202020
+	card:        0x383838, // #383838
+	border:      0x4A4A4A, // #4A4A4A
+	text:        0xF0F0F0, // #F0F0F0
+	gold:        0xF0F0F0, // #F0F0F0 — neutral: no colored accent
+	amber:       0xF0F0F0, // #F0F0F0
+	jade:        0xF0F0F0, // #F0F0F0
+	vermilion:   0x4444EF, // #EF4444 — functional error red only
+	muted:       0xB8B8B8, // #B8B8B8 — readable on #202020 at hint size
+	pill:        0x4A4A4A, // #4A4A4A
+	goldDim:     0x404040, // #404040
+	btnBg:       0x333333, // #333333
+	btnHover:    0x3D3D3D, // #3D3D3D
+	btnBorder:   0x4A4A4A, // #4A4A4A
+	btnText:     0xF0F0F0, // #F0F0F0
+	navActiveBg: 0x383838, // #383838
+	navActiveBd: 0xF0F0F0, // #F0F0F0
+
+	aBg:        0xFF202020,
+	aCard:      0xFF383838,
+	aBorder:    0xFF4A4A4A,
+	aText:      0xFFF0F0F0,
+	aMuted:     0xFFB8B8B8,
+	aAccent:    0xFFF0F0F0,
+	aSwitchOn:  0xFFF0F0F0,
+	aSwitchOff: 0xFF4A4A4A,
+	aKeycap:    0xFF333333,
+}
+
+var palMinimalLight = palette{
+	bg:          0xF3F3F3, // #F3F3F3
+	card:        0xFFFFFF, // #FFFFFF
+	border:      0xD9D9D9, // #D9D9D9
+	text:        0x1B1B1B, // #1B1B1B
+	gold:        0x1B1B1B, // #1B1B1B — neutral: no colored accent
+	amber:       0x1B1B1B, // #1B1B1B
+	jade:        0x1B1B1B, // #1B1B1B
+	vermilion:   0x2626DC, // #DC2626 — functional error red only
+	muted:       0x6B6B6B, // #6B6B6B
+	pill:        0xD1D1D1, // #D1D1D1
+	goldDim:     0xE0E0E0, // #E0E0E0
+	btnBg:       0xFFFFFF, // #FFFFFF
+	btnHover:    0xF0F0F0, // #F0F0F0
+	btnBorder:   0xADADAD, // #ADADAD — Win32 button border tone
+	btnText:     0x1B1B1B, // #1B1B1B
+	navActiveBg: 0xE0E0E0, // #E0E0E0
+	navActiveBd: 0x1B1B1B, // #1B1B1B
+
+	aBg:        0xFFF3F3F3,
+	aCard:      0xFFFFFFFF,
+	aBorder:    0xFFD9D9D9,
+	aText:      0xFF1B1B1B,
+	aMuted:     0xFF6B6B6B,
+	aAccent:    0xFF1B1B1B,
+	aSwitchOn:  0xFF1B1B1B,
+	aSwitchOff: 0xFFD1D1D1,
+	aKeycap:    0xFFF0F0F0,
+}
+
 var (
 	palIosPure      = palIosLight
 	palCyberNeon    = palCyberDark
@@ -441,6 +504,7 @@ const (
 	styleCyberNeon
 	styleMatchaLatte
 	styleMaterialTeal
+	styleMinimal
 )
 
 var (
@@ -503,6 +567,11 @@ func curPalette() palette {
 			return palMaterialDark
 		}
 		return palMaterialLight
+	case styleMinimal:
+		if dark {
+			return palMinimalDark
+		}
+		return palMinimalLight
 	}
 	if dark {
 		return palDark

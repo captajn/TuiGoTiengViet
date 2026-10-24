@@ -165,8 +165,8 @@ var (
 	stSwitchSection, stLbHotkey, stHotkeyHint, stFKeySection                                     int
 	stMacroSection, stMacroHint1, stMacroHint2                                                   int
 	stThemeModeSection, stStyleSection, stSysSection, stLbTheme, stExcludeSection, stExcludeHint int
-	stTraySection, stTrayHint                                                                 int
-	stAccentLabel                                                                             int
+	stTraySection, stTrayHint                                                                    int
+	stAccentLabel                                                                                int
 )
 
 // control IDs
@@ -220,6 +220,7 @@ const (
 	cThemeMatchaLatte
 	cThemeMaterialTeal
 	cThemeBasic
+	cThemeMinimal
 	cTrayV
 	cTrayVBg
 	cTrayE
@@ -271,6 +272,10 @@ func addLabel(text string) int {
 }
 
 func addSection(text string) int {
+	if cfg.Style == styleMinimal {
+		// Terminal: box-drawing dash prefix anchors the heading like a TUI.
+		text = "── " + text
+	}
 	id := statID()
 	h := mkCtl(gbH, ctlDef{id, "STATIC", 0x0080, text, 0, 0, 10, 10})
 	pSendMessage.Call(h, WM_SETFONT, fontSection, 1)
@@ -471,7 +476,7 @@ func updateSettingsRegion(hwnd uintptr) {
 }
 
 func settingsHasRoundCorners() bool {
-	if !gDwmRoundCorners {
+	if !gDwmRoundCorners || cfg.Style == styleMinimal {
 		return false
 	}
 	if gSettingsHwnd != 0 {
@@ -484,30 +489,41 @@ func settingsHasRoundCorners() bool {
 
 // Top titlebar static branding (gradient bar, brand mark, title, and subtitle).
 func drawTopHeaderBase(dc uintptr, winW int32) {
-	gfx := NewGfx(dc)
-	if gfx != nil {
-		// Subtle translucent specular bar along top edge
+	if gfx := NewGfx(dc); gfx != nil {
 		topR := float32(0)
 		if settingsHasRoundCorners() {
 			topR = float32(dp(8))
 		}
-		gfx.FillRoundedRectGradient(0, 0, float32(winW), float32(dp(44)), topR, HexAlphaARGB(0x18, 0xFFFFFF), HexAlphaARGB(0x04, 0xFFFFFF))
-		gfx.DrawLine(0, float32(dp(44)), float32(winW), float32(dp(44)), HexAlphaARGB(0x18, 0xFFFFFF), 1.0)
-		drawMinimalBrandMark(gfx, float32(dp(16)), float32(dp(6)), float32(dp(32)))
+		if cfg.Style == styleMinimal {
+			// Terminal: flat header — solid hairline separator, no specular gradient.
+			gfx.DrawLine(0, float32(dp(44)), float32(winW), float32(dp(44)), HexAlphaARGB(0xFF, argbBorder&0x00FFFFFF), 1.0)
+		} else {
+			// Subtle translucent specular bar along top edge
+			gfx.FillRoundedRectGradient(0, 0, float32(winW), float32(dp(44)), topR, HexAlphaARGB(0x18, 0xFFFFFF), HexAlphaARGB(0x04, 0xFFFFFF))
+			gfx.DrawLine(0, float32(dp(44)), float32(winW), float32(dp(44)), HexAlphaARGB(0x18, 0xFFFFFF), 1.0)
+		}
+		// Terminal: no keycap brand mark — plain text title from the left edge.
+		if cfg.Style != styleMinimal {
+			drawMinimalBrandMark(gfx, float32(dp(16)), float32(dp(6)), float32(dp(32)))
+		}
 		gfx.Destroy()
 	}
 
+	titleX := dp(60)
+	if cfg.Style == styleMinimal {
+		titleX = dp(16)
+	}
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontTitle)
-	trc := rect{dp(60), dp(5), dp(320), dp(27)}
+	trc := rect{titleX, dp(5), dp(320), dp(27)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr("Tui Gõ"))),
 		^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	sbc := rect{dp(60), dp(25), dp(340), dp(41)}
+	sbc := rect{titleX, dp(25), dp(340), dp(41)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tr("Gõ tiếng Việt tối giản & hiện đại", "Minimalist & modern Vietnamese input")))),
 		^uintptr(0), uintptr(unsafe.Pointer(&sbc)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -556,12 +572,12 @@ func drawNavClipped(dc uintptr, clip rect) {
 			if gfx != nil {
 				gfx.DrawGlassPill(x, y, w, h, radius, dark, true, false)
 				// Left indicator bar in active style accent; on a solid-accent
-				// pill (Cơ bản) flip it to the on-accent ink.
+				// pill (Cơ bản/Terminal) flip it to the on-accent ink.
 				barCol := argbAccent
-				if cfg.Style == styleBasic {
+				if solidAccentSelected() {
 					barCol = accentOnArgb()
 				}
-				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(9)), float32(dp(4)), h-float32(dp(18)), 2.0, barCol)
+				gfx.FillRoundedRect(x+float32(dp(3)), y+float32(dp(9)), float32(dp(4)), h-float32(dp(18)), styleRadius(2.0), barCol)
 			}
 		} else if hover {
 			if gfx != nil {
@@ -569,146 +585,167 @@ func drawNavClipped(dc uintptr, clip rect) {
 			}
 		}
 
-		// Style-aware icon squircle badge (28x28dp) matching the HTML demo
-		bx := float32(r.left + dp(11))
-		by := float32(r.top+(r.bottom-r.top)/2) - float32(dp(14))
-		bsz := float32(dp(28))
-		br := float32(dp(7))
-		iconCol := argbMuted
-		if active {
-			iconCol = argbAccent
-		}
+		// Terminal drops the icon badges entirely — text-only menu rows like a
+		// console UI. Every other style draws the squircle badge (28x28dp).
+		if cfg.Style != styleMinimal {
+			bx := float32(r.left + dp(11))
+			by := float32(r.top+(r.bottom-r.top)/2) - float32(dp(14))
+			bsz := float32(dp(28))
+			br := float32(dp(7))
+			iconCol := argbMuted
+			if active {
+				iconCol = argbAccent
+			}
 
-		if gfx != nil {
-			switch cfg.Style {
-			case styleIosPure:
-				// Apple iOS 18 Settings colorful filled squircles
-				bCol := iosBadgeCols[i%len(iosBadgeCols)]
-				if !active && !hover {
-					bCol = HexAlphaARGB(0xD8, bCol&0x00FFFFFF)
-				}
-				gfx.FillRoundedRect(bx, by, bsz, bsz, br, bCol)
-				gfx.DrawRoundedRect(bx, by, bsz, bsz, br, HexAlphaARGB(0x45, 0xFFFFFF), 1.0)
-				iconCol = 0xFFFFFFFF
+			if gfx != nil {
+				switch cfg.Style {
+				case styleIosPure:
+					// Apple iOS 18 Settings colorful filled squircles
+					bCol := iosBadgeCols[i%len(iosBadgeCols)]
+					if !active && !hover {
+						bCol = HexAlphaARGB(0xD8, bCol&0x00FFFFFF)
+					}
+					gfx.FillRoundedRect(bx, by, bsz, bsz, br, bCol)
+					gfx.DrawRoundedRect(bx, by, bsz, bsz, br, HexAlphaARGB(0x45, 0xFFFFFF), 1.0)
+					iconCol = 0xFFFFFFFF
 
-			case styleCyberNeon:
-				// Cyber Neon glowing frame badge
-				br = float32(dp(6))
-				fillCol := uint32(0xFF0B111E)
-				rimCol := uint32(0xFF0EA5E9)
-				if !dark {
-					fillCol = 0xFFE0F2FE
-					rimCol = 0xFF0284C7
-				}
-				if active {
-					if dark {
-						fillCol = 0xFF082F49
-						rimCol = 0xFF00F2FE
-						iconCol = 0xFF00F2FE
-					} else {
-						fillCol = 0xFF0284C7
-						rimCol = 0xFF0369A1
-						iconCol = 0xFFFFFFFF
-					}
-				} else if dark {
-					iconCol = 0xFF38BDF8
-				} else {
-					iconCol = 0xFF0284C7
-				}
-				gfx.FillRoundedRect(bx, by, bsz, bsz, br, fillCol)
-				gfx.DrawRoundedRect(bx, by, bsz, bsz, br, rimCol, 1.2)
-
-			case styleMatchaLatte:
-				// Warm Matcha / Peach / Caramel soft squircle badge
-				br = float32(dp(9))
-				if dark {
-					if active {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF40916C)
-						iconCol = 0xFFF4ECE1
-					} else {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF24352C)
-						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFF385446, 1.0)
-						iconCol = 0xFF74C69D
-					}
-				} else {
-					if active {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2D6A4F)
-						iconCol = 0xFFFFFDF9
-					} else {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, matchaLightCols[i%len(matchaLightCols)])
-						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFFD5C3AE, 1.0)
-						iconCol = 0xFF3D2E24
-					}
-				}
-
-			case styleMaterialTeal:
-				// Material 3 Expressive circular/capsule tonal container
-				br = bsz / 2.0
-				if dark {
-					if active {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2DD4BF)
-						iconCol = 0xFF0E171D
-					} else {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF1E3545)
-						iconCol = 0xFF5EEAD4
-					}
-				} else {
-					if active {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF0D9488)
-						iconCol = 0xFFFFFFFF
-					} else {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFFCCFBF1)
-						iconCol = 0xFF0F766E
-					}
-				}
-
-			default:
-				if cfg.Style == styleBasic {
-					// Cơ bản: flat badge — solid accent when active, card tint otherwise
+				case styleCyberNeon:
+					// Cyber Neon glowing frame badge
 					br = float32(dp(6))
+					fillCol := uint32(0xFF0B111E)
+					rimCol := uint32(0xFF0EA5E9)
+					if !dark {
+						fillCol = 0xFFE0F2FE
+						rimCol = 0xFF0284C7
+					}
 					if active {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbAccent)
+						if dark {
+							fillCol = 0xFF082F49
+							rimCol = 0xFF00F2FE
+							iconCol = 0xFF00F2FE
+						} else {
+							fillCol = 0xFF0284C7
+							rimCol = 0xFF0369A1
+							iconCol = 0xFFFFFFFF
+						}
+					} else if dark {
+						iconCol = 0xFF38BDF8
+					} else {
+						iconCol = 0xFF0284C7
+					}
+					gfx.FillRoundedRect(bx, by, bsz, bsz, br, fillCol)
+					gfx.DrawRoundedRect(bx, by, bsz, bsz, br, rimCol, 1.2)
+
+				case styleMatchaLatte:
+					// Warm Matcha / Peach / Caramel soft squircle badge
+					br = float32(dp(9))
+					if dark {
+						if active {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF40916C)
+							iconCol = 0xFFF4ECE1
+						} else {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF24352C)
+							gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFF385446, 1.0)
+							iconCol = 0xFF74C69D
+						}
+					} else {
+						if active {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2D6A4F)
+							iconCol = 0xFFFFFDF9
+						} else {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, matchaLightCols[i%len(matchaLightCols)])
+							gfx.DrawRoundedRect(bx, by, bsz, bsz, br, 0xFFD5C3AE, 1.0)
+							iconCol = 0xFF3D2E24
+						}
+					}
+
+				case styleMaterialTeal:
+					// Material 3 Expressive circular/capsule tonal container
+					br = bsz / 2.0
+					if dark {
+						if active {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF2DD4BF)
+							iconCol = 0xFF0E171D
+						} else {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF1E3545)
+							iconCol = 0xFF5EEAD4
+						}
+					} else {
+						if active {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFF0D9488)
+							iconCol = 0xFFFFFFFF
+						} else {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, 0xFFCCFBF1)
+							iconCol = 0xFF0F766E
+						}
+					}
+
+				case styleMinimal:
+					// Terminal: flat square badge — neutral fill, no tint.
+					br = 0
+					if active {
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbSwitchOn)
 						iconCol = accentOnArgb()
 					} else {
-						gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbKeycap)
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbCard)
 						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, argbBorder, 1.0)
 						iconCol = argbMuted
 					}
-					break
-				}
-				// Default Ngọc Bích Liquid Glass squircle
-				if active {
-					gfx.FillRoundedRectGradient(bx, by, bsz, bsz, br, argbAccent, HexAlphaARGB(0xD8, argbSwitchOn&0x00FFFFFF))
-					if dark {
-						iconCol = 0xFF0F1115
-					} else {
-						iconCol = 0xFFFFFFFF
-					}
-				} else {
-					bgTint := HexAlphaARGB(0x18, argbAccent&0x00FFFFFF)
-					gfx.FillRoundedRect(bx, by, bsz, bsz, br, bgTint)
-					gfx.DrawRoundedRect(bx, by, bsz, bsz, br, HexAlphaARGB(0x40, argbAccent&0x00FFFFFF), 1.0)
-				}
-			}
 
-			// Icon kind is positional (3=sliders, 4=gear); sidebar order now
-			// puts System (gear) at index 3 and Appearance (sliders) at 4.
-			iconKind := i
-			switch i {
-			case 3:
-				iconKind = 4
-			case 4:
-				iconKind = 3
+				default:
+					if cfg.Style == styleBasic {
+						// Cơ bản: flat badge — solid accent when active, card tint otherwise
+						br = float32(dp(6))
+						if active {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbAccent)
+							iconCol = accentOnArgb()
+						} else {
+							gfx.FillRoundedRect(bx, by, bsz, bsz, br, argbKeycap)
+							gfx.DrawRoundedRect(bx, by, bsz, bsz, br, argbBorder, 1.0)
+							iconCol = argbMuted
+						}
+						break
+					}
+					// Default Ngọc Bích Liquid Glass squircle
+					if active {
+						gfx.FillRoundedRectGradient(bx, by, bsz, bsz, br, argbAccent, HexAlphaARGB(0xD8, argbSwitchOn&0x00FFFFFF))
+						if dark {
+							iconCol = 0xFF0F1115
+						} else {
+							iconCol = 0xFFFFFFFF
+						}
+					} else {
+						bgTint := HexAlphaARGB(0x18, argbAccent&0x00FFFFFF)
+						gfx.FillRoundedRect(bx, by, bsz, bsz, br, bgTint)
+						gfx.DrawRoundedRect(bx, by, bsz, bsz, br, HexAlphaARGB(0x40, argbAccent&0x00FFFFFF), 1.0)
+					}
+				}
+
+				// Icon kind is positional (3=sliders, 4=gear); sidebar order now
+				// puts System (gear) at index 3 and Appearance (sliders) at 4.
+				iconKind := i
+				switch i {
+				case 3:
+					iconKind = 4
+				case 4:
+					iconKind = 3
+				}
+				drawSmoothVectorIcon(gfx, bx+bsz/2.0, by+bsz/2.0, float32(dp(15)), iconKind, iconCol)
 			}
-			drawSmoothVectorIcon(gfx, bx+bsz/2.0, by+bsz/2.0, float32(dp(15)), iconKind, iconCol)
 		}
 
+		// Terminal rows are text-only: text starts near the pill edge instead
+		// of clearing the icon badge column.
+		textX := r.left + dp(46)
+		if cfg.Style == styleMinimal {
+			textX = r.left + dp(14)
+		}
 		pSetBkMode.Call(dc, TRANSPARENT)
 		titleColor := colText
 		descColor := colMuted
 		if active {
 			titleColor = colGold
-			if cfg.Style == styleBasic {
+			if solidAccentSelected() {
 				// Pill is filled solid accent — draw ink on top of it
 				titleColor = accentOnCol()
 				descColor = accentOnCol()
@@ -716,14 +753,14 @@ func drawNavClipped(dc uintptr, clip rect) {
 		}
 		pSetTextColor.Call(dc, titleColor)
 		oldF, _, _ := pSelectObject.Call(dc, fontBold)
-		trc := rect{r.left + dp(46), r.top + dp(6), r.right - dp(4), r.top + dp(24)}
+		trc := rect{textX, r.top + dp(6), r.right - dp(4), r.top + dp(24)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabName(i)))),
 			^uintptr(0), uintptr(unsafe.Pointer(&trc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 		pSetTextColor.Call(dc, descColor)
 		pSelectObject.Call(dc, fontHint)
-		drc := rect{r.left + dp(46), r.top + dp(24), r.right - dp(4), r.bottom - dp(4)}
+		drc := rect{textX, r.top + dp(24), r.right - dp(4), r.bottom - dp(4)}
 		pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(tabDesc(i)))),
 			^uintptr(0), uintptr(unsafe.Pointer(&drc)),
 			DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -734,17 +771,23 @@ func drawNavClipped(dc uintptr, clip rect) {
 
 // drawTitleBlock renders the shared tab header with a consistent type hierarchy.
 func drawTitleBlock(dc uintptr, cx, cw int32, title, desc string) {
+	// Terminal aligns the title with the card content margin (cx+16); every
+	// other style aligns with the card frame (cx).
+	tx := cx
+	if cfg.Style == styleMinimal {
+		tx = cx + dp(16)
+	}
 	pSetBkMode.Call(dc, TRANSPARENT)
 	pSetTextColor.Call(dc, colText)
 	oldF, _, _ := pSelectObject.Call(dc, fontTitle)
-	t1 := rect{cx, dp(54), cx + cw, dp(78)}
+	t1 := rect{tx, dp(54), cx + cw, dp(78)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(title))),
 		^uintptr(0), uintptr(unsafe.Pointer(&t1)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	pSetTextColor.Call(dc, colMuted)
 	pSelectObject.Call(dc, fontHint)
-	s1 := rect{cx, dp(78), cx + cw, dp(98)}
+	s1 := rect{tx, dp(78), cx + cw, dp(98)}
 	pDrawText.Call(dc, uintptr(unsafe.Pointer(utf16ptr(desc))),
 		^uintptr(0), uintptr(unsafe.Pointer(&s1)),
 		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
@@ -753,6 +796,9 @@ func drawTitleBlock(dc uintptr, cx, cw int32, title, desc string) {
 }
 
 func drawSettingsCard(dc uintptr, r rect) {
+	if cfg.Style == styleMinimal {
+		return // Terminal: no card panels — controls sit straight on the bg
+	}
 	gfx := NewGfx(dc)
 	if gfx == nil {
 		return
@@ -771,13 +817,17 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 		drawSettingsCard(dc, rect{cx, ct, cx + cw, ct + dp(180)})
 		drawSettingsCard(dc, rect{cx, ct + dp(192), cx + cw, ct + dp(388)})
 		// The native EDIT has no border; this frame gives it the same shape and
-		// tint as the selected modifier keys.
+		// tint as the selected modifier keys. Terminal uses a plain 1px frame.
 		field := rect{cx + dp(70), ct + dp(97), cx + dp(142), ct + dp(125)}
 		gfx := NewGfx(dc)
 		if gfx != nil {
 			fx, fy, fw, fh := float32(field.left), float32(field.top), float32(field.right-field.left), float32(field.bottom-field.top)
-			gfx.FillRoundedRect(fx, fy, fw, fh, float32(dp(6)), HexAlphaARGB(0x30, argbAccent&0x00FFFFFF))
-			gfx.DrawRoundedRect(fx, fy, fw, fh, float32(dp(6)), argbAccent, 1.2)
+			if cfg.Style == styleMinimal {
+				gfx.DrawRoundedRect(fx, fy, fw, fh, 0, HexAlphaARGB(0xFF, argbBorder&0x00FFFFFF), 1.0)
+			} else {
+				gfx.FillRoundedRect(fx, fy, fw, fh, float32(dp(6)), HexAlphaARGB(0x30, argbAccent&0x00FFFFFF))
+				gfx.DrawRoundedRect(fx, fy, fw, fh, float32(dp(6)), argbAccent, 1.2)
+			}
 			gfx.Destroy()
 		}
 	case 3: // System & app exclusions
@@ -799,18 +849,22 @@ func drawSettingsTab(dc uintptr, tab int, cx, ct, cw int32) {
 func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	drawTitleBlock(dc, cx, cw, tr("Tổng quan", "Overview"), tr("Thiết lập các tùy chọn cơ bản để sử dụng Tui Gõ", "Configure essential options for Tui Gõ"))
 
-	// Hero Card with active glass depth
-	heroRc := rect{cx, ct, cx + cw, ct + dp(56)}
-	gfx := NewGfx(dc)
-	if gfx != nil {
-		gfx.DrawGlassCardExt(float32(heroRc.left), float32(heroRc.top), float32(heroRc.right-heroRc.left), float32(heroRc.bottom-heroRc.top), float32(dp(10)), isDark(), false, effectiveViet())
-		gfx.Destroy()
+	// Hero Card with active glass depth. Terminal never inverts the hero fill:
+	// the whole hero panel disappears — the VI/EN state is plain text.
+	heroActive := effectiveViet() && cfg.Style != styleMinimal
+	if cfg.Style != styleMinimal {
+		heroRc := rect{cx, ct, cx + cw, ct + dp(56)}
+		gfx := NewGfx(dc)
+		if gfx != nil {
+			gfx.DrawGlassCardExt(float32(heroRc.left), float32(heroRc.top), float32(heroRc.right-heroRc.left), float32(heroRc.bottom-heroRc.top), float32(dp(10)), isDark(), false, heroActive)
+			gfx.Destroy()
+		}
 	}
 
 	// Hero Card text — status display only (no master switch, EVKey-style).
 	// On solid-fill styles the active hero is painted in accent — flip all
 	// its inks to the on-accent color or text drowns on the mint fill.
-	heroSolid := effectiveViet() && solidAccentSelected()
+	heroSolid := heroActive && solidAccentSelected()
 	heroText, heroSub := colText, colMuted
 	if heroSolid {
 		heroText = accentOnCol()
@@ -896,18 +950,23 @@ func drawOverviewTab(dc uintptr, cx, ct, cw, winH int32) {
 	drawSettingsCard(dc, ftRc)
 
 	sx := cx + dp(22)
+	if cfg.Style == styleMinimal {
+		sx = cx + dp(20) // Terminal: dot sits on the marker column (cx+16+4)
+	}
 	sy := ftRc.top + dp(24)
-	gfx = NewGfx(dc)
-	if gfx != nil {
+	fgfx := NewGfx(dc)
+	if fgfx != nil {
 		dotCol := argbSwitchOn
 		if !effectiveViet() {
 			dotCol = argbMuted
 		}
-		// Glowing outer ring
-		gfx.FillCircle(float32(sx), float32(sy), float32(dp(8)), HexAlphaARGB(0x28, dotCol&0x00FFFFFF))
+		// Glowing outer ring (plain core dot only on Terminal)
+		if cfg.Style != styleMinimal {
+			fgfx.FillCircle(float32(sx), float32(sy), float32(dp(8)), HexAlphaARGB(0x28, dotCol&0x00FFFFFF))
+		}
 		// Core status dot
-		gfx.FillCircle(float32(sx), float32(sy), float32(dp(4)), dotCol)
-		gfx.Destroy()
+		fgfx.FillCircle(float32(sx), float32(sy), float32(dp(4)), dotCol)
+		fgfx.Destroy()
 	}
 
 	stTitle := tr("Tiếng Việt đang hoạt động", "Vietnamese input is active")
@@ -1170,7 +1229,9 @@ func drawLangBtn(di *drawItemStruct) {
 
 	gfx := NewGfx(dc)
 	if gfx != nil {
-		gfx.DrawGlassCard(float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top), float32(dp(6)), isDark(), pressed)
+		if cfg.Style != styleMinimal {
+			gfx.DrawGlassCard(float32(rc.left), float32(rc.top), float32(rc.right-rc.left), float32(rc.bottom-rc.top), float32(dp(6)), isDark(), pressed)
+		}
 		gfx.Destroy()
 	}
 
@@ -1524,7 +1585,7 @@ func buildControls(h uintptr) {
 	stStyleSection = addSection(tr("PHONG CÁCH CHỦ ĐỀ", "THEME STYLE"))
 	for _, tid := range []int{
 		cThemeAuto, cThemeLight, cThemeDark,
-		cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal,
+		cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal, cThemeMinimal,
 	} {
 		btnIDs[tid] = true
 	}
@@ -1537,6 +1598,7 @@ func buildControls(h uintptr) {
 	mkCtl(h, ctlDef{cThemeCyberNeon, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Cyber Neon", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeMatchaLatte, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Matcha Latte", 0, 0, 10, 10})
 	mkCtl(h, ctlDef{cThemeMaterialTeal, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Material 3", 0, 0, 10, 10})
+	mkCtl(h, ctlDef{cThemeMinimal, "BUTTON", BS_OWNERDRAW | WS_TABSTOP, "Terminal", 0, 0, 10, 10})
 	stTraySection = addSection(tr("BIỂU TƯỢNG KHAY HỆ THỐNG", "TRAY ICON"))
 	for _, tid := range []int{cTrayV, cTrayVBg, cTrayE, cTrayEBg} {
 		btnIDs[tid] = true
@@ -1668,16 +1730,38 @@ func layoutAll() {
 	themeX3 := cx + dp(16) + 2*(btnW+dp(8))
 	place(cThemeDark, themeX3, ct+dp(40), cx+cw-dp(16)-themeX3, dp(38))
 
-	place(stStyleSection, cx+dp(16), ct+dp(118), cw-dp(32), dp(20))
-	styleIDs := []int{cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal}
-	btnNW := (cw - dp(32) - int32(len(styleIDs)-1)*dp(6)) / int32(len(styleIDs))
-	for i, tid := range styleIDs {
-		tx := cx + dp(16) + int32(i)*(btnNW+dp(6))
-		tw := btnNW
-		if i == len(styleIDs)-1 {
-			tw = cx + cw - dp(16) - tx
+	// Seven styles. Carded styles keep the original single preview row at
+	// ct+146 (proven to fit, incl. the Cơ bản accent pickers); Terminal is a
+	// compact two-row text list — no previews, no cards.
+	styleAll := []int{cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal, cThemeMinimal}
+	if cfg.Style == styleMinimal {
+		place(stStyleSection, cx+dp(16), ct+dp(92), cw-dp(32), dp(20))
+		styleRows := [][]int{
+			styleAll[:4],
+			styleAll[4:],
 		}
-		place(tid, tx, ct+dp(146), tw, dp(64))
+		for row, ids := range styleRows {
+			btnNW := (cw - dp(32) - int32(len(ids)-1)*dp(6)) / int32(len(ids))
+			for i, tid := range ids {
+				tx := cx + dp(16) + int32(i)*(btnNW+dp(6))
+				tw := btnNW
+				if i == len(ids)-1 {
+					tw = cx + cw - dp(16) - tx
+				}
+				place(tid, tx, ct+dp(120)+int32(row)*dp(48), tw, dp(40))
+			}
+		}
+	} else {
+		place(stStyleSection, cx+dp(16), ct+dp(118), cw-dp(32), dp(20))
+		btnNW := (cw - dp(32) - int32(len(styleAll)-1)*dp(6)) / int32(len(styleAll))
+		for i, tid := range styleAll {
+			tx := cx + dp(16) + int32(i)*(btnNW+dp(6))
+			tw := btnNW
+			if i == len(styleAll)-1 {
+				tw = cx + cw - dp(16) - tx
+			}
+			place(tid, tx, ct+dp(146), tw, dp(64))
+		}
 	}
 	// Accent pickers live at the bottom of the style card — Cơ bản only.
 	// The card grows dp(48) when visible, so everything below shifts by accOff.
@@ -1690,8 +1774,12 @@ func layoutAll() {
 		place(cAccentText, cx+dp(16)+aw+dp(8), ct+dp(240), aw, dp(28))
 		place(cAccentReset, cx+dp(24)+aw*2+dp(8), ct+dp(240), dp(72), dp(28))
 	}
-	place(stTraySection, cx+dp(16), ct+dp(248)+accOff, cw-dp(32), dp(20))
-	trayY := ct + dp(272) + accOff
+	traySecY, trayRowY, trayHintY := dp(248), dp(272), dp(310)
+	if cfg.Style == styleMinimal {
+		traySecY, trayRowY, trayHintY = dp(216), dp(240), dp(278)
+	}
+	place(stTraySection, cx+dp(16), ct+traySecY+accOff, cw-dp(32), dp(20))
+	trayY := ct + trayRowY + accOff
 	trayW := (cw - dp(32) - dp(16) - 3*dp(8) - dp(80)) / 4
 	trayIDs := []int{cTrayV, cTrayVBg, cTrayE, cTrayEBg}
 	for i, id := range trayIDs {
@@ -1699,7 +1787,7 @@ func layoutAll() {
 		place(id, tx, trayY, trayW, dp(34))
 	}
 	place(cTrayReset, cx+cw-dp(16)-dp(72), trayY, dp(72), dp(34))
-	place(stTrayHint, cx+dp(16), ct+dp(310)+accOff, cw-dp(32), dp(20))
+	place(stTrayHint, cx+dp(16), ct+trayHintY+accOff, cw-dp(32), dp(20))
 
 	// Tab 5 — Giới thiệu (button sits inside the second card)
 	place(cUpdateBtn, cx+cw-dp(20)-dp(170), ct+dp(317), dp(170), dp(32))
@@ -1797,12 +1885,12 @@ func redrawSettings() {
 
 // Three-stage offscreen cache:
 //   - gBackdropDC: full-window atmospheric gradient + color blooms + top header base + divider
-//                  (depends only on window size, style, and dark mode)
+//     (depends only on window size, style, and dark mode)
 //   - gStaticDC:   gBackdropDC + active tab's static content cards/text/mascot
-//                  (depends on window size, style, dark mode, active tab, and effectiveViet)
+//     (depends on window size, style, dark mode, active tab, and effectiveViet)
 //   - gBgDC:       complete composite frame (gStaticDC + window controls + sidebar nav pills)
-//                  kept so child controls copy their slice via fillParentBg, and hover changes
-//                  only BitBlt + redraw the 1-2 affected sidebar pills or caption buttons.
+//     kept so child controls copy their slice via fillParentBg, and hover changes
+//     only BitBlt + redraw the 1-2 affected sidebar pills or caption buttons.
 var (
 	gBackdropDC, gBackdropBmp, gBackdropOld uintptr
 	gBackdropW, gBackdropH                  int32
@@ -2349,7 +2437,7 @@ func settingsCommand(id int) {
 			pDestroyWindow.Call(gSettingsHwnd)
 			return
 		}
-	case cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal:
+	case cThemeBasic, cThemeJade, cThemeIosPure, cThemeCyberNeon, cThemeMatchaLatte, cThemeMaterialTeal, cThemeMinimal:
 		newStyle := styleBasic
 		switch id {
 		case cThemeJade:
@@ -2362,6 +2450,8 @@ func settingsCommand(id int) {
 			newStyle = styleMatchaLatte
 		case cThemeMaterialTeal:
 			newStyle = styleMaterialTeal
+		case cThemeMinimal:
+			newStyle = styleMinimal
 		}
 		if newStyle != cfg.Style {
 			cfg.Style = newStyle
@@ -2627,7 +2717,7 @@ func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			case id == cThemeAuto || id == cThemeLight || id == cThemeDark:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothThemeButton(di.hDC, di.rcItem, id, pressed)
-			case id == cThemeBasic || id == cThemeJade || id == cThemeIosPure || id == cThemeCyberNeon || id == cThemeMatchaLatte || id == cThemeMaterialTeal:
+			case id == cThemeBasic || id == cThemeJade || id == cThemeIosPure || id == cThemeCyberNeon || id == cThemeMatchaLatte || id == cThemeMaterialTeal || id == cThemeMinimal:
 				pressed := di.itemState&ODS_SELECTED != 0
 				drawSmoothStyleCard(di.hDC, di.rcItem, id, pressed)
 			case id == cTrayV || id == cTrayVBg || id == cTrayE || id == cTrayEBg || id == cAccent || id == cAccentText:
@@ -2747,10 +2837,14 @@ func paintSettingsBackdrop(dc uintptr, winW, winH int32, dark bool) {
 		gfx.FillAtmosphericGlassBg(float32(winW), float32(winH), dark)
 		if settingsHasRoundCorners() {
 			gfx.DrawRoundedRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, float32(dp(8)), argbBorder, 1.0)
-			gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+			if cfg.Style != styleMinimal {
+				gfx.DrawLine(float32(dp(8)), 1.0, float32(winW-dp(8)), 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+			}
 		} else {
 			gfx.DrawRect(0.5, 0.5, float32(winW)-1.0, float32(winH)-1.0, argbBorder, 1.0)
-			gfx.DrawLine(1.0, 1.0, float32(winW)-1.0, 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+			if cfg.Style != styleMinimal {
+				gfx.DrawLine(1.0, 1.0, float32(winW)-1.0, 1.0, HexAlphaARGB(0x40, 0xFFFFFF), 1.0)
+			}
 		}
 		gfx.Destroy()
 	} else {
@@ -2758,7 +2852,11 @@ func paintSettingsBackdrop(dc uintptr, winW, winH int32, dark bool) {
 		pFillRect.Call(dc, uintptr(unsafe.Pointer(&rc)), brBg)
 	}
 	drawTopHeaderBase(dc, winW)
-	divLine := rect{railW, dp(50), railW + 1, winH - dp(14)}
+	divTop, divBot := dp(50), winH-dp(14)
+	if cfg.Style == styleMinimal {
+		divTop, divBot = dp(44), winH // Terminal: full-height separator
+	}
+	divLine := rect{railW, divTop, railW + 1, divBot}
 	pFillRect.Call(dc, uintptr(unsafe.Pointer(&divLine)), brBorder)
 }
 
