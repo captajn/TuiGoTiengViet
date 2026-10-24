@@ -58,12 +58,12 @@ func refreshTrayIcons() {
 	if vn == 0 || en == 0 {
 		pDestroyIcon.Call(vn)
 		pDestroyIcon.Call(en)
-	trayCols = cols
 		return // retain the previous pair if allocation failed
 	}
 	oldVn, oldEn := gIconVn, gIconEn
 	gIconVn, gIconEn = vn, en
 	trayDark, trayTheme, trayStyle, traySize = dark, cfg.Theme, cfg.Style, int(size)
+	trayCols = cols
 	if gTrayAdded {
 		trayUpdate()
 	}
