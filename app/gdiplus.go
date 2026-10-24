@@ -11,23 +11,23 @@ import (
 var (
 	gdiplus = windows.NewLazySystemDLL("gdiplus.dll")
 
-	pGdiplusStartup          = gdiplus.NewProc("GdiplusStartup")
-	pGdiplusShutdown         = gdiplus.NewProc("GdiplusShutdown")
-	pGdipCreateFromHDC       = gdiplus.NewProc("GdipCreateFromHDC")
-	pGdipDeleteGraphics      = gdiplus.NewProc("GdipDeleteGraphics")
-	pGdipSetSmoothingMode    = gdiplus.NewProc("GdipSetSmoothingMode")
-	pGdipSetPixelOffsetMode  = gdiplus.NewProc("GdipSetPixelOffsetMode")
-	pGdipSetTextRendering    = gdiplus.NewProc("GdipSetTextRenderingHint")
-	pGdipCreateSolidFill     = gdiplus.NewProc("GdipCreateSolidFill")
-	pGdipDeleteBrush         = gdiplus.NewProc("GdipDeleteBrush")
-	pGdipCreatePen1          = gdiplus.NewProc("GdipCreatePen1")
-	pGdipDeletePen           = gdiplus.NewProc("GdipDeletePen")
-	pGdipCreatePath          = gdiplus.NewProc("GdipCreatePath")
-	pGdipDeletePath          = gdiplus.NewProc("GdipDeletePath")
-	pGdipResetPath           = gdiplus.NewProc("GdipResetPath")
-	pGdipAddPathArc          = gdiplus.NewProc("GdipAddPathArc")
-	pGdipAddPathLine         = gdiplus.NewProc("GdipAddPathLine")
-	pGdipClosePathFigure     = gdiplus.NewProc("GdipClosePathFigure")
+	pGdiplusStartup              = gdiplus.NewProc("GdiplusStartup")
+	pGdiplusShutdown             = gdiplus.NewProc("GdiplusShutdown")
+	pGdipCreateFromHDC           = gdiplus.NewProc("GdipCreateFromHDC")
+	pGdipDeleteGraphics          = gdiplus.NewProc("GdipDeleteGraphics")
+	pGdipSetSmoothingMode        = gdiplus.NewProc("GdipSetSmoothingMode")
+	pGdipSetPixelOffsetMode      = gdiplus.NewProc("GdipSetPixelOffsetMode")
+	pGdipSetTextRendering        = gdiplus.NewProc("GdipSetTextRenderingHint")
+	pGdipCreateSolidFill         = gdiplus.NewProc("GdipCreateSolidFill")
+	pGdipDeleteBrush             = gdiplus.NewProc("GdipDeleteBrush")
+	pGdipCreatePen1              = gdiplus.NewProc("GdipCreatePen1")
+	pGdipDeletePen               = gdiplus.NewProc("GdipDeletePen")
+	pGdipCreatePath              = gdiplus.NewProc("GdipCreatePath")
+	pGdipDeletePath              = gdiplus.NewProc("GdipDeletePath")
+	pGdipResetPath               = gdiplus.NewProc("GdipResetPath")
+	pGdipAddPathArc              = gdiplus.NewProc("GdipAddPathArc")
+	pGdipAddPathLine             = gdiplus.NewProc("GdipAddPathLine")
+	pGdipClosePathFigure         = gdiplus.NewProc("GdipClosePathFigure")
 	pGdipFillPath                = gdiplus.NewProc("GdipFillPath")
 	pGdipDrawPath                = gdiplus.NewProc("GdipDrawPath")
 	pGdipFillRectangle           = gdiplus.NewProc("GdipFillRectangle")
@@ -39,13 +39,13 @@ var (
 )
 
 const (
-	SmoothingModeAntiAlias       = 2
-	SmoothingModeHighQuality     = 4
-	PixelOffsetModeHighQuality   = 2
-	PixelOffsetModeHalf          = 4
-	TextRenderingHintClearType   = 5
-	UnitPixel                    = 2
-	FillModeAlternate            = 0
+	SmoothingModeAntiAlias     = 2
+	SmoothingModeHighQuality   = 4
+	PixelOffsetModeHighQuality = 2
+	PixelOffsetModeHalf        = 4
+	TextRenderingHintClearType = 5
+	UnitPixel                  = 2
+	FillModeAlternate          = 0
 )
 
 type gdiplusStartupInput struct {
@@ -331,6 +331,15 @@ func (g *Gfx) DrawGlassCard(x, y, w, h, radius float32, isDark bool, hover bool)
 	g.DrawGlassCardExt(x, y, w, h, radius, isDark, hover, false)
 }
 
+// styleRadius flattens corner radii to zero for the Terminal style; every
+// other style keeps the caller's radius.
+func styleRadius(r float32) float32 {
+	if cfg.Style == styleMinimal {
+		return 0
+	}
+	return r
+}
+
 // DrawGlassCardExt renders an advanced liquid glass surface with optional active accent glow.
 func (g *Gfx) DrawGlassCardExt(x, y, w, h, radius float32, isDark bool, hover, active bool) {
 	if g == nil || g.native == 0 || w <= 0 || h <= 0 {
@@ -351,10 +360,12 @@ func (g *Gfx) DrawGlassCardExt(x, y, w, h, radius float32, isDark bool, hover, a
 		if radius >= 8 && radius < 15 {
 			radius = 15
 		}
+	case styleMinimal:
+		radius = 0
 	}
 
-	// 1. Ambient soft drop shadow or outer neon halo (Cơ bản stays flat)
-	if h > 8 && w > 8 && cfg.Style != styleBasic {
+	// 1. Ambient soft drop shadow or outer neon halo (Cơ bản/Terminal stay flat)
+	if h > 8 && w > 8 && cfg.Style != styleBasic && cfg.Style != styleMinimal {
 		if cfg.Style == styleCyberNeon {
 			glowCol := uint32(0x00F2FE)
 			if !isDark {
@@ -380,9 +391,9 @@ func (g *Gfx) DrawGlassCardExt(x, y, w, h, radius float32, isDark bool, hover, a
 	var borderW float32 = 1.1
 
 	switch cfg.Style {
-	case styleBasic:
-		// Cơ bản: opaque flat card, solid accent fill when selected — no
-		// glass translucency or tinted wash (hard to read on light gray).
+	case styleBasic, styleMinimal:
+		// Cơ bản/Terminal: opaque flat card, solid accent fill when selected —
+		// no glass translucency or tinted wash (hard to read on light gray).
 		bgTop = HexAlphaARGB(0xFF, argbCard&0x00FFFFFF)
 		bgBottom = bgTop
 		border = HexAlphaARGB(0xFF, argbBorder&0x00FFFFFF)
@@ -601,8 +612,10 @@ func (g *Gfx) DrawGlassPill(x, y, w, h, radius float32, isDark, active, hover bo
 		return
 	}
 
-	if cfg.Style == styleBasic {
-		// Cơ bản: flat opaque pill — solid accent only for the active nav tab.
+	if cfg.Style == styleBasic || cfg.Style == styleMinimal {
+		// Cơ bản/Terminal: flat opaque pill — solid accent only for the active
+		// nav tab; Terminal also squares the corners via styleRadius.
+		radius = styleRadius(radius)
 		fill := argbKeycap
 		border := argbBorder
 		if active {
@@ -688,8 +701,8 @@ func (g *Gfx) FillAtmosphericGlassBg(w, h float32, isDark bool) {
 
 	var colTop, colBottom, glow1, glow2 uint32
 	switch cfg.Style {
-	case styleBasic:
-		// Cơ bản: flat solid background, no gradient, no ambient blooms.
+	case styleBasic, styleMinimal:
+		// Cơ bản/Terminal: flat solid background, no gradient, no ambient blooms.
 		colTop = HexAlphaARGB(0xFF, argbBg&0x00FFFFFF)
 		colBottom = colTop
 		glow1, glow2 = 0, 0
@@ -767,5 +780,3 @@ func (g *Gfx) FillAtmosphericGlassBg(w, h float32, isDark bool) {
 		g.FillCircle(w*0.18, h*0.88, r2, glow2)
 	}
 }
-
-

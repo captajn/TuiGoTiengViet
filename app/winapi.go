@@ -97,14 +97,14 @@ var (
 	pStretchDIBits          = gdi32.NewProc("StretchDIBits")
 	pSetStretchBltMode      = gdi32.NewProc("SetStretchBltMode")
 
-	pGetModuleHandle    = kern32.NewProc("GetModuleHandleW")
-	pGetCurrentThreadId = kern32.NewProc("GetCurrentThreadId")
-	pTrimWorkingSet     = kern32.NewProc("SetProcessWorkingSetSize")
-	pExtractIcon        = sh32.NewProc("ExtractIconW")
-	pDwmSetWndAttr      = dwmapi.NewProc("DwmSetWindowAttribute")
-	pSetWindowTheme     = uxtheme.NewProc("SetWindowTheme")
-	pLoadCursor         = user32.NewProc("LoadCursorW")
-	pSetWindowPos       = user32.NewProc("SetWindowPos")
+	pGetModuleHandle     = kern32.NewProc("GetModuleHandleW")
+	pGetCurrentThreadId  = kern32.NewProc("GetCurrentThreadId")
+	pTrimWorkingSet      = kern32.NewProc("SetProcessWorkingSetSize")
+	pExtractIcon         = sh32.NewProc("ExtractIconW")
+	pDwmSetWndAttr       = dwmapi.NewProc("DwmSetWindowAttribute")
+	pSetWindowTheme      = uxtheme.NewProc("SetWindowTheme")
+	pLoadCursor          = user32.NewProc("LoadCursorW")
+	pSetWindowPos        = user32.NewProc("SetWindowPos")
 	pGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
 	pPostThreadMessage   = user32.NewProc("PostThreadMessageW")
 	pUpdateLayeredWindow = user32.NewProc("UpdateLayeredWindow")
@@ -153,10 +153,22 @@ func applyWindowChrome(hwnd uintptr) {
 		DWMWA_USE_IMMERSIVE_DARK_MODE  = 20
 		DWMWA_WINDOW_CORNER_PREFERENCE = 33
 		DWMWA_SYSTEMBACKDROP_TYPE      = 38
+		DWMWCP_DONTROUND               = 1
 		DWMWCP_ROUND                   = 2
+		DWMSBT_NONE                    = 1
 		DWMSBT_TRANSIENTWINDOW         = 3 // Acrylic blur (liquid glass backdrop)
 	)
 	pDwmSetWndAttr.Call(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, uintptr(unsafe.Pointer(&dark)), 4)
+
+	if cfg.Style == styleMinimal {
+		// Terminal: square frame, no acrylic — the flat native look.
+		corner := int32(DWMWCP_DONTROUND)
+		pDwmSetWndAttr.Call(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, uintptr(unsafe.Pointer(&corner)), 4)
+		gDwmRoundCorners = false
+		backdrop := int32(DWMSBT_NONE)
+		pDwmSetWndAttr.Call(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, uintptr(unsafe.Pointer(&backdrop)), 4)
+		return
+	}
 
 	corner := int32(DWMWCP_ROUND)
 	hr, _, _ := pDwmSetWndAttr.Call(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, uintptr(unsafe.Pointer(&corner)), 4)
@@ -200,12 +212,12 @@ const (
 	PBT_APMRESUME     = 0x0012 // RESUMEAUTOMATIC
 	PBT_RESUMESUSPEND = 0x0007 // RESUMESUSPEND
 
-	WM_WTSSESSION_CHANGE = 0x02B1
-	WTS_SESSION_UNLOCK   = 0x8
-	WM_TIMER             = 0x0113
-	WM_RBUTTONUP         = 0x0205
-	WM_LBUTTONDBLCLK     = 0x0203
-	WM_CONTEXTMENU       = 0x007B
+	WM_WTSSESSION_CHANGE    = 0x02B1
+	WTS_SESSION_UNLOCK      = 0x8
+	WM_TIMER                = 0x0113
+	WM_RBUTTONUP            = 0x0205
+	WM_LBUTTONDBLCLK        = 0x0203
+	WM_CONTEXTMENU          = 0x007B
 	WM_APP                  = 0x8000
 	WM_TRAYICON             = WM_APP + 1
 	WM_TOGGLE_VN            = WM_APP + 2 // posted by the hook: defer toggle work to the loop
@@ -284,6 +296,7 @@ const (
 	DT_VCENTER          = 0x04
 	DT_WORDBREAK        = 0x10
 	DT_SINGLELINE       = 0x20
+	DT_END_ELLIPSIS     = 0x8000
 	DT_NOPREFIX         = 0x0800
 	TRANSPARENT         = 1
 	FW_BOLD             = 700
