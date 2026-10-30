@@ -44,6 +44,8 @@ class KeyboardView @JvmOverloads constructor(
         fun onVietToggle() {}
         fun onSwitchIme() {}
         fun onSpaceMenu() {}
+        /** Extend the selection one char leftward (hold-Backspace select mode). */
+        fun onSelectLeft() {}
         fun onHideKeyboard() {}
         fun onCursorMove(delta: Int) {}
     }
@@ -81,6 +83,38 @@ class KeyboardView @JvmOverloads constructor(
     var symbolsPage = false
         private set
     private var symbolLevel = 0
+
+    /** Back to the letter page — called when the keyboard opens so a new
+     *  field never starts on the symbols page. */
+    fun resetPage() {
+        symbolsPage = false
+        symbolLevel = 0
+        rows = currentRows()
+        relayout()
+    }
+
+    /** Split the letter rows into left/right halves in landscape. */
+    var landscapeSplit = true
+        set(v) {
+            if (field == v) return
+            field = v
+            relayout()
+            invalidate()
+        }
+
+    /** Hold Backspace → highlight text leftward until release (Gboard-style). */
+    var holdDeleteSelect = false
+
+    /** Vibrate on key press. */
+    var hapticEnabled = true
+        set(v) {
+            field = v
+            isHapticFeedbackEnabled = v
+        }
+
+    /** Show the key popup preview on press. */
+    var popupEnabled = true
+
 
     /** Number row above letters — needed by VNI-style input methods
      *  (digits double as tone marks). */
@@ -186,6 +220,15 @@ class KeyboardView @JvmOverloads constructor(
         } else keys.toTypedArray()
     }
 
+    /** Bottom row shared by every page. */
+    private fun bottomRow(modeLabel: String): Array<KeySpec> = arrayOf(
+        KeySpec(K.MODE, modeLabel, 1.7f),
+        KeySpec(','.code, ",", 1.1f),
+        KeySpec(K.SPACE, "Tiếng Việt", 5.7f),
+        KeySpec('.'.code, ".", 1.1f),
+        KeySpec(K.ENTER, "⏎", 1.5f),
+    )
+
     private fun buildLettersRows(): Array<Array<KeySpec>> = arrayOf(
         row("qwertyuiop", withLetterHints = true),
         row("asdfghjkl", insetWeight = 0.5f, withLetterHints = true),
@@ -194,13 +237,7 @@ class KeyboardView @JvmOverloads constructor(
             *row("zxcvbnm", withLetterHints = true),
             KeySpec(K.DEL, "⌫", 1.5f),
         ),
-        arrayOf(
-            KeySpec(K.MODE, "?123", 1.5f),
-            KeySpec(','.code, ",", 0.8f),
-            KeySpec(K.SPACE, "Tiếng Việt", 6.2f),
-            KeySpec('.'.code, ".", 1f),
-            KeySpec(K.ENTER, "⏎", 1.5f),
-        ),
+        bottomRow("?123"),
     )
 
     private val symbolsRows: Array<Array<KeySpec>> by lazy {
@@ -212,13 +249,6 @@ class KeyboardView @JvmOverloads constructor(
                 *row("*\"':;!?"),
                 KeySpec(K.DEL, "⌫", 1.5f),
             ),
-            arrayOf(
-                KeySpec(K.MODE, "ABC", 1.5f),
-                KeySpec(','.code, ",", 0.8f),
-                KeySpec(K.SPACE, "Tiếng Việt", 6.2f),
-                KeySpec('.'.code, ".", 1f),
-                KeySpec(K.ENTER, "⏎", 1.5f),
-            ),
         )
     }
 
@@ -227,7 +257,6 @@ class KeyboardView @JvmOverloads constructor(
             row("^~`|\\€£¥%$"),
             row("°={}[]<>_₫"),
             arrayOf(KeySpec(K.MORE, "?123", 1.5f), *row("!?'\":;"), KeySpec(K.DEL, "⌫", 1.5f)),
-            symbolsRows.last(),
         )
     }
 
@@ -236,7 +265,6 @@ class KeyboardView @JvmOverloads constructor(
             row("~`|•√π÷×§Δ"),
             row("£€$¢^°={}\\"),
             arrayOf(KeySpec(K.MORE, "¥<>", 1.5f), *row("%©®™✓[]"), KeySpec(K.DEL, "⌫", 1.5f)),
-            symbolsRows.last(),
         )
     }
 
@@ -263,12 +291,60 @@ class KeyboardView @JvmOverloads constructor(
 
     private fun currentRows(): Array<Array<KeySpec>> =
         if (numericLayout != NumericLayout.NONE) numPadRows(numericLayout)
-        else if (symbolsPage) { when (symbolLevel) { 1 -> extraSymbolRows; 2 -> legacySymbolRows; else -> symbolsRows } }
+        else if (symbolsPage) arrayOf(*when (symbolLevel) { 1 -> extraSymbolRows; 2 -> legacySymbolRows; else -> symbolsRows }, bottomRow("ABC"))
         else if (showNumberRow) arrayOf(buildNumberRow(), *buildLettersRows())
         else buildLettersRows()
 
     private val keys = mutableListOf<Key>()
     private var rows: Array<Array<KeySpec>> = buildLettersRows()
+
+    /** Split each letter row into left/right halves so landscape thumbs reach
+     *  every key — same idea as the iPad/Laban Key landscape layout. The
+     *  bottom row (mostly functional keys) stays one continuous row. */
+    private fun computeVisualRows(): List<List<Array<KeySpec>>> {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        if (!landscape || !landscapeSplit || numericLayout != NumericLayout.NONE) {
+            return rows.map { listOf(it) }
+        }
+        val out = ArrayList<List<Array<KeySpec>>>(rows.size)
+        for (rowSpec in rows) {
+            val spaceIdx = rowSpec.indexOfFirst { it.code == K.SPACE }
+            if (spaceIdx >= 0) {
+                // Bottom row: give each thumb its own Space half, like the
+                // Laban Key landscape layout.
+                val space = rowSpec[spaceIdx]
+                val halfSpace = space.copy(weight = space.weight * 0.48f)
+                out += listOf(
+                    arrayOf(*rowSpec.sliceArray(0 until spaceIdx), halfSpace),
+                    arrayOf(halfSpace, *rowSpec.sliceArray(spaceIdx + 1 until rowSpec.size)),
+                )
+                continue
+            }
+            var letters = 0
+            for (spec in rowSpec) if (spec.code >= 0) letters++
+            if (letters == 0) {
+                out += listOf(rowSpec)
+                continue
+            }
+            var seen = 0
+            var splitAt = -1
+            for (i in rowSpec.indices) {
+                if (rowSpec[i].code >= 0) {
+                    seen++
+                    if (seen == (letters + 1) / 2) { splitAt = i + 1; break }
+                }
+            }
+            if (splitAt <= 0 || splitAt >= rowSpec.size) {
+                out += listOf(rowSpec)
+                continue
+            }
+            out += listOf(
+                rowSpec.sliceArray(0 until splitAt),
+                rowSpec.sliceArray(splitAt until rowSpec.size),
+            )
+        }
+        return out
+    }
 
     // ---- metrics ------------------------------------------------------------
 
@@ -276,6 +352,8 @@ class KeyboardView @JvmOverloads constructor(
     private var keyHeight = 56 * dp
     private val rowGap = 6 * dp
     private var keyGap = 4 * dp
+    /** Horizontal gap between the left/right halves in landscape split mode. */
+    private var splitGap = 40 * dp
     private val padH = 3 * dp
     private val padTop = 8 * dp
     private val padBottom = 8 * dp
@@ -318,6 +396,10 @@ class KeyboardView @JvmOverloads constructor(
     private val popupRect = RectF()
 
     private var pressed: Key? = null
+    /** Last touched key kept briefly after release so the popup lingers. */
+    private var popupKey: Key? = null
+    private var popupHoldUntil = 0L
+    private val popupHoldMs = 120L
     private var shiftTapTime = 0L
     private var downPointerId = -1
     private var downX = 0f
@@ -343,6 +425,24 @@ class KeyboardView @JvmOverloads constructor(
             listener?.onDelete()
             handler.postDelayed(this, 50)
         }
+    }
+
+    /** After the long-press delay in hold-select mode: switch from deleting to
+     *  extending the selection leftward until the finger lifts. */
+    private val repeatSelect = object : Runnable {
+        override fun run() {
+            listener?.onSelectLeft()
+            handler.postDelayed(this, 50)
+        }
+    }
+
+    private val delLongPress = Runnable {
+        if (!holdDeleteSelect || pressed?.spec?.code != K.DEL) return@Runnable
+        pressConsumed = true
+        handler.removeCallbacks(repeatDelete)
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        handler.post(repeatSelect)
+        invalidate()
     }
 
     /** Long-press a hinted key types the hint char directly (Unikey-style). */
@@ -397,13 +497,20 @@ class KeyboardView @JvmOverloads constructor(
         requestApplyInsets()
     }
 
-    /** Key metrics in dp — from the settings screen. */
-    fun setMetrics(heightDp: Int, gapDp: Int) {
-        val h = (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) heightDp.coerceAtMost(40) else heightDp.coerceIn(44, 68)) * dp
+    /** Key metrics in dp — from the settings screen. `landHeightDp` lets the
+     *  user pick a separate key height for landscape; when it is unset the
+     *  landscape default of 36dp applies. `landSplitGapDp` is the space
+     *  between the two halves in landscape split mode. */
+    fun setMetrics(heightDp: Int, gapDp: Int, landHeightDp: Int = -1, landSplitGapDp: Int = 40) {
+        val h = (if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+            (if (landHeightDp > 0) landHeightDp else 36).coerceIn(32, 56)
+            else heightDp.coerceIn(44, 68)) * dp
         val g = gapDp.coerceIn(0, 8) * dp
-        if (h == keyHeight && g == keyGap) return
+        val s = landSplitGapDp.coerceIn(8, 200) * dp
+        if (h == keyHeight && g == keyGap && s == splitGap) return
         keyHeight = h
         keyGap = g
+        splitGap = s
         relayout()
         requestLayout()
     }
@@ -416,7 +523,7 @@ class KeyboardView @JvmOverloads constructor(
         } else {
             applyTheme()
         }
-        setMetrics(Prefs.keyHeightDp(context), Prefs.keyGapDp(context))
+        setMetrics(Prefs.keyHeightDp(context), Prefs.keyGapDp(context), Prefs.landKeyHeightDp(context), Prefs.landSplitGapDp(context))
     }
 
     private fun applyTheme() {
@@ -443,18 +550,24 @@ class KeyboardView @JvmOverloads constructor(
         relayout()
     }
 
+
     private fun relayout() {
         keys.clear()
+        val visualRows = computeVisualRows()
         val contentW = width - 2 * padH
         var y = padTop
-        for (rowSpec in rows) {
-            var x = padH
-            val totalWeight = rowSpec.sumOf { it.weight.toDouble() }.toFloat()
-            val unitW = (contentW - keyGap * (rowSpec.size - 1)) / totalWeight
-            for (spec in rowSpec) {
-                val kw = unitW * spec.weight
-                keys += Key(spec, RectF(x, y, x + kw, y + keyHeight))
-                x += kw + keyGap
+        for (halves in visualRows) {
+            val halfW = if (halves.size > 1) (contentW - splitGap) / 2f else contentW
+            for (half in halves.indices) {
+                val rowSpec = halves[half]
+                var x = padH + half * (halfW + splitGap)
+                val totalWeight = rowSpec.sumOf { it.weight.toDouble() }.toFloat()
+                val unitW = (halfW - keyGap * (rowSpec.size - 1)) / totalWeight
+                for (spec in rowSpec) {
+                    val kw = unitW * spec.weight
+                    keys += Key(spec, RectF(x, y, x + kw, y + keyHeight))
+                    x += kw + keyGap
+                }
             }
             y += keyHeight + rowGap
         }
@@ -658,7 +771,10 @@ class KeyboardView @JvmOverloads constructor(
     }
 
     private fun drawPreview(canvas: Canvas) {
-        val key = pressed ?: return
+        if (!popupEnabled) return
+        val key = pressed ?: popupKey.takeIf {
+            SystemClock.uptimeMillis() < popupHoldUntil
+        } ?: return
         if (key.spec.code <= 0) return // only literal-char keys get a popup
         val r = key.rect
         val pw = r.width() * 1.5f
@@ -728,8 +844,14 @@ class KeyboardView @JvmOverloads constructor(
         playSoundEffect(SoundEffectConstants.CLICK)
         if (key.spec.code == K.DEL) {
             manualShift = false
-            listener?.onDelete()
-            handler.postDelayed(repeatDelete, 400)
+            if (holdDeleteSelect) {
+                // Select-on-hold mode: nothing deletes on down — a quick tap
+                // deletes once on release, a hold only highlights.
+                handler.postDelayed(delLongPress, 400)
+            } else {
+                listener?.onDelete()
+                handler.postDelayed(repeatDelete, 400)
+            }
         }
         if (key.spec.code == K.SPACE) {
             spaceLongFired = false
@@ -784,9 +906,14 @@ class KeyboardView @JvmOverloads constructor(
             downX = x
             downY = y
             handler.removeCallbacks(repeatDelete)
+            handler.removeCallbacks(repeatSelect)
+            handler.removeCallbacks(delLongPress)
             handler.removeCallbacks(spaceLongPress)
             handler.removeCallbacks(hintLongPress)
-            if (key?.spec?.code == K.DEL) handler.postDelayed(repeatDelete, 400)
+            if (key?.spec?.code == K.DEL) {
+                if (holdDeleteSelect) handler.postDelayed(delLongPress, 400)
+                else handler.postDelayed(repeatDelete, 400)
+            }
             else if (key?.spec?.longPressChar != null) handler.postDelayed(hintLongPress, 450)
             invalidate()
         }
@@ -795,18 +922,35 @@ class KeyboardView @JvmOverloads constructor(
     private fun onUp(x: Float, y: Float) {
         val p = pressed ?: return
         val wasSliding = spaceSliding
+        val wasConsumed = pressConsumed
         val shouldDispatch = !wasSliding && p.spec.code != K.DEL && p.spec.code != K.SPACER &&
             (withinHysteresis(p, x, y) || hit(x, y) === p)
         cancelPress()
+        if (holdDeleteSelect && !wasConsumed && p.spec.code == K.DEL &&
+            (withinHysteresis(p, x, y) || hit(x, y) === p)) {
+            // Quick tap in select-on-hold mode: delete once on release.
+            listener?.onDelete()
+            return
+        }
         if (shouldDispatch) {
             dispatch(p)
         }
     }
 
     private fun cancelPress() {
+        val released = pressed
+        if (popupEnabled && released != null && released.spec.code > 0) {
+            popupKey = released
+            popupHoldUntil = SystemClock.uptimeMillis() + popupHoldMs
+            postInvalidateDelayed(popupHoldMs + 10)
+        } else {
+            popupKey = null
+        }
         pressed = null
         spaceSliding = false
         handler.removeCallbacks(repeatDelete)
+        handler.removeCallbacks(repeatSelect)
+        handler.removeCallbacks(delLongPress)
         handler.removeCallbacks(spaceLongPress)
         handler.removeCallbacks(hintLongPress)
         invalidate()

@@ -116,6 +116,13 @@ object ClipboardHistory {
         saveLocked(ctx, cache!!)
     }
 
+    /** Drop the in-memory copy; next access reloads from disk. Called when the
+     *  keyboard hides so the IME doesn't hold the whole history while idle. */
+    @Synchronized
+    fun unload() {
+        cache = null
+    }
+
     private fun imageDir(ctx: Context): File =
         File(ctx.filesDir, IMGDIR).apply { mkdirs() }
 

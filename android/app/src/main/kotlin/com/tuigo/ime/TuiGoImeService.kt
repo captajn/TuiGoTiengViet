@@ -3,6 +3,7 @@ package com.tuigo.ime
 import android.inputmethodservice.InputMethodService
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
+import android.content.Intent
 import android.graphics.drawable.Icon
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -82,7 +83,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 keyboard.theme = KeyboardThemes.current(this)
                 keyboard.vniMode = Prefs.inputMethod(this) == ImVni
                 keyboard.showNumberRow = usesNumberRow()
-                keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+                keyboard.landscapeSplit = Prefs.landSplit(this)
+                keyboard.holdDeleteSelect = Prefs.holdDelSelect(this)
+                keyboard.hapticEnabled = Prefs.haptic(this)
+                keyboard.popupEnabled = Prefs.keyPopup(this)
+                keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this), Prefs.landKeyHeightDp(this), Prefs.landSplitGapDp(this))
                 suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
                 renderSuggestionStrip()
                 updateAutoCapitalization()
@@ -96,6 +101,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private var vietOn = true
     private var doubleSpace = true
+    private var holdDelSelect = false
+    /** Fixed end of the hold-Backspace selection (the side that stays put). */
+    private var selectAnchor = -1
+    /** Moving edge of the hold-Backspace selection (left side, walks left). */
+    private var selectEdge = -1
 
     /** Host app's package — per-app VN/EN memory (Windows-style). */
     private var hostPkg: String? = null
@@ -182,6 +192,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         vietOn = Prefs.vietForApp(this, hostPkg) ?: Prefs.vietOn(this)
         engine.setVietKey(vietOn)
         doubleSpace = Prefs.doubleSpacePeriod(this)
+        holdDelSelect = Prefs.holdDelSelect(this)
         // Reload on every activation, including an empty/deleted macro file.
         // Preserve the last readable list only on a genuine I/O failure.
         try {
@@ -213,7 +224,11 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.vietnameseOn = vietOn
         keyboard.vniMode = Prefs.inputMethod(this) == ImVni
         keyboard.showNumberRow = usesNumberRow()
-        keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+        keyboard.landscapeSplit = Prefs.landSplit(this)
+        keyboard.holdDeleteSelect = Prefs.holdDelSelect(this)
+        keyboard.hapticEnabled = Prefs.haptic(this)
+        keyboard.popupEnabled = Prefs.keyPopup(this)
+        keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this), Prefs.landKeyHeightDp(this), Prefs.landSplitGapDp(this))
         val dm = resources.displayMetrics.density
         val pad = (6 * dm).toInt()
         val strip = FlexboxLayout(this).apply {
@@ -288,7 +303,12 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.vniMode = Prefs.inputMethod(this) == ImVni
         keyboard.showNumberRow = usesNumberRow()
         keyboard.numericLayout = numericLayoutFor(info)
-        keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this))
+        keyboard.resetPage()
+        keyboard.landscapeSplit = Prefs.landSplit(this)
+        keyboard.holdDeleteSelect = Prefs.holdDelSelect(this)
+        keyboard.hapticEnabled = Prefs.haptic(this)
+        keyboard.popupEnabled = Prefs.keyPopup(this)
+        keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this), Prefs.landKeyHeightDp(this), Prefs.landSplitGapDp(this))
         suggestionScroll?.setBackgroundColor(keyboard.theme.bg)
         renderSuggestionStrip()
         engine.resetBuf()
@@ -326,6 +346,15 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         clearInlineSuggestions()
+        // Free chip views (they retain decoded thumbnails) and the clipboard
+        // cache while the keyboard is hidden — both rebuild on next show.
+        suggestionStrip?.removeAllViews()
+        pinnedSuggestionHost?.removeAllViews()
+        suggestionBar?.visibility = View.GONE
+        renderedClipKey = null
+        renderedHistoryOn = false
+        renderedTheme = null
+        ClipboardHistory.unload()
         clipPanel?.dismiss()
         spacePopup?.dismiss()
         engine.resetBuf()
@@ -350,9 +379,16 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ownSelEchoes.clear()
             expectedSel = minOf(newSelStart, newSelEnd)
             if (::keyboard.isInitialized) keyboard.resetManualShift()
+            // Not produced by hold-Backspace select — drop our tracking.
+            if (newSelEnd != selectAnchor || newSelStart != selectEdge) {
+                selectAnchor = -1
+                selectEdge = -1
+            }
             return
         }
         if (newSelStart != expectedSel) {
+            selectAnchor = -1
+            selectEdge = -1
             if (expectedSel < 0) {
                 // Never synced (app did not report an initial selection) —
                 // adopt the position without discarding the input buffer.
@@ -452,6 +488,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val ic = currentInputConnection ?: return
         dismissCurrentClipSuggestion()
         spacePending = false
+        selectAnchor = -1
+        selectEdge = -1
         val hasSelection = if (selStart >= 0 && selEnd >= 0) {
             selStart != selEnd || !ic.getSelectedText(0).isNullOrEmpty()
         } else {
@@ -480,7 +518,35 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         scheduleAutoCapitalizationUpdate()
     }
 
+    /** Hold-Backspace select mode: extend the selection one char to the left.
+     *  The right edge (where the cursor started) stays fixed. */
+    override fun onSelectLeft() {
+        val ic = currentInputConnection ?: return
+        engine.resetBuf()
+        spacePending = false
+        if (selectAnchor < 0 || selectEdge < 0) {
+            // First step: anchor = current right edge (or cursor position).
+            if (selStart >= 0 && selEnd >= 0) {
+                selectAnchor = if (selStart != selEnd) maxOf(selStart, selEnd) else selEnd
+                selectEdge = selectAnchor
+            } else {
+                val pos = ic.getTextBeforeCursor(100000, 0)?.length ?: return
+                selectAnchor = pos
+                selectEdge = pos
+            }
+        }
+        if (selectEdge <= 0) return
+        selectEdge--
+        ic.setSelection(selectEdge, selectAnchor)
+        // Track the new selection locally so the next step extends further.
+        selStart = selectEdge
+        selEnd = selectAnchor
+        expectedSel = selectEdge
+    }
+
     override fun onEnter() {
+        selectAnchor = -1
+        selectEdge = -1
         dismissCurrentClipSuggestion()
         spacePending = false
         engine.resetBuf()
@@ -593,6 +659,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         item("VIQR", current == ImViqr) { Prefs.get(this).edit().putInt(Prefs.KEY_IM, ImViqr).apply() }
         divider()
         item("Chọn bàn phím khác…", false) { onSwitchIme() }
+        item("Cài đặt Tui Gõ…", false) {
+            startActivity(Intent(this, com.tuigo.MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
         spacePopup?.dismiss()
         spacePopup = PopupWindow(panel, ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT, true).apply {
@@ -685,6 +755,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private fun clearInlineSuggestions() {
         inlineGeneration++
         hasInlineSuggestions = false
+        syncSuggestionBarVisibility()
         val scroll = suggestionScroll
         scroll?.scrollTo(0, 0)
         scroll?.removeAllViews()
@@ -1167,6 +1238,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     ) {
         if (generation != inlineGeneration) return
         hasInlineSuggestions = true
+        syncSuggestionBarVisibility()
 
         if (suggestions.isEmpty()) {
             clearInlineSuggestions()

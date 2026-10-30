@@ -25,7 +25,11 @@ class MainActivity : Activity() {
         val p = Prefs.get(this)
         val root = ui.column()
         root.addView(ui.text("GÕ THEO CÁCH CỦA BẠN", 11f, ui.pal.accent, true))
-        root.addView(ui.brandHeader("Tui Gõ", "Tiếng Việt, thật tự nhiên."))
+        val versionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (_: Exception) { null }
+        root.addView(ui.brandHeader("Tui Gõ", "Tiếng Việt, thật tự nhiên.",
+            versionName?.let { "v$it" }))
 
         // Tab 0: Bộ gõ
         val tabTyping = ui.column().apply {
@@ -109,6 +113,9 @@ class MainActivity : Activity() {
                 addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
                 addView(toggle("Viết hoa kí tự đầu tiên", "Tự bật Shift ở đầu câu", Prefs.KEY_AUTO_CAPITALIZE))
                 addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
+                addView(toggle("Giữ phím xoá để bôi chữ", "Giữ Backspace để bôi đen chữ về bên trái, thả ra để dừng", Prefs.KEY_HOLD_DEL_SELECT, false))
+                addView(toggle("Rung khi nhấn phím", "Phản hồi rung nhẹ mỗi lần gõ", Prefs.KEY_HAPTIC))
+                addView(toggle("Popup phím khi nhấn", "Hiện bản phóng to phím đang bấm", Prefs.KEY_KEY_POPUP))
             })
             addView(ui.card("Thử bàn phím", "Gõ thử tiếng Việt hoặc từ gõ tắt ngay tại đây").apply {
                 addView(ui.editor("Ví dụ: tieengs Vieetj", false).apply { tag = "typing-preview" })
@@ -125,6 +132,9 @@ class MainActivity : Activity() {
                 addView(toggle("Lịch sử bộ nhớ tạm", "Lưu các mục đã sao chép trên thiết bị — mở từ biểu tượng đồng hồ trên thanh gợi ý", Prefs.KEY_CLIPBOARD_HISTORY, true))
                 addView(slider("Số mục bộ nhớ tạm lưu tối đa", Prefs.KEY_CLIPBOARD_MAX, 10, 500, 50, "mục"))
                 addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
+                addView(slider("Chiều cao phím ngang", Prefs.KEY_LAND_KEY_HEIGHT, 32, 56, 36))
+                addView(toggle("Tách đôi phím khi xoay ngang", "Chia bàn phím về hai bên để gõ bằng hai ngón cái", Prefs.KEY_LAND_SPLIT))
+                addView(slider("Khoảng trống giữa hai bên khi xoay ngang", Prefs.KEY_LAND_SPLIT_GAP, 8, 200, 40))
                 addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
                 addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
             })

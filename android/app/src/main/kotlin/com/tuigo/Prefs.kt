@@ -25,6 +25,12 @@ object Prefs {
     const val KEY_VIET_ON = "viet_on"
     const val KEY_NUMBER_ROW = "number_row"
     const val KEY_KEY_HEIGHT = "key_height"
+    const val KEY_LAND_KEY_HEIGHT = "land_key_height"
+    const val KEY_LAND_SPLIT = "land_split"
+    const val KEY_LAND_SPLIT_GAP = "land_split_gap"
+    const val KEY_HOLD_DEL_SELECT = "hold_del_select"
+    const val KEY_HAPTIC = "haptic_feedback"
+    const val KEY_KEY_POPUP = "key_popup"
     const val KEY_KEY_GAP = "key_gap"
     const val KEY_THEME = "key_theme"
     const val KEY_CLIPBOARD_SUGGEST = "clipboard_suggest"
@@ -113,6 +119,14 @@ object Prefs {
     fun clipboardHistoryMax(ctx: Context): Int =
         get(ctx).getInt(KEY_CLIPBOARD_MAX, 50).coerceIn(5, 2000)
     fun keyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_HEIGHT, 56)
+    /** Landscape key height; -1 = auto (compact default). */
+    fun landKeyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_LAND_KEY_HEIGHT, -1)
+    fun landSplit(ctx: Context): Boolean = get(ctx).getBoolean(KEY_LAND_SPLIT, true)
+    fun landSplitGapDp(ctx: Context): Int = get(ctx).getInt(KEY_LAND_SPLIT_GAP, 40)
+    /** Hold Backspace → extend selection leftward until release (Gboard-style). */
+    fun holdDelSelect(ctx: Context): Boolean = get(ctx).getBoolean(KEY_HOLD_DEL_SELECT, false)
+    fun haptic(ctx: Context): Boolean = get(ctx).getBoolean(KEY_HAPTIC, true)
+    fun keyPopup(ctx: Context): Boolean = get(ctx).getBoolean(KEY_KEY_POPUP, true)
     fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)
 
     // ---- per-app language memory -------------------------------------------

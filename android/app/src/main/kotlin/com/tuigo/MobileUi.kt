@@ -37,7 +37,7 @@ class MobileUi(private val context: Context) {
         layoutParams = fullWidthLp()
     }
 
-    fun brandHeader(title: String, subtitle: String) = LinearLayout(context).apply {
+    fun brandHeader(title: String, subtitle: String, version: String? = null) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         setPadding(0, dp(6), 0, dp(10))
         layoutParams = fullWidthLp()
@@ -53,6 +53,12 @@ class MobileUi(private val context: Context) {
             addView(text(title, if (swDp < 360) 22f else 26f, bold = true))
             addView(text(subtitle, 14f, pal.muted))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (version != null) {
+            addView(text(version, 12f, pal.muted).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            })
+        }
     }
 
     fun badge(value: String, active: Boolean = true) = LinearLayout(context).apply {
