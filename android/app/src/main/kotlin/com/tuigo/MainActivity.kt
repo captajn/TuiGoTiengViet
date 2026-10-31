@@ -113,7 +113,19 @@ class MainActivity : Activity() {
                 addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
                 addView(toggle("Viết hoa kí tự đầu tiên", "Tự bật Shift ở đầu câu", Prefs.KEY_AUTO_CAPITALIZE))
                 addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
-                addView(toggle("Giữ phím xoá để bôi chữ", "Giữ Backspace để bôi đen chữ về bên trái, thả ra để dừng", Prefs.KEY_HOLD_DEL_SELECT, false))
+                val sensSlider = slider("Độ nhạy kéo chọn", Prefs.KEY_HOLD_DEL_SENS, 1, 150, 100, "dp/ký tự", tenths = true)
+                addView(choicePicker(
+                    "Giữ phím xoá để bôi và xoá",
+                    "Tắt: giữ lặp xoá · Kéo: giữ rồi kéo để bôi · Giữ: tự bôi dần sang trái — thả ra để xoá",
+                    Prefs.KEY_HOLD_DEL_MODE, Prefs.holdDelMode(this@MainActivity),
+                    listOf("Tắt", "Kéo để bôi", "Giữ để bôi")) { mode ->
+                    // Sensitivity only applies to drag-select mode.
+                    sensSlider.alpha = if (mode == 1) 1f else 0.4f
+                    (sensSlider as? android.view.ViewGroup)?.let { vg ->
+                        for (i in 0 until vg.childCount) vg.getChildAt(i).isEnabled = mode == 1
+                    }
+                })
+                addView(sensSlider)
                 addView(toggle("Rung khi nhấn phím", "Phản hồi rung nhẹ mỗi lần gõ", Prefs.KEY_HAPTIC))
                 addView(toggle("Popup phím khi nhấn", "Hiện bản phóng to phím đang bấm", Prefs.KEY_KEY_POPUP))
             })
@@ -134,6 +146,7 @@ class MainActivity : Activity() {
                 addView(slider("Chiều cao phím", Prefs.KEY_KEY_HEIGHT, 44, 68, 56))
                 addView(slider("Chiều cao phím ngang", Prefs.KEY_LAND_KEY_HEIGHT, 32, 56, 36))
                 addView(toggle("Tách đôi phím khi xoay ngang", "Chia bàn phím về hai bên để gõ bằng hai ngón cái", Prefs.KEY_LAND_SPLIT))
+                addView(toggle("Chế độ một tay", "Vuốt từ trên xuống cạnh trái/phải bàn phím để chuyển sang chế độ một tay", Prefs.KEY_ONE_HANDED, false))
                 addView(slider("Khoảng trống giữa hai bên khi xoay ngang", Prefs.KEY_LAND_SPLIT_GAP, 8, 200, 40))
                 addView(slider("Khoảng cách phím", Prefs.KEY_KEY_GAP, 0, 8, 4))
                 addView(ui.text("Vuốt phím Space để di chuyển con trỏ · Giữ Space để đổi ngôn ngữ và kiểu gõ.", 13f, ui.pal.muted))
@@ -321,8 +334,49 @@ class MainActivity : Activity() {
             override fun getIntrinsicHeight(): Int = h
         }
     }
-    private fun slider(title: String, key: String, min: Int, max: Int, default: Int, unit: String = "dp"): View {
+    /** Row of chips that stores the picked index into an int pref. */
+    private fun choicePicker(title: String, hint: String, key: String, selected: Int, labels: List<String>, onPick: (Int) -> Unit = {}): View {
         val p = Prefs.get(this)
+        val chips = mutableListOf<TextView>()
+        fun pick(i: Int) {
+            p.edit().putInt(key, i).apply()
+            onPick(i)
+            chips.forEachIndexed { idx, chip ->
+                chip.background = if (idx == i)
+                    ui.surface(ui.pal.glow, 12).apply { setStroke(ui.dp(1), ui.pal.accent) }
+                else ui.surface(ui.pal.raised, 12)
+                chip.setTextColor(if (idx == i) ui.pal.accent else ui.pal.text)
+            }
+        }
+        return ui.column().apply {
+            layoutParams = ui.fullWidthLp(topMarginDp = 10)
+            addView(ui.text(title, 14f, ui.pal.text, true))
+            if (hint.isNotEmpty()) addView(ui.text(hint, 12f, ui.pal.muted).apply {
+                setPadding(0, ui.dp(2), 0, ui.dp(6))
+            })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                labels.forEachIndexed { i, label ->
+                    val chip = TextView(this@MainActivity).apply {
+                        text = label; textSize = 13f
+                        setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
+                        background = ui.surface(ui.pal.raised, 12)
+                        setOnClickListener { pick(i) }
+                        layoutParams = LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ).apply { rightMargin = ui.dp(8) }
+                    }
+                    chips += chip
+                    addView(chip)
+                }
+            })
+            pick(selected)
+        }
+    }
+    private fun slider(title: String, key: String, min: Int, max: Int, default: Int, unit: String = "dp", tenths: Boolean = false): View {
+        val p = Prefs.get(this)
+        fun fmt(v: Int) = if (tenths) "${v / 10}.${v % 10}" else "$v"
         return ui.column().apply {
             layoutParams = ui.fullWidthLp(topMarginDp = 8)
             val label = ui.text("", 14f)
@@ -334,10 +388,10 @@ class MainActivity : Activity() {
                 setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
                 layoutParams = ui.fullWidthLp()
             }
-            label.text = "$title · ${seek.progress + min} $unit"; seek.contentDescription = label.text
+            label.text = "$title · ${fmt(seek.progress + min)} $unit"; seek.contentDescription = label.text
             seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, value: Int, user: Boolean) {
-                    label.text = "$title · ${value + min} $unit"; seek.contentDescription = label.text
+                    label.text = "$title · ${fmt(value + min)} $unit"; seek.contentDescription = label.text
                     if (user) p.edit().putInt(key, value + min).apply()
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}

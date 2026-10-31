@@ -28,7 +28,10 @@ object Prefs {
     const val KEY_LAND_KEY_HEIGHT = "land_key_height"
     const val KEY_LAND_SPLIT = "land_split"
     const val KEY_LAND_SPLIT_GAP = "land_split_gap"
+    const val KEY_ONE_HANDED = "one_handed"
     const val KEY_HOLD_DEL_SELECT = "hold_del_select"
+    const val KEY_HOLD_DEL_MODE = "hold_del_mode"
+    const val KEY_HOLD_DEL_SENS = "hold_del_sens"
     const val KEY_HAPTIC = "haptic_feedback"
     const val KEY_KEY_POPUP = "key_popup"
     const val KEY_KEY_GAP = "key_gap"
@@ -123,8 +126,34 @@ object Prefs {
     fun landKeyHeightDp(ctx: Context): Int = get(ctx).getInt(KEY_LAND_KEY_HEIGHT, -1)
     fun landSplit(ctx: Context): Boolean = get(ctx).getBoolean(KEY_LAND_SPLIT, true)
     fun landSplitGapDp(ctx: Context): Int = get(ctx).getInt(KEY_LAND_SPLIT_GAP, 40)
-    /** Hold Backspace → extend selection leftward until release (Gboard-style). */
-    fun holdDelSelect(ctx: Context): Boolean = get(ctx).getBoolean(KEY_HOLD_DEL_SELECT, false)
+    /** One-handed mode: swipe down on a side edge to pack keys to that side. */
+    fun oneHanded(ctx: Context): Boolean = get(ctx).getBoolean(KEY_ONE_HANDED, false)
+    /** Hold-Backspace behaviour:
+     *  0 = off (repeat-delete), 1 = hold then drag to highlight, release deletes,
+     *  2 = hold auto-highlights leftward, release deletes. */
+    fun holdDelMode(ctx: Context): Int {
+        val p = get(ctx)
+        if (p.contains(KEY_HOLD_DEL_MODE)) return p.getInt(KEY_HOLD_DEL_MODE, 0).coerceIn(0, 2)
+        // Migrate the old boolean: enabled → drag-select mode.
+        return if (p.getBoolean(KEY_HOLD_DEL_SELECT, false)) 1 else 0
+    }
+
+    /** Drag-to-select sensitivity: swipe distance per character in tenths of
+     *  a dp (100 = 10.0dp/char). Smaller = more sensitive. Migrates the old
+     *  whole-dp values (2..30) by scaling them x10 once. */
+    fun holdDelSensTenths(ctx: Context): Int {
+        val p = get(ctx)
+        val v = p.getInt(KEY_HOLD_DEL_SENS, 100)
+        if (!p.getBoolean("hold_del_sens_v2", false)) {
+            // Old pref stored whole dp (2..30); new store uses tenths (1..150).
+            val scaled = if (v in 2..30) v * 10 else 100
+            p.edit().putInt(KEY_HOLD_DEL_SENS, scaled)
+                .putBoolean("hold_del_sens_v2", true).apply()
+            return scaled
+        }
+        return v.coerceIn(1, 150)
+    }
+    fun holdDelSensDp(ctx: Context): Float = holdDelSensTenths(ctx) / 10f
     fun haptic(ctx: Context): Boolean = get(ctx).getBoolean(KEY_HAPTIC, true)
     fun keyPopup(ctx: Context): Boolean = get(ctx).getBoolean(KEY_KEY_POPUP, true)
     fun keyGapDp(ctx: Context): Int = get(ctx).getInt(KEY_KEY_GAP, 4)

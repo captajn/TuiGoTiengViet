@@ -84,7 +84,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 keyboard.vniMode = Prefs.inputMethod(this) == ImVni
                 keyboard.showNumberRow = usesNumberRow()
                 keyboard.landscapeSplit = Prefs.landSplit(this)
-                keyboard.holdDeleteSelect = Prefs.holdDelSelect(this)
+                keyboard.oneHandedEnabled = Prefs.oneHanded(this)
+                keyboard.delHoldMode = Prefs.holdDelMode(this)
+                keyboard.delSelectSensDp = Prefs.holdDelSensDp(this)
                 keyboard.hapticEnabled = Prefs.haptic(this)
                 keyboard.popupEnabled = Prefs.keyPopup(this)
                 keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this), Prefs.landKeyHeightDp(this), Prefs.landSplitGapDp(this))
@@ -101,11 +103,13 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private var vietOn = true
     private var doubleSpace = true
-    private var holdDelSelect = false
     /** Fixed end of the hold-Backspace selection (the side that stays put). */
     private var selectAnchor = -1
-    /** Moving edge of the hold-Backspace selection (left side, walks left). */
+    /** Moving edge of the hold-Backspace selection. */
     private var selectEdge = -1
+    /** True between the first onSelectMove and onSelectDelete — async
+     *  setSelection echoes must not tear down the tracking state mid-drag. */
+    private var delSelecting = false
 
     /** Host app's package — per-app VN/EN memory (Windows-style). */
     private var hostPkg: String? = null
@@ -192,7 +196,6 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         vietOn = Prefs.vietForApp(this, hostPkg) ?: Prefs.vietOn(this)
         engine.setVietKey(vietOn)
         doubleSpace = Prefs.doubleSpacePeriod(this)
-        holdDelSelect = Prefs.holdDelSelect(this)
         // Reload on every activation, including an empty/deleted macro file.
         // Preserve the last readable list only on a genuine I/O failure.
         try {
@@ -225,7 +228,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.vniMode = Prefs.inputMethod(this) == ImVni
         keyboard.showNumberRow = usesNumberRow()
         keyboard.landscapeSplit = Prefs.landSplit(this)
-        keyboard.holdDeleteSelect = Prefs.holdDelSelect(this)
+        keyboard.oneHandedEnabled = Prefs.oneHanded(this)
+        keyboard.delHoldMode = Prefs.holdDelMode(this)
+        keyboard.delSelectSensDp = Prefs.holdDelSensDp(this)
         keyboard.hapticEnabled = Prefs.haptic(this)
         keyboard.popupEnabled = Prefs.keyPopup(this)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this), Prefs.landKeyHeightDp(this), Prefs.landSplitGapDp(this))
@@ -258,6 +263,8 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         val stripH = (40 * dm).toInt()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            keyboard.overlayHost = this
+            keyboard.suggestionStripVisible = { suggestionBar?.visibility == View.VISIBLE }
             addView(android.widget.FrameLayout(this@TuiGoImeService).apply {
                 suggestionBar = this
                 visibility = View.GONE
@@ -305,7 +312,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         keyboard.numericLayout = numericLayoutFor(info)
         keyboard.resetPage()
         keyboard.landscapeSplit = Prefs.landSplit(this)
-        keyboard.holdDeleteSelect = Prefs.holdDelSelect(this)
+        keyboard.oneHandedEnabled = Prefs.oneHanded(this)
+        keyboard.delHoldMode = Prefs.holdDelMode(this)
+        keyboard.delSelectSensDp = Prefs.holdDelSensDp(this)
         keyboard.hapticEnabled = Prefs.haptic(this)
         keyboard.popupEnabled = Prefs.keyPopup(this)
         keyboard.setMetrics(Prefs.keyHeightDp(this), Prefs.keyGapDp(this), Prefs.landKeyHeightDp(this), Prefs.landSplitGapDp(this))
@@ -373,6 +382,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             candidatesStart, candidatesEnd)
         selStart = newSelStart
         selEnd = newSelEnd
+        if (delSelecting) return // echo of our own setSelection — keep tracking
         if (newSelStart != newSelEnd) {
             engine.resetBuf()
             spacePending = false
@@ -518,30 +528,44 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         scheduleAutoCapitalizationUpdate()
     }
 
-    /** Hold-Backspace select mode: extend the selection one char to the left.
-     *  The right edge (where the cursor started) stays fixed. */
-    override fun onSelectLeft() {
+    /** Hold-Backspace drag-select: move the free edge one char in `dir`
+     *  (−1 = left, +1 = right). The opposite edge stays anchored where the
+     *  hold started; crossing the anchor flips which side is selected. */
+    override fun onSelectMove(dir: Int) {
         val ic = currentInputConnection ?: return
         engine.resetBuf()
         spacePending = false
         if (selectAnchor < 0 || selectEdge < 0) {
-            // First step: anchor = current right edge (or cursor position).
-            if (selStart >= 0 && selEnd >= 0) {
-                selectAnchor = if (selStart != selEnd) maxOf(selStart, selEnd) else selEnd
-                selectEdge = selectAnchor
+            // First step: anchor = current cursor position.
+            if (selStart >= 0 && selEnd >= 0 && selStart == selEnd) {
+                selectAnchor = selEnd
+                selectEdge = selEnd
             } else {
                 val pos = ic.getTextBeforeCursor(100000, 0)?.length ?: return
                 selectAnchor = pos
                 selectEdge = pos
             }
         }
-        if (selectEdge <= 0) return
-        selectEdge--
-        ic.setSelection(selectEdge, selectAnchor)
-        // Track the new selection locally so the next step extends further.
-        selStart = selectEdge
-        selEnd = selectAnchor
-        expectedSel = selectEdge
+        delSelecting = true
+        // Clamp to the real text length so a fast swipe can't run the edge
+        // past the document end.
+        val maxPos = (ic.getTextBeforeCursor(100000, 0)?.length ?: 0) +
+            (ic.getTextAfterCursor(100000, 0)?.length ?: 0)
+        selectEdge = (selectEdge + dir).coerceIn(0, maxPos)
+        val s = minOf(selectEdge, selectAnchor)
+        val e = maxOf(selectEdge, selectAnchor)
+        ic.setSelection(s, e)
+        selStart = s
+        selEnd = e
+        expectedSel = s
+    }
+
+    /** Release after drag-select — delete the highlighted span. */
+    override fun onSelectDelete() {
+        selectAnchor = -1
+        selectEdge = -1
+        delSelecting = false
+        onDelete()
     }
 
     override fun onEnter() {
