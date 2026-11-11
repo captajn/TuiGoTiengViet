@@ -44,9 +44,9 @@ class KeyboardView @JvmOverloads constructor(
         fun onVietToggle() {}
         fun onSwitchIme() {}
         fun onSpaceMenu() {}
-        /** Extend/reduce the hold-Backspace selection by one char;
+        /** Extend/reduce the hold-Backspace selection by `count` chars;
          *  dir<0 selects leftward, dir>0 rightward. */
-        fun onSelectMove(dir: Int) {}
+        fun onSelectMove(dir: Int, count: Int = 1) {}
         /** Commit the current selection — delete whatever is highlighted. */
         fun onSelectDelete() {}
         fun onHideKeyboard() {}
@@ -1022,6 +1022,22 @@ class KeyboardView @JvmOverloads constructor(
             if (abs(dx) > abs(dy) * 1.5f) edgeSwipeSide = 0 // horizontal swipe — not ours
         }
         if (pressConsumed && !delSelecting) return
+        // Quick horizontal swipe on Backspace enters drag-select immediately —
+        // no need to wait out the hold delay (same feel as the space-bar
+        // cursor swipe). Steps below then count from the touch-down point,
+        // so the slop distance already travelled selects its first chars.
+        if (!delSelecting && delHoldMode != 0 && pressed?.spec?.code == K.DEL) {
+            val dx = x - delSelectDownX
+            val dy = y - downY
+            if (abs(dx) > delSwipeSlop && abs(dx) >= abs(dy)) {
+                delSelecting = true
+                delSelectDir = if (dx > 0) 1 else -1
+                handler.removeCallbacks(delLongPress)
+                handler.removeCallbacks(repeatDelete)
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                invalidate()
+            }
+        }
         // Hold-Backspace selection drag — like the space-bar cursor swipe but
         // it highlights text instead of moving the caret.
         if (delSelecting && pressed?.spec?.code == K.DEL) {
@@ -1036,7 +1052,9 @@ class KeyboardView @JvmOverloads constructor(
                 if (steps != 0) {
                     delSelectLastX += steps * delStepPx
                     val dir = if (steps > 0) 1 else -1
-                    repeat(abs(steps)) { listener?.onSelectMove(dir) }
+                    // One batched call per move event — a fast swipe used to
+                    // fire one IPC per char and visibly stutter.
+                    listener?.onSelectMove(dir, abs(steps))
                     performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
@@ -1078,6 +1096,10 @@ class KeyboardView @JvmOverloads constructor(
             handler.removeCallbacks(spaceLongPress)
             handler.removeCallbacks(hintLongPress)
             if (key?.spec?.code == K.DEL) {
+                // Rolling onto Backspace from another key: rebase the swipe
+                // origin so a stale coordinate can't insta-trigger select.
+                delSelectDownX = x
+                delSelectLastX = x
                 if (delHoldMode != 0) handler.postDelayed(delLongPress, 400)
                 else handler.postDelayed(repeatDelete, 400)
             }
