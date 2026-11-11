@@ -107,6 +107,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
     private var selectAnchor = -1
     /** Moving edge of the hold-Backspace selection. */
     private var selectEdge = -1
+    /** Document length snapshot taken on the first select step — refetching
+     *  the whole text per char made fast drags stutter. */
+    private var selectMaxPos = -1
     /** True between the first onSelectMove and onSelectDelete — async
      *  setSelection echoes must not tear down the tracking state mid-drag. */
     private var delSelecting = false
@@ -528,10 +531,10 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         scheduleAutoCapitalizationUpdate()
     }
 
-    /** Hold-Backspace drag-select: move the free edge one char in `dir`
+    /** Hold-Backspace drag-select: move the free edge `count` chars in `dir`
      *  (−1 = left, +1 = right). The opposite edge stays anchored where the
-     *  hold started; crossing the anchor flips which side is selected. */
-    override fun onSelectMove(dir: Int) {
+     *  gesture started; crossing the anchor flips which side is selected. */
+    override fun onSelectMove(dir: Int, count: Int) {
         val ic = currentInputConnection ?: return
         engine.resetBuf()
         spacePending = false
@@ -545,13 +548,15 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
                 selectAnchor = pos
                 selectEdge = pos
             }
+            // Snapshot the length once per gesture — the text can't change
+            // mid-select, and fetching it per step made fast drags stutter.
+            selectMaxPos = (ic.getTextBeforeCursor(100000, 0)?.length ?: 0) +
+                (ic.getTextAfterCursor(100000, 0)?.length ?: 0)
         }
         delSelecting = true
         // Clamp to the real text length so a fast swipe can't run the edge
         // past the document end.
-        val maxPos = (ic.getTextBeforeCursor(100000, 0)?.length ?: 0) +
-            (ic.getTextAfterCursor(100000, 0)?.length ?: 0)
-        selectEdge = (selectEdge + dir).coerceIn(0, maxPos)
+        selectEdge = (selectEdge + dir * count).coerceIn(0, selectMaxPos)
         val s = minOf(selectEdge, selectAnchor)
         val e = maxOf(selectEdge, selectAnchor)
         ic.setSelection(s, e)
