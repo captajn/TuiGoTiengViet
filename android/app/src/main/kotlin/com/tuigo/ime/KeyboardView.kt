@@ -110,6 +110,22 @@ class KeyboardView @JvmOverloads constructor(
     var oneHandedSide = 0
         private set
 
+    /** Which half of the rows actually holds keys. While the keyboard is being
+     *  rebuilt (`keys` empty) an edge swiped down must not leave the toolbar
+     *  side unclear: with nothing drawn, the packed side is the typed side. */
+    private fun activeSide(x: Float): Int {
+        if (keys.isEmpty()) return -1
+        var left = Float.MAX_VALUE
+        var right = -Float.MAX_VALUE
+        for (k in keys) {
+            if (k.spec.code == K.SPACER) continue
+            left = minOf(left, k.rect.left)
+            right = maxOf(right, k.rect.right)
+        }
+        if (left == Float.MAX_VALUE || right <= left) return 0
+        return if (x < (left + right) / 2f) -1 else 1
+    }
+
     /** Split the letter rows into left/right halves in landscape. */
     var landscapeSplit = true
         set(v) {
@@ -374,9 +390,25 @@ class KeyboardView @JvmOverloads constructor(
 
     // ---- metrics ------------------------------------------------------------
 
+        /** True once [relayout] has drawn at least one key — until then touches
+         *  have nothing to hit and are ignored rather than landing on a leftover
+         *  rect from the previous layout. */
+        private val laidOut: Boolean get() = keys.isNotEmpty()
+
     private val dp = resources.displayMetrics.density
     private var keyHeight = 56 * dp
     private val rowGap = 6 * dp
+
+    /** Height the view is currently measured to (see [onMeasure]); the rows
+     *  are squeezed to fill it instead of keeping their natural height. */
+    private var measuredH = 0
+    /** Padding baked into [keys] by the last [relayout]. */
+    private var laidOutPadTop = 0f
+    private var laidOutPadBottom = 0f
+    private var laidOutRowGap = 0f
+    /** Rows were rebuilt before the view had a size (the framework returns a
+     *  layout request before the first pass) — lay them out on the next pass. */
+    private var rowsNeedLayout = false
     private var keyGap = 4 * dp
     /** Horizontal gap between the left/right halves in landscape split mode. */
     private var splitGap = 40 * dp
@@ -637,6 +669,7 @@ class KeyboardView @JvmOverloads constructor(
         val n = rows.size
         val h = (padTop + maxOf(padBottom, navInset.toFloat()) +
             n * keyHeight + (n - 1) * rowGap).roundToInt()
+        measuredH = h
         setMeasuredDimension(w, h)
     }
 
@@ -644,33 +677,70 @@ class KeyboardView @JvmOverloads constructor(
         relayout()
     }
 
-
     private fun relayout() {
         keys.clear()
         val visualRows = computeVisualRows()
+        if (width <= 0) {
+            rowsNeedLayout = true
+            return
+        }
+        rowsNeedLayout = false
         // One-handed mode packs keys into 78% of the width on the chosen side.
         val contentW = (width - 2 * padH) * (if (oneHandedSide != 0) 0.78f else 1f)
         val contentX = padH + when {
             oneHandedSide > 0 -> (width - 2 * padH) - contentW
             else -> 0f
         }
-        var y = padTop
+        // Rows are laid out to the measured height, which can differ from the
+        // natural row height: a host app re-measuring the IME window, a
+        // configuration switch (app hop, split screen, fullscreen extract
+        // editor) or a late inset re-measure all leave keys taller than the
+        // view — the bottom rows then sit off-screen. Squeeze the padding,
+        // then the gaps, then the keys so every row stays inside the view and
+        // hit-testing matches what is drawn.
+        val n = visualRows.size
+        var padTopUsed = padTop
+        var padBottomUsed = maxOf(padBottom, navInset.toFloat())
+        var gapUsed = rowGap
+        var kh = keyHeight
+        if (n > 0) {
+            val avail = when {
+                measuredH > 0 && height > 0 -> minOf(height, measuredH).toFloat()
+                height > 0 -> height.toFloat()
+                else -> Float.MAX_VALUE
+            }
+            val natural = padTopUsed + padBottomUsed + n * kh + (n - 1) * gapUsed
+            if (natural > avail + 0.5f) {
+                val header = (padTopUsed + padBottomUsed).coerceAtMost(avail * 0.2f)
+                val gaps = (n - 1) * gapUsed
+                val scale = ((avail - header) / (n * kh + gaps)).coerceAtLeast(0.1f)
+                kh *= scale
+                gapUsed *= scale
+                padTopUsed = padTop * (header / (padTopUsed + padBottomUsed))
+                padBottomUsed = header - padTopUsed
+            }
+        }
+        laidOutPadTop = padTopUsed
+        laidOutPadBottom = padBottomUsed
+        laidOutRowGap = gapUsed
+        var y = padTopUsed
         for (halves in visualRows) {
             val halfW = if (halves.size > 1) (contentW - splitGap) / 2f else contentW
             for (half in halves.indices) {
                 val rowSpec = halves[half]
                 var x = contentX + half * (halfW + splitGap)
                 val totalWeight = rowSpec.sumOf { it.weight.toDouble() }.toFloat()
-                val unitW = (halfW - keyGap * (rowSpec.size - 1)) / totalWeight
+                val unitW = ((halfW - keyGap * (rowSpec.size - 1)) / totalWeight).coerceAtLeast(0f)
                 for (spec in rowSpec) {
                     val kw = unitW * spec.weight
-                    keys += Key(spec, RectF(x, y, x + kw, y + keyHeight))
+                    keys += Key(spec, RectF(x, y, x + kw, y + kh))
                     x += kw + keyGap
                 }
             }
-            y += keyHeight + rowGap
+            y += kh + gapUsed
         }
         bgPaint.shader = LinearGradient(0f, 0f, 0f, height.toFloat().coerceAtLeast(1f), theme.bg, theme.bgEnd, Shader.TileMode.CLAMP)
+        if (rowsNeedLayout) post { relayout() }
         invalidate()
     }
 
@@ -909,7 +979,10 @@ class KeyboardView @JvmOverloads constructor(
                 edgeSwipeSide = edgeSideOf(ev.x)
                 edgeSwipeX = ev.x
                 edgeSwipeY = ev.y
-                onDown(ev.x, ev.y)
+                // Touches that arrive before the rows exist (first show, or a
+                // rebuild mid-gesture) have nothing valid to hit — drop them
+                // instead of pressing a stale rect.
+                if (laidOut) onDown(ev.x, ev.y)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val idx = ev.actionIndex
@@ -928,7 +1001,10 @@ class KeyboardView @JvmOverloads constructor(
                 edgeSwipeSide = edgeSideOf(ev.getX(idx))
                 edgeSwipeX = ev.getX(idx)
                 edgeSwipeY = ev.getY(idx)
-                onDown(ev.getX(idx), ev.getY(idx))
+                // Touches that arrive before the rows exist (first show, or a
+                // rebuild mid-gesture) have nothing valid to hit — drop them
+                // instead of pressing a stale rect or cancelling a live press.
+                if (laidOut) onDown(ev.getX(idx), ev.getY(idx))
             }
             MotionEvent.ACTION_MOVE -> {
                 val idx = ev.findPointerIndex(downPointerId)
@@ -949,12 +1025,15 @@ class KeyboardView @JvmOverloads constructor(
 
     /** Which side an edge-swipe starting at x belongs to: left/right edge
      *  strip always counts; when keys are packed to one side the whole empty
-     *  side acts as the gesture zone too. 0 = not an edge start. */
+     *  side acts as the gesture zone too. 0 = not an edge start. The side is
+     *  measured against the drawn keys, never the view width: after switching
+     *  apps the rows can be laid out for a narrower width than the view, and a
+     *  stale window width made every touch count as an edge swipe. */
     private fun edgeSideOf(x: Float): Int {
         if (!oneHandedEnabled) return 0
+        if (oneHandedSide != 0) return activeSide(x)
         if (x <= edgeZonePx) return -1
         if (x >= width - edgeZonePx) return 1
-        if (oneHandedSide != 0) return if (x < width / 2f) -1 else 1
         return 0
     }
 
@@ -1016,7 +1095,7 @@ class KeyboardView @JvmOverloads constructor(
             if (dy > edgeSwipeTrigger && abs(dy) > abs(dx) * 1.3f) {
                 edgeSwipeSide = 0
                 cancelPress()
-                toggleOneHanded(if (x < width / 2f) -1 else 1)
+                toggleOneHanded(activeSide(x))
                 return
             }
             if (abs(dx) > abs(dy) * 1.5f) edgeSwipeSide = 0 // horizontal swipe — not ours
