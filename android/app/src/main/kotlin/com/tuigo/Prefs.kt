@@ -29,6 +29,7 @@ object Prefs {
     const val KEY_LAND_SPLIT = "land_split"
     const val KEY_LAND_SPLIT_GAP = "land_split_gap"
     const val KEY_ONE_HANDED = "one_handed"
+    const val KEY_SWIPE_DEL = "swipe_del"
     const val KEY_HOLD_DEL_SELECT = "hold_del_select"
     const val KEY_HOLD_DEL_MODE = "hold_del_mode"
     const val KEY_HOLD_DEL_SENS = "hold_del_sens"
@@ -136,6 +137,18 @@ object Prefs {
         if (p.contains(KEY_HOLD_DEL_MODE)) return p.getInt(KEY_HOLD_DEL_MODE, 0).coerceIn(0, 2)
         // Migrate the old boolean: enabled → drag-select mode.
         return if (p.getBoolean(KEY_HOLD_DEL_SELECT, false)) 1 else 0
+    }
+
+    /** Swipe on Backspace to highlight text; release deletes it. Holding the
+     *  key always repeat-deletes regardless of this toggle. */
+    fun swipeDel(ctx: Context): Boolean {
+        val p = get(ctx)
+        if (p.contains(KEY_SWIPE_DEL)) return p.getBoolean(KEY_SWIPE_DEL, false)
+        // Migrate the hold-select modes: any enabled mode → swipe on.
+        val legacy = if (p.contains(KEY_HOLD_DEL_MODE)) p.getInt(KEY_HOLD_DEL_MODE, 0) != 0
+            else p.getBoolean(KEY_HOLD_DEL_SELECT, false)
+        p.edit().putBoolean(KEY_SWIPE_DEL, legacy).apply()
+        return legacy
     }
 
     /** Drag-to-select sensitivity: swipe distance per character in tenths of
