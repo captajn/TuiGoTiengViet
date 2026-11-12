@@ -135,9 +135,9 @@ class KeyboardView @JvmOverloads constructor(
             invalidate()
         }
 
-    /** Hold-Backspace mode: 0 = repeat-delete, 1 = hold then drag to highlight,
-     *  2 = hold auto-highlights leftward; releasing deletes the selection. */
-    var delHoldMode = 0
+    /** Swipe on Backspace to highlight text; releasing deletes the selection.
+     *  Holding the key always repeat-deletes regardless of this flag. */
+    var swipeDelete = false
 
     /** Swipe distance per selected char in drag-select mode — wired from
      *  Prefs.holdDelSensDp (smaller = more sensitive). */
@@ -543,35 +543,14 @@ class KeyboardView @JvmOverloads constructor(
         }
     }
 
-    /** After the long-press delay in hold-select mode the finger becomes a
+    /** A quick horizontal swipe on Backspace turns the finger into a
      *  selection handle: dragging left/right extends the highlight, releasing
      *  deletes the selected text. */
     private var delSelecting = false
-    private var delSelectDir = 0
     private var delSelectDownX = 0f
     private var delSelectLastX = 0f
     private val delSwipeSlop = 10 * dp
     private var delStepPx = 10 * dp
-
-    private val delLongPress = Runnable {
-        if (delHoldMode == 0 || pressed?.spec?.code != K.DEL) return@Runnable
-        delSelecting = true
-        delSelectDir = 0
-        handler.removeCallbacks(repeatDelete)
-        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        if (delHoldMode == 2) handler.post(delAutoSelect)
-        invalidate()
-    }
-
-    /** Mode 2: while held, steadily extend the highlight leftward. */
-    private val delAutoSelect = object : Runnable {
-        override fun run() {
-            if (!delSelecting || pressed?.spec?.code != K.DEL) return
-            listener?.onSelectMove(-1)
-            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            handler.postDelayed(this, 60)
-        }
-    }
 
     /** Long-press a hinted key types the hint char directly (Unikey-style). */
     private val hintLongPress = Runnable {
@@ -1054,17 +1033,13 @@ class KeyboardView @JvmOverloads constructor(
         playSoundEffect(SoundEffectConstants.CLICK)
         if (key.spec.code == K.DEL) {
             manualShift = false
-            if (delHoldMode != 0) {
-                // Select-on-hold modes: nothing deletes on down — a quick tap
-                // deletes once on release, holding highlights instead.
-                delSelecting = false
-                delSelectDownX = x
-                delSelectLastX = x
-                handler.postDelayed(delLongPress, 400)
-            } else {
-                listener?.onDelete()
-                handler.postDelayed(repeatDelete, 400)
-            }
+            // Delete once on press and repeat while held. A quick horizontal
+            // swipe (when enabled) cancels the repeat and selects instead.
+            delSelecting = false
+            delSelectDownX = x
+            delSelectLastX = x
+            listener?.onDelete()
+            handler.postDelayed(repeatDelete, 400)
         }
         if (key.spec.code == K.SPACE) {
             spaceLongFired = false
@@ -1101,41 +1076,33 @@ class KeyboardView @JvmOverloads constructor(
             if (abs(dx) > abs(dy) * 1.5f) edgeSwipeSide = 0 // horizontal swipe — not ours
         }
         if (pressConsumed && !delSelecting) return
-        // Quick horizontal swipe on Backspace enters drag-select immediately —
-        // no need to wait out the hold delay (same feel as the space-bar
-        // cursor swipe). Steps below then count from the touch-down point,
-        // so the slop distance already travelled selects its first chars.
-        if (!delSelecting && delHoldMode != 0 && pressed?.spec?.code == K.DEL) {
+        // Quick horizontal swipe on Backspace enters drag-select — same feel
+        // as the space-bar cursor swipe. Steps below then count from the
+        // touch-down point, so the slop distance already travelled selects
+        // its first chars.
+        if (!delSelecting && swipeDelete && pressed?.spec?.code == K.DEL) {
             val dx = x - delSelectDownX
             val dy = y - downY
             if (abs(dx) > delSwipeSlop && abs(dx) >= abs(dy)) {
                 delSelecting = true
-                delSelectDir = if (dx > 0) 1 else -1
-                handler.removeCallbacks(delLongPress)
                 handler.removeCallbacks(repeatDelete)
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 invalidate()
             }
         }
-        // Hold-Backspace selection drag — like the space-bar cursor swipe but
-        // it highlights text instead of moving the caret.
+        // Backspace selection drag — like the space-bar cursor swipe but it
+        // highlights text instead of moving the caret. Dragging back toward
+        // the anchor trims the highlight; dragging past it extends the other
+        // side.
         if (delSelecting && pressed?.spec?.code == K.DEL) {
-            // Drag adjusts the highlight too — in auto-select mode it can
-            // trim back to the right or extend further left.
-            val dx = x - delSelectDownX
-            if (delSelectDir == 0 && abs(dx) > delSwipeSlop) {
-                delSelectDir = if (dx > 0) 1 else -1
-            }
-            if (delSelectDir != 0) {
-                val steps = ((x - delSelectLastX) / delStepPx).toInt()
-                if (steps != 0) {
-                    delSelectLastX += steps * delStepPx
-                    val dir = if (steps > 0) 1 else -1
-                    // One batched call per move event — a fast swipe used to
-                    // fire one IPC per char and visibly stutter.
-                    listener?.onSelectMove(dir, abs(steps))
-                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                }
+            val steps = ((x - delSelectLastX) / delStepPx).toInt()
+            if (steps != 0) {
+                delSelectLastX += steps * delStepPx
+                val dir = if (steps > 0) 1 else -1
+                // One batched call per move event — a fast swipe used to
+                // fire one IPC per char and visibly stutter.
+                listener?.onSelectMove(dir, abs(steps))
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
             return
         }
@@ -1170,8 +1137,6 @@ class KeyboardView @JvmOverloads constructor(
             downX = x
             downY = y
             handler.removeCallbacks(repeatDelete)
-            handler.removeCallbacks(delLongPress)
-            handler.removeCallbacks(delAutoSelect)
             handler.removeCallbacks(spaceLongPress)
             handler.removeCallbacks(hintLongPress)
             if (key?.spec?.code == K.DEL) {
@@ -1179,8 +1144,7 @@ class KeyboardView @JvmOverloads constructor(
                 // origin so a stale coordinate can't insta-trigger select.
                 delSelectDownX = x
                 delSelectLastX = x
-                if (delHoldMode != 0) handler.postDelayed(delLongPress, 400)
-                else handler.postDelayed(repeatDelete, 400)
+                handler.postDelayed(repeatDelete, 400)
             }
             else if (key?.spec?.longPressChar != null) handler.postDelayed(hintLongPress, 450)
             invalidate()
@@ -1190,20 +1154,13 @@ class KeyboardView @JvmOverloads constructor(
     private fun onUp(x: Float, y: Float) {
         val p = pressed ?: return
         val wasSliding = spaceSliding
-        val wasConsumed = pressConsumed
         val wasDelSelecting = delSelecting
         val shouldDispatch = !wasSliding && p.spec.code != K.DEL && p.spec.code != K.SPACER &&
             (withinHysteresis(p, x, y) || hit(x, y) === p)
         cancelPress()
         if (wasDelSelecting) {
-            // Release after hold+drag — delete the highlighted text.
+            // Release after swipe+drag — delete the highlighted text.
             listener?.onSelectDelete()
-            return
-        }
-        if (delHoldMode != 0 && !wasConsumed && p.spec.code == K.DEL &&
-            (withinHysteresis(p, x, y) || hit(x, y) === p)) {
-            // Quick tap in select-on-hold mode: delete once on release.
-            listener?.onDelete()
             return
         }
         if (shouldDispatch) {
@@ -1224,8 +1181,6 @@ class KeyboardView @JvmOverloads constructor(
         spaceSliding = false
         delSelecting = false
         handler.removeCallbacks(repeatDelete)
-        handler.removeCallbacks(delLongPress)
-        handler.removeCallbacks(delAutoSelect)
         handler.removeCallbacks(spaceLongPress)
         handler.removeCallbacks(hintLongPress)
         invalidate()
