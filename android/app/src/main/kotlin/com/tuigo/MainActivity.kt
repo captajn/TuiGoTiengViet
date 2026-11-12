@@ -113,19 +113,22 @@ class MainActivity : Activity() {
                 addView(toggle("Khôi phục từ ngoại ngữ", "Giữ nguyên từ không phải tiếng Việt", Prefs.KEY_AUTO_NONVN))
                 addView(toggle("Viết hoa kí tự đầu tiên", "Tự bật Shift ở đầu câu", Prefs.KEY_AUTO_CAPITALIZE))
                 addView(toggle("Hai lần Space → dấu chấm", "Kết thúc câu nhanh", Prefs.KEY_DOUBLE_SPACE))
+                val swipeOn = Prefs.swipeDel(this@MainActivity)
                 val sensSlider = slider("Độ nhạy kéo chọn", Prefs.KEY_HOLD_DEL_SENS, 1, 150, 100, "dp/ký tự", tenths = true)
-                addView(choicePicker(
-                    "Giữ phím xoá để bôi và xoá",
-                    "Tắt: giữ lặp xoá · Kéo: giữ rồi kéo để bôi · Giữ: tự bôi dần sang trái — thả ra để xoá",
-                    Prefs.KEY_HOLD_DEL_MODE, Prefs.holdDelMode(this@MainActivity),
-                    listOf("Tắt", "Kéo để bôi", "Giữ để bôi")) { mode ->
-                    // Sensitivity only applies to drag-select mode.
-                    sensSlider.alpha = if (mode == 1) 1f else 0.4f
+                fun setSensEnabled(on: Boolean) {
+                    // Sensitivity only applies when swipe-to-delete is on.
+                    sensSlider.alpha = if (on) 1f else 0.4f
                     (sensSlider as? android.view.ViewGroup)?.let { vg ->
-                        for (i in 0 until vg.childCount) vg.getChildAt(i).isEnabled = mode == 1
+                        for (i in 0 until vg.childCount) vg.getChildAt(i).isEnabled = on
                     }
-                })
+                }
+                // swipeOn, not a literal default: it is the migrated value, so
+                // the switch shows the right state even before the pref exists.
+                addView(toggle("Vuốt để xoá",
+                    "Vuốt ngang phím xoá để bôi chọn chữ, thả ra để xoá · Giữ phím xoá vẫn xoá liên tục",
+                    Prefs.KEY_SWIPE_DEL, swipeOn) { on -> setSensEnabled(on) })
                 addView(sensSlider)
+                setSensEnabled(swipeOn)
                 addView(toggle("Rung khi nhấn phím", "Phản hồi rung nhẹ mỗi lần gõ", Prefs.KEY_HAPTIC))
                 addView(toggle("Popup phím khi nhấn", "Hiện bản phóng to phím đang bấm", Prefs.KEY_KEY_POPUP))
             })
@@ -231,7 +234,7 @@ class MainActivity : Activity() {
             if (::step2Btn.isInitialized) step2Btn.visibility = View.VISIBLE
         }
     }
-    private fun toggle(title: String, hint: String, key: String, default: Boolean = true): View {
+    private fun toggle(title: String, hint: String, key: String, default: Boolean = true, onChange: (Boolean) -> Unit = {}): View {
         val p = Prefs.get(this)
         return Switch(this).apply {
             text = ui.twoLines(title, hint); textSize = 14f; setTextColor(ui.pal.text)
@@ -241,7 +244,10 @@ class MainActivity : Activity() {
             thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(ui.pal.accent, ui.pal.muted))
             trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf((ui.pal.accent and 0x00FFFFFF) or 0x33000000, ui.pal.border))
             isChecked = p.getBoolean(key, default)
-            setOnCheckedChangeListener { _, checked -> p.edit().putBoolean(key, checked).apply() }
+            setOnCheckedChangeListener { _, checked ->
+                p.edit().putBoolean(key, checked).apply()
+                onChange(checked)
+            }
         }
     }
     /** Horizontal strip of skin chips with live color previews. */
@@ -332,46 +338,6 @@ class MainActivity : Activity() {
             override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
             override fun getIntrinsicWidth(): Int = w
             override fun getIntrinsicHeight(): Int = h
-        }
-    }
-    /** Row of chips that stores the picked index into an int pref. */
-    private fun choicePicker(title: String, hint: String, key: String, selected: Int, labels: List<String>, onPick: (Int) -> Unit = {}): View {
-        val p = Prefs.get(this)
-        val chips = mutableListOf<TextView>()
-        fun pick(i: Int) {
-            p.edit().putInt(key, i).apply()
-            onPick(i)
-            chips.forEachIndexed { idx, chip ->
-                chip.background = if (idx == i)
-                    ui.surface(ui.pal.glow, 12).apply { setStroke(ui.dp(1), ui.pal.accent) }
-                else ui.surface(ui.pal.raised, 12)
-                chip.setTextColor(if (idx == i) ui.pal.accent else ui.pal.text)
-            }
-        }
-        return ui.column().apply {
-            layoutParams = ui.fullWidthLp(topMarginDp = 10)
-            addView(ui.text(title, 14f, ui.pal.text, true))
-            if (hint.isNotEmpty()) addView(ui.text(hint, 12f, ui.pal.muted).apply {
-                setPadding(0, ui.dp(2), 0, ui.dp(6))
-            })
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                labels.forEachIndexed { i, label ->
-                    val chip = TextView(this@MainActivity).apply {
-                        text = label; textSize = 13f
-                        setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
-                        background = ui.surface(ui.pal.raised, 12)
-                        setOnClickListener { pick(i) }
-                        layoutParams = LinearLayout.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ).apply { rightMargin = ui.dp(8) }
-                    }
-                    chips += chip
-                    addView(chip)
-                }
-            })
-            pick(selected)
         }
     }
     private fun slider(title: String, key: String, min: Int, max: Int, default: Int, unit: String = "dp", tenths: Boolean = false): View {
