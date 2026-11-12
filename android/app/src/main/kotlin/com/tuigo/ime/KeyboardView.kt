@@ -538,6 +538,7 @@ class KeyboardView @JvmOverloads constructor(
     private val handler = Handler(Looper.getMainLooper())
     private val repeatDelete = object : Runnable {
         override fun run() {
+            delUpPending = false
             listener?.onDelete()
             handler.postDelayed(this, 50)
         }
@@ -553,16 +554,12 @@ class KeyboardView @JvmOverloads constructor(
     private var delStepPx = 10 * dp
 
     /** Deleting on touch-down ate a character before a swipe could claim the
-     *  gesture, so with swipe-delete on the first delete waits this long — a
-     *  swipe crossing the slop inside the window cancels it, a tap fires it on
-     *  release, a hold fires it here and continues into auto-repeat. */
-    private val delFirstGraceMs = 120L
-    private var delFirstPending = false
-    private val delFirstDelete = Runnable {
-        if (!delFirstPending) return@Runnable
-        delFirstPending = false
-        listener?.onDelete()
-    }
+     *  gesture, so with swipe-delete on the first delete is owed on release
+     *  instead — how every other key commits, and how AOSP-derived keyboards
+     *  keep Backspace swipes lossless. Cleared as soon as anything else emits
+     *  a delete: the auto-repeat, a swipe that became a selection, or a roll
+     *  onto a neighbouring key. */
+    private var delUpPending = false
 
     /** Long-press a hinted key types the hint char directly (Unikey-style). */
     private val hintLongPress = Runnable {
@@ -986,6 +983,12 @@ class KeyboardView @JvmOverloads constructor(
                     cancelPress()
                     dispatch(prev)
                 } else {
+                    // A second thumb landing while Backspace is still down must
+                    // not swallow the delete the first tap owes on release.
+                    if (delUpPending) {
+                        delUpPending = false
+                        listener?.onDelete()
+                    }
                     cancelPress()
                 }
                 downPointerId = ev.getPointerId(idx)
@@ -1045,18 +1048,14 @@ class KeyboardView @JvmOverloads constructor(
         playSoundEffect(SoundEffectConstants.CLICK)
         if (key.spec.code == K.DEL) {
             manualShift = false
-            // Delete once on press and repeat while held. With swipe-delete on
-            // the first delete is deferred so a swipe can claim the gesture
-            // without losing a character.
+            // Hold always repeat-deletes. With swipe-delete on the first delete
+            // waits for the release so a swipe can claim the press without
+            // losing a character; with it off, delete immediately as before.
             delSelecting = false
             delSelectDownX = x
             delSelectLastX = x
-            if (swipeDelete) {
-                delFirstPending = true
-                handler.postDelayed(delFirstDelete, delFirstGraceMs)
-            } else {
-                listener?.onDelete()
-            }
+            delUpPending = swipeDelete
+            if (!swipeDelete) listener?.onDelete()
             handler.postDelayed(repeatDelete, 400)
         }
         if (key.spec.code == K.SPACE) {
@@ -1103,8 +1102,7 @@ class KeyboardView @JvmOverloads constructor(
             val dy = y - downY
             if (abs(dx) > delSwipeSlop && abs(dx) >= abs(dy)) {
                 delSelecting = true
-                delFirstPending = false
-                handler.removeCallbacks(delFirstDelete)
+                delUpPending = false
                 handler.removeCallbacks(repeatDelete)
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 invalidate()
@@ -1159,8 +1157,7 @@ class KeyboardView @JvmOverloads constructor(
             handler.removeCallbacks(repeatDelete)
             handler.removeCallbacks(spaceLongPress)
             handler.removeCallbacks(hintLongPress)
-            delFirstPending = false
-            handler.removeCallbacks(delFirstDelete)
+            delUpPending = false
             if (key?.spec?.code == K.DEL) {
                 // Rolling onto Backspace from another key: rebase the swipe
                 // origin so a stale coordinate can't insta-trigger select.
@@ -1179,11 +1176,10 @@ class KeyboardView @JvmOverloads constructor(
         val wasDelSelecting = delSelecting
         val shouldDispatch = !wasSliding && p.spec.code != K.DEL && p.spec.code != K.SPACER &&
             (withinHysteresis(p, x, y) || hit(x, y) === p)
-        if (!wasDelSelecting && delFirstPending) {
-            // Released inside the swipe grace window — delete now so a quick
-            // tap still feels immediate.
-            handler.removeCallbacks(delFirstDelete)
-            delFirstPending = false
+        if (!wasDelSelecting && delUpPending) {
+            // Tap on Backspace with swipe-delete on — the deferred first
+            // delete lands here, on release.
+            delUpPending = false
             listener?.onDelete()
         }
         cancelPress()
@@ -1209,8 +1205,7 @@ class KeyboardView @JvmOverloads constructor(
         pressed = null
         spaceSliding = false
         delSelecting = false
-        delFirstPending = false
-        handler.removeCallbacks(delFirstDelete)
+        delUpPending = false
         handler.removeCallbacks(repeatDelete)
         handler.removeCallbacks(spaceLongPress)
         handler.removeCallbacks(hintLongPress)
