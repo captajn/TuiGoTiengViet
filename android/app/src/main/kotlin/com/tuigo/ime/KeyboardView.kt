@@ -44,9 +44,9 @@ class KeyboardView @JvmOverloads constructor(
         fun onVietToggle() {}
         fun onSwitchIme() {}
         fun onSpaceMenu() {}
-        /** Extend/reduce the hold-Backspace selection by `count` chars;
+        /** Extend/reduce the swipe-Backspace selection by `count` chars;
          *  dir<0 selects leftward, dir>0 rightward. */
-        fun onSelectMove(dir: Int, count: Int = 1) {}
+        fun onSelectMove(dir: Int, count: Int) {}
         /** Commit the current selection — delete whatever is highlighted. */
         fun onSelectDelete() {}
         fun onHideKeyboard() {}

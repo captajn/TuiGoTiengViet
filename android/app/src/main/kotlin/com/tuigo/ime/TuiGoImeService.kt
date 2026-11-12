@@ -103,9 +103,9 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
 
     private var vietOn = true
     private var doubleSpace = true
-    /** Fixed end of the hold-Backspace selection (the side that stays put). */
+    /** Fixed end of the swipe-Backspace selection (the side that stays put). */
     private var selectAnchor = -1
-    /** Moving edge of the hold-Backspace selection. */
+    /** Moving edge of the swipe-Backspace selection. */
     private var selectEdge = -1
     /** Document length snapshot taken on the first select step — refetching
      *  the whole text per char made fast drags stutter. */
@@ -392,7 +392,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
             ownSelEchoes.clear()
             expectedSel = minOf(newSelStart, newSelEnd)
             if (::keyboard.isInitialized) keyboard.resetManualShift()
-            // Not produced by hold-Backspace select — drop our tracking.
+            // Not produced by the swipe-Backspace select — drop our tracking.
             if (newSelEnd != selectAnchor || newSelStart != selectEdge) {
                 selectAnchor = -1
                 selectEdge = -1
@@ -531,7 +531,7 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         scheduleAutoCapitalizationUpdate()
     }
 
-    /** Hold-Backspace drag-select: move the free edge `count` chars in `dir`
+    /** Swipe-Backspace drag-select: move the free edge `count` chars in `dir`
      *  (−1 = left, +1 = right). The opposite edge stays anchored where the
      *  gesture started; crossing the anchor flips which side is selected. */
     override fun onSelectMove(dir: Int, count: Int) {

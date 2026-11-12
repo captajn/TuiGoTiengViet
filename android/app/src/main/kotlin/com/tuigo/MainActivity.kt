@@ -122,9 +122,11 @@ class MainActivity : Activity() {
                         for (i in 0 until vg.childCount) vg.getChildAt(i).isEnabled = on
                     }
                 }
+                // swipeOn, not a literal default: it is the migrated value, so
+                // the switch shows the right state even before the pref exists.
                 addView(toggle("Vuốt để xoá",
                     "Vuốt ngang phím xoá để bôi chọn chữ, thả ra để xoá · Giữ phím xoá vẫn xoá liên tục",
-                    Prefs.KEY_SWIPE_DEL, false) { on -> setSensEnabled(on) })
+                    Prefs.KEY_SWIPE_DEL, swipeOn) { on -> setSensEnabled(on) })
                 addView(sensSlider)
                 setSensEnabled(swipeOn)
                 addView(toggle("Rung khi nhấn phím", "Phản hồi rung nhẹ mỗi lần gõ", Prefs.KEY_HAPTIC))
