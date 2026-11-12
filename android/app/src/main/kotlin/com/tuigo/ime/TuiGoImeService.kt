@@ -565,12 +565,15 @@ class TuiGoImeService : InputMethodService(), KeyboardView.Listener {
         expectedSel = s
     }
 
-    /** Release after drag-select — delete the highlighted span. */
+    /** Release after drag-select — delete the highlighted span, if any. */
     override fun onSelectDelete() {
+        // A swipe that ends up selecting nothing was a swipe, not a tap, so
+        // releasing it must not fall through to a plain one-char backspace.
+        val selected = selectAnchor >= 0 && selectEdge != selectAnchor
         selectAnchor = -1
         selectEdge = -1
         delSelecting = false
-        onDelete()
+        if (selected) onDelete()
     }
 
     override fun onEnter() {
