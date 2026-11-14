@@ -10,7 +10,11 @@ var (
 	gHook         uintptr
 	gMouseHook    uintptr
 	gSending      bool // reentrancy guard for our own SendInput
-	gChordClean   = true
+	// gChordDirtyAt is when a non-chord key or a click last interrupted typing.
+	// A chord is only pure if nothing landed after its first modifier went down,
+	// which is a comparison against gModDownAt — a boolean latch could stay
+	// dirty forever after one interrupted chord and swallow every retry.
+	gChordDirtyAt time.Time
 	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
 	gShiftFirst   bool // true if Shift went down before Ctrl in the current chord
 	gCtrlHeld     bool
@@ -222,25 +226,25 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		if noneHeld {
 			gModDownAt = time.Now()
 			gShiftFirst = !isCtrl
-			gChordClean = true
-		} else if !wasChord && gCtrlHeld && gShiftHeld && !isCtrl && gChordClean {
+		} else if !wasChord && gCtrlHeld && gShiftHeld && !isCtrl &&
+			gChordDirtyAt.Before(gModDownAt) {
 			// Holding Ctrl and tapping Shift (once or repeatedly) is the most
 			// common Ctrl+Shift gesture: refresh the chord timestamp when Shift
-			// joins a clean held Ctrl.
+			// joins an undisturbed held Ctrl.
 			gModDownAt = time.Now()
 		}
 		// Modifier-only chord (Ctrl+Shift): ARM it here but fire on release —
 		// toggling on press steals real combos like Ctrl+Shift+S (Firefox
-		// screenshot). Any non-modifier key or mouse click while held marks it
-		// dirty. The two presses must also land close together — a long-held
-		// Shift (typing capitals) plus an accidental Ctrl tap is not a chord.
+		// screenshot). Any non-modifier key or mouse click after the chord
+		// started marks it dirty. The two presses must also land close
+		// together — a long-held Shift (typing capitals) plus an accidental
+		// Ctrl tap is not a chord.
 		modChord := cfg.UseCtrlShift || (cfg.HotkeyVk == 0 && cfg.HotkeyMods == 3)
 		if modChord && !wasChord && gCtrlHeld && gShiftHeld &&
 			time.Since(gModDownAt) < 800*time.Millisecond &&
 			gLastKeyAt.Before(gModDownAt) && // no letters between the two presses
-			gChordClean && !altHeld && !gWinHeld {
+			gChordDirtyAt.Before(gModDownAt) && !altHeld && !gWinHeld {
 			gChordPending = true
-			gChordClean = true
 		}
 		return false // never swallow modifiers
 	}
@@ -297,12 +301,10 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		}
 	}
 	gLastKeyAt = time.Now()
-	if gChordPending {
-		// Any non-chord key while armed kills the chord — even after the
-		// first modifier released (Shift-held typing with a brushed Ctrl
-		// must not toggle when the surviving letter lands before Shift-up).
-		gChordClean = false
-	}
+	// Any non-chord key interrupts the chord that is currently held, whether
+	// or not it was armed first: a stale latch here used to block the next
+	// Ctrl+Shift (it is compared against the next chord's start time).
+	gChordDirtyAt = gLastKeyAt
 
 	// bypass entirely: manually-excluded app (until toggled on) or non-US layout
 	viet := vietForApp(spec, exe)
@@ -424,7 +426,7 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 							// holding Shift for capitals doesn't toggle before the letter.
 							gModUpAt = time.Now()
 						} else if !gCtrlHeld && !gShiftHeld && !gModUpAt.IsZero() {
-							if gChordClean && time.Since(gModUpAt) < 900*time.Millisecond &&
+							if pureChord() && time.Since(gModUpAt) < 900*time.Millisecond &&
 								flipVietKey() {
 								postToggle(1)
 							}
@@ -433,7 +435,7 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 						} else {
 							// Clean Ctrl+Shift (either Shift released while Ctrl held,
 							// or first release when Ctrl went down first): fire immediately!
-							if gChordClean && flipVietKey() {
+							if pureChord() && flipVietKey() {
 								postToggle(1)
 							}
 							gChordPending = false
@@ -447,9 +449,6 @@ func lowLevelKbProc(nCode int, wParam, lParam uintptr) uintptr {
 				}
 				if p.vkCode == uint32(cfg.HotkeyVk) {
 					gHotkeyDown = false
-				}
-				if isModifierKey(p.vkCode) && !gCtrlHeld && !gShiftHeld {
-					gChordClean = true
 				}
 			case WM_KEYDOWN, WM_SYSKEYDOWN:
 				// Self-heal stale modifier flags on physical modifier press so a
@@ -523,9 +522,14 @@ func flushPendingMouseClick() {
 		captureInputAppAt(fg)
 	}
 	gCaretAtEnd = clicked != gLastKeyHwnd
-	if gChordPending {
-		gChordClean = false
-	}
+	gChordDirtyAt = time.Now()
+}
+
+// pureChord reports whether nothing has interrupted typing since the current
+// Ctrl+Shift chord started. Read on the release that fires the toggle; a key or
+// click that landed during the chord makes it dirty and suppresses the toggle.
+func pureChord() bool {
+	return gChordDirtyAt.Before(gModDownAt)
 }
 
 func lowLevelMouseProc(nCode int, wParam, lParam uintptr) uintptr {
