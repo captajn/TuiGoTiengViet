@@ -17,6 +17,7 @@ local.properties
 # Logs & temp files
 *.log
 settings_hwnd.txt
+__pycache__/
 version.txt
 update-stamp.txt
 tuigo.ini

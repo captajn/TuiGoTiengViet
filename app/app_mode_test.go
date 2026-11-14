@@ -30,7 +30,8 @@ func setupAppModeTest(t *testing.T) {
 		gLastInputApp = oldInputApp
 	})
 	gEngine, _ = newEngine()
-	cfg = config{RememberAppMode: true}
+	cfg = defaultConfig()
+	cfg.RememberAppMode = true
 	gVietKey = true
 	gRememberedAppViet = map[string]bool{}
 	gPerAppViet = map[string]bool{}

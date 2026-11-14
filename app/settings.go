@@ -188,18 +188,30 @@ func loadRegistrySettings() map[string]string {
 // loadSettings reads persisted config. Reports whether config already
 // existed — false means first run (show the panel once for onboarding).
 func loadSettings() bool {
-	// Color overrides default to "unset" (-1) — zero value would render black.
-	cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = -1, -1, -1, -1
-	cfg.Accent, cfg.AccentText = -1, -1
+	// Always start from the shipped defaults, so a missing key falls back to a
+	// documented value instead of the zero value (0 is black for the color
+	// overrides and "no key" for the hotkey).
+	cfg = defaultConfig()
 	vals, err := readIni(iniPath())
 	migrated := false
 	if err != nil {
 		vals = loadRegistrySettings()
 		if vals == nil {
-			return false
+			return false // first run: keep the shipped defaults
 		}
 		migrated = true
 	}
+	applyLoadedSettings(vals)
+	if migrated {
+		saveSettings()
+		registry.DeleteKey(registry.CURRENT_USER, regKey) // portable: no traces left
+	}
+	return true
+}
+
+// applyLoadedSettings overlays one ini (or migrated registry) snapshot on cfg,
+// which the caller has already reset to defaultConfig.
+func applyLoadedSettings(vals map[string]string) {
 	getI := func(name string) (int, bool) {
 		s, ok := vals[name]
 		if !ok {
@@ -262,17 +274,21 @@ func loadSettings() bool {
 	if v, ok := getI("HotkeyVk"); ok {
 		cfg.HotkeyVk = v
 	}
+	// Migrate the legacy ToggleKey only for inis that predate the hotkey pair;
+	// the pair itself is taken verbatim, so a cleared hotkey (0/0) stays cleared
+	// instead of silently coming back as Alt+Z.
+	if _, hasMods := getI("HotkeyMods"); !hasMods {
+		if _, hasVk := getI("HotkeyVk"); !hasVk {
+			switch cfg.ToggleKey {
+			case 2: // Ctrl+Shift only
+				cfg.HotkeyMods, cfg.HotkeyVk = 3, 0
+			default: // Alt+Z (+ optional Ctrl+Shift)
+				cfg.HotkeyMods, cfg.HotkeyVk = 4, 'Z'
+			}
+		}
+	}
 	if v, ok := getI("FKeys"); ok {
 		cfg.FKeys = v
-	}
-	// migrate legacy ToggleKey -> new hotkey model
-	if cfg.HotkeyVk == 0 && cfg.HotkeyMods == 0 {
-		switch cfg.ToggleKey {
-		case 2: // Ctrl+Shift only
-			cfg.HotkeyMods, cfg.HotkeyVk = 3, 0
-		default: // Alt+Z (+ optional Ctrl+Shift)
-			cfg.HotkeyMods, cfg.HotkeyVk = 4, 'Z'
-		}
 	}
 	cfg.UseCtrlShift = getB("UseCtrlShift", cfg.ToggleKey != 1)
 	if v, ok := getI("Theme"); ok {
@@ -300,30 +316,24 @@ func loadSettings() bool {
 	if v, ok := getI("HudY"); ok {
 		cfg.HudY = v
 	}
-	cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = -1, -1, -1, -1
-	if v, ok := getI("TrayV"); ok {
-		cfg.TrayV = v
+	// Color overrides: -1 means "follow the palette", so a missing key must not
+	// land on the zero value (black). A group stored entirely as 0 is what the
+	// build that persisted zeroed fields wrote; migrate that exact snapshot back
+	// to unset, but keep a group with any picked color verbatim so a deliberate
+	// black survives.
+	color := func(name string) int {
+		if v, ok := getI(name); ok {
+			return v
+		}
+		return -1
 	}
-	if v, ok := getI("TrayVBg"); ok {
-		cfg.TrayVBg = v
+	cfg.TrayV, cfg.TrayVBg = color("TrayV"), color("TrayVBg")
+	cfg.TrayE, cfg.TrayEBg = color("TrayE"), color("TrayEBg")
+	if cfg.TrayV == 0 && cfg.TrayVBg == 0 && cfg.TrayE == 0 && cfg.TrayEBg == 0 {
+		cfg.TrayV, cfg.TrayVBg, cfg.TrayE, cfg.TrayEBg = -1, -1, -1, -1
 	}
-	if v, ok := getI("TrayE"); ok {
-		cfg.TrayE = v
+	cfg.Accent, cfg.AccentText = color("Accent"), color("AccentText")
+	if cfg.Accent == 0 && cfg.AccentText == 0 {
+		cfg.Accent, cfg.AccentText = -1, -1
 	}
-	if v, ok := getI("TrayEBg"); ok {
-		cfg.TrayEBg = v
-	}
-	cfg.Accent = -1
-	if v, ok := getI("Accent"); ok {
-		cfg.Accent = v
-	}
-	cfg.AccentText = -1
-	if v, ok := getI("AccentText"); ok {
-		cfg.AccentText = v
-	}
-	if migrated {
-		saveSettings()
-		registry.DeleteKey(registry.CURRENT_USER, regKey) // portable: no traces left
-	}
-	return true
 }

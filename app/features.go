@@ -49,7 +49,24 @@ type config struct {
 	AccentText int
 }
 
-var cfg config
+// defaultConfig is the single source of the shipped defaults. It exists because
+// the zero value is wrong for two fields: the color overrides mean "black" at 0
+// (-1 means "follow the palette"), and HotkeyVk=0 means "no toggle key".
+func defaultConfig() config {
+	return config{
+		HotkeyMods:   4, // Alt
+		HotkeyVk:     'Z',
+		UseCtrlShift: true,
+		TrayV:        -1,
+		TrayVBg:      -1,
+		TrayE:        -1,
+		TrayEBg:      -1,
+		Accent:       -1,
+		AccentText:   -1,
+	}
+}
+
+var cfg = defaultConfig()
 
 func tr(vi, en string) string {
 	if cfg.UILang == 1 {
