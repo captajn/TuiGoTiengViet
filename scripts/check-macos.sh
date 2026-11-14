@@ -34,4 +34,15 @@ appdir="$repo/build/macos/Build/Products/Release/Tui Go.app"
 test -d "$appdir"
 test -f "$appdir/Contents/Resources/icon.tiff"
 test -f "$appdir/Contents/Resources/AppIcon.icns"
+# Info.plist contract HIToolbox depends on: the bundle id must carry the
+# ".inputmethod." component and the mode list uses the *Key suffix names,
+# otherwise the input source never shows up in the input menu.
+plist="$appdir/Contents/Info.plist"
+plutil -lint "$plist" >/dev/null
+plutil -extract CFBundleIdentifier raw "$plist" | grep -q '\.inputmethod\.'
+plutil -extract ComponentInputModeDict.tsInputModeListKey xml1 -o - "$plist" \
+  | grep -q 'com.tuigo.inputmethod.TuiGo'
+plutil -extract CFBundleIdentifier raw "$plist" | grep -q 'com.tuigo.inputmethod.TuiGo'
+test -f "$appdir/Contents/Resources/vi.lproj/InfoPlist.strings"
+test -f "$appdir/Contents/Resources/en.lproj/InfoPlist.strings"
 echo "check-macos: PASS -> $appdir"

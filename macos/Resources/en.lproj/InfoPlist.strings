@@ -1,0 +1,8 @@
+/* Display names for the input method and its input mode.
+
+   HIToolbox reads the input method name from CFBundleName and the mode name
+   from the key carrying the Mode ID below; tsInputModeDefaultUINameKey in
+   Info.plist is only a fallback. */
+"CFBundleName" = "Tui Go";
+"CFBundleDisplayName" = "Tui Go";
+"com.tuigo.inputmethod.TuiGo" = "Tui Go";

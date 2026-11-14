@@ -28,7 +28,9 @@ targets:
         excludes: ["Info.plist"]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tuigo.inputmethod
+        # TISFileInterrogator only scans bundles whose identifier carries the
+        # ".inputmethod." component, so the id must match Info.plist.
+        PRODUCT_BUNDLE_IDENTIFIER: com.tuigo.inputmethod.TuiGo
         PRODUCT_NAME: "Tui Go"
         INFOPLIST_FILE: Resources/Info.plist
     dependencies:

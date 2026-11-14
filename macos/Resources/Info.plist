@@ -7,7 +7,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>Tui Gõ</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.tuigo.inputmethod</string>
+	<string>com.tuigo.inputmethod.TuiGo</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>vi</string>
 	<key>CFBundleVersion</key>
 	<string>9</string>
 	<key>CFBundleShortVersionString</key>
@@ -20,9 +22,9 @@
 	<true/>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<key>tsInputMethodIconFile</key>
+	<key>tsInputMethodIconFileKey</key>
 	<string>icon.tiff</string>
-	<key>tsInputMethodCharacterRepertoire</key>
+	<key>tsInputMethodCharacterRepertoireKey</key>
 	<array>
 		<string>Latn</string>
 	</array>
@@ -32,22 +34,24 @@
 	<string>TuiGoInputController</string>
 	<key>ComponentInputModeDict</key>
 	<dict>
-		<key>tsInputModeList</key>
+		<key>tsInputModeListKey</key>
 		<dict>
 			<key>com.tuigo.inputmethod.TuiGo</key>
 			<dict>
 				<key>TISInputSourceID</key>
 				<string>com.tuigo.inputmethod.TuiGo</string>
-				<key>tsInputModeDefaultState</key>
-				<true/>
-				<key>tsInputModeIsVisible</key>
-				<true/>
-				<key>tsInputModePrimaryLanguage</key>
+				<key>TISIntendedLanguage</key>
 				<string>vi</string>
-				<key>tsInputModeIconFile</key>
-				<string>icon.tiff</string>
-				<key>tsInputModeShowInWindow</key>
+				<key>tsInputModePrimaryInScriptKey</key>
 				<true/>
+				<key>tsInputModeDefaultStateKey</key>
+				<true/>
+				<key>tsInputModeIsVisibleKey</key>
+				<true/>
+				<key>tsInputModeDefaultUINameKey</key>
+				<string>Tui Gõ</string>
+				<key>tsInputMethodIconFileKey</key>
+				<string>icon.tiff</string>
 			</dict>
 		</dict>
 	</dict>

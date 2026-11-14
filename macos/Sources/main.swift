@@ -10,10 +10,22 @@ let kConnectionName = "TuiGo_Connection"
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static private(set) var shared: AppDelegate?
     private var settingsWindow: NSWindow?
+    // The server must stay referenced for the lifetime of the process; a bare
+    // `_ = IMKServer(...)` lets ARC release it right after the call.
+    private var server: IMKServer?
 
     override init() {
         super.init()
         AppDelegate.shared = self
+    }
+
+    // IMKServer(name:bundleIdentifier:) reads InputMethodServerControllerClass
+    // from the bundle. The older name:controllerClass:delegateClass: variant
+    // faults on macOS 15: in _IMKServerLegacy it writes through _private before
+    // that ivar is allocated, so it crashes at address 0x8 regardless of how
+    // the bundle was installed.
+    func startServer(connectionName: String, bundleIdentifier: String) {
+        server = IMKServer(name: connectionName, bundleIdentifier: bundleIdentifier)
     }
 
     static func showSettings() {
@@ -43,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
-_ = IMKServer(name: kConnectionName,
-              controllerClass: InputController.self,
-              delegateClass: nil)
+if let bundleIdentifier = Bundle.main.bundleIdentifier {
+    delegate.startServer(connectionName: kConnectionName, bundleIdentifier: bundleIdentifier)
+}
 NSApplication.shared.run()

@@ -1,0 +1,8 @@
+/* Tên hiển thị của bộ gõ và của chế độ nhập.
+
+   HIToolbox đọc tên bộ gõ từ CFBundleName, còn tên chế độ nhập từ đúng
+   khoá mang Mode ID trong tệp này; tsInputModeDefaultUINameKey trong
+   Info.plist chỉ là phương án dự phòng. */
+"CFBundleName" = "Tui Gõ";
+"CFBundleDisplayName" = "Tui Gõ";
+"com.tuigo.inputmethod.TuiGo" = "Tui Gõ";
