@@ -307,6 +307,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 	// bypass entirely: manually-excluded app (until toggled on) or non-US layout
 	viet := vietForApp(spec, exe)
 	gEngine.SetVietKey(viet)
+	autoCap := autoCapEnabled(exe)
 	if cfg.SkipNonUSLayout && !foregroundLayoutIsUS() {
 		gEngine.Reset()
 		gAutoCapNext = false
@@ -315,7 +316,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 
 	if isResetKey(vk) {
 		gEngine.Reset()
-		gAutoCapNext = cfg.AutoCap && vk == VK_RETURN
+		gAutoCapNext = autoCap && vk == VK_RETURN
 		// Caret-movement keys decide whether a forward-Delete in the
 		// safeDel correction path is harmless (end-of-text/selection) or
 		// eats a real character (mid-text).
@@ -353,8 +354,8 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 		return false
 	}
 
-	// auto-capitalize after ". ! ?" or Enter
-	forceCap := cfg.AutoCap && gAutoCapNext && ch >= 'a' && ch <= 'z'
+	// auto-capitalize after ". ! ?" or Enter (never inside a terminal)
+	forceCap := autoCap && gAutoCapNext && ch >= 'a' && ch <= 'z'
 	if forceCap {
 		ch -= 'a' - 'A'
 	}
@@ -362,7 +363,7 @@ func handleKeyDown(p *kbdLLHookStruct) bool {
 	gEngine.SetCapsState(keyDown(VK_SHIFT), capsLockOn())
 	res := gEngine.Filter(uint32(ch))
 
-	if cfg.AutoCap {
+	if autoCap {
 		switch {
 		case ch == '.' || ch == '!' || ch == '?':
 			gAutoCapNext = true

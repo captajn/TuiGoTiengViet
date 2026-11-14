@@ -160,7 +160,7 @@ sh scripts/check-macos.sh
 
 App được build ở build/macos/Build/Products/Release/Tui Go.app. Copy vào ~/Library/Input Methods/, rồi thêm **Tui Gõ** trong cài đặt nguồn nhập; có thể cần đăng xuất/đăng nhập để macOS nhận nguồn mới.
 
-Bật/tắt VI/EN trong input menu hoặc bằng Ctrl+Shift / Alt+Z theo tùy chọn. Cài đặt và macro editor nằm trong cùng app.
+Bật/tắt VI/EN trong input menu hoặc bằng Ctrl+Shift / Alt+Z theo tùy chọn. Trên bàn phím JIS, phím 英数 chuyển sang EN và かな chuyển sang VI. Cài đặt và macro editor nằm trong cùng app.
 
 ### Linux
 

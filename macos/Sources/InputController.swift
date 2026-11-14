@@ -88,6 +88,19 @@ final class InputController: IMKInputController {
             return true
         }
 
+        // JIS keyboards: 英数 (Eisu) forces English and かな (Kana) forces
+        // Vietnamese — the pair Japanese IMEs bind on those two keys, which sit
+        // either side of Space on every JIS laptop. Handled before the shortcut
+        // gate so it also stays clear of the Ctrl+Shift chord state.
+        if event.keyCode == 102 { // kVK_JIS_Eisu
+            setViet(false)
+            return true
+        }
+        if event.keyCode == 104 { // kVK_JIS_Kana
+            setViet(true)
+            return true
+        }
+
         // any non-modifier key dirties a pending chord
         chordClean = chordClean && !(ctrlHeld || shiftHeld)
 
@@ -154,9 +167,14 @@ final class InputController: IMKInputController {
     }
 
     private func toggleViet() {
-        cfg.vietKey = !cfg.vietKey
+        setViet(!cfg.vietKey)
+    }
+
+    private func setViet(_ on: Bool) {
+        guard cfg.vietKey != on else { return }
+        cfg.vietKey = on
         try? cfg.save()
-        apply(session.setViet(cfg.vietKey))
+        apply(session.setViet(on))
     }
 
     // MARK: applying session actions to the client

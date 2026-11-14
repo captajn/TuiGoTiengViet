@@ -283,6 +283,31 @@ func foregroundAppAt(hwnd uintptr) (appSpec, string, uintptr) {
 	return spec, name, hwnd
 }
 
+// Terminal hosts where auto-capitalize must stay off: a command line is not a
+// sentence and shells are case-sensitive, so the first letter after a full stop
+// or Enter is usually an option, a path or a lowercase identifier. Keyed on the
+// lowercased exe basename that foregroundAppAt already computes.
+var terminalApps = map[string]bool{
+	"cmd.exe": true, "conhost.exe": true, "openconsole.exe": true,
+	"powershell.exe": true, "pwsh.exe": true, "windowsterminal.exe": true,
+	"wt.exe": true, "wsl.exe": true, "bash.exe": true, "mintty.exe": true,
+	"alacritty.exe": true, "wezterm-gui.exe": true, "kitty.exe": true,
+	"conemu.exe": true, "conemu64.exe": true, "hyper.exe": true,
+}
+
+// isTerminalApp reports whether exe hosts a shell prompt instead of prose. The
+// caller passes the already-lowercased basename (foregroundAppAt lowercases it).
+func isTerminalApp(exe string) bool {
+	return terminalApps[exe]
+}
+
+// autoCapEnabled reports whether auto-capitalization may run in exe. Both the
+// pending flag and its trigger go through here, so a word typed in a terminal
+// can never come back capitalized later in a document.
+func autoCapEnabled(exe string) bool {
+	return cfg.AutoCap && !isTerminalApp(exe)
+}
+
 // modsMatch reports whether the currently held modifiers equal bitmask m
 // (bit0 Ctrl, bit1 Shift, bit2 Alt, bit3 Win). Reads the hook-tracked state:
 // GetAsyncKeyState lags the LL event stream and also sees injected keys —

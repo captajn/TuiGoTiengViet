@@ -15,6 +15,7 @@ var (
 	kern32   = windows.NewLazySystemDLL("kernel32.dll")
 	wtsapi32 = windows.NewLazySystemDLL("wtsapi32.dll")
 	ole32dll = windows.NewLazySystemDLL("ole32.dll")
+	ntdll    = windows.NewLazySystemDLL("ntdll.dll")
 
 	pSetWindowsHookEx   = user32.NewProc("SetWindowsHookExW")
 	pCallNextHookEx     = user32.NewProc("CallNextHookEx")
@@ -110,9 +111,37 @@ var (
 	pUpdateLayeredWindow = user32.NewProc("UpdateLayeredWindow")
 
 	pWTSRegister = wtsapi32.NewProc("WTSRegisterSessionNotification")
+
+	pRtlGetVersion = ntdll.NewProc("RtlGetVersion")
 )
 
 var gDwmRoundCorners bool
+
+// osVersionInfo mirrors RTL_OSVERSIONINFOW; only the build number is used.
+type osVersionInfo struct {
+	size, major, minor, build, platform uint32
+	csd                                 [128]uint16
+}
+
+// gOSBuild is the real Windows build number: GetVersionEx lies without an app
+// manifest, RtlGetVersion does not.
+var gOSBuild = func() uint32 {
+	var vi osVersionInfo
+	vi.size = uint32(unsafe.Sizeof(vi))
+	if r, _, _ := pRtlGetVersion.Call(uintptr(unsafe.Pointer(&vi))); r != 0 {
+		return 0
+	}
+	return vi.build
+}()
+
+// roundedCornersSupported reports whether DWM corner rounding really applies.
+// Windows 10 ignores DWMWA_WINDOW_CORNER_PREFERENCE yet can still return S_OK;
+// trusting that paints rounded client corners inside a square frame — the
+// "rounded corners plus a blurry square corner" artifact reported on Win10.
+// Requiring build 22000 keeps the frame and our painting square there.
+func roundedCornersSupported(dwmHR uintptr, build uint32) bool {
+	return dwmHR == 0 && build >= 22000
+}
 
 // loadAppIcon returns the application mascot icon or falls back to exe icon.
 func loadAppIcon() uintptr {
@@ -172,7 +201,7 @@ func applyWindowChrome(hwnd uintptr) {
 
 	corner := int32(DWMWCP_ROUND)
 	hr, _, _ := pDwmSetWndAttr.Call(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, uintptr(unsafe.Pointer(&corner)), 4)
-	gDwmRoundCorners = (hr == 0)
+	gDwmRoundCorners = roundedCornersSupported(hr, gOSBuild)
 
 	backdrop := int32(DWMSBT_TRANSIENTWINDOW)
 	pDwmSetWndAttr.Call(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, uintptr(unsafe.Pointer(&backdrop)), 4)

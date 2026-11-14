@@ -158,3 +158,25 @@ func TestSavedIniRoundTripsUnsetColors(t *testing.T) {
 		t.Fatalf("reload turned unset colors into %+v", cfg)
 	}
 }
+
+// The advanced combo lists methods the four cards do not (Telex + VNI, MS-VI,
+// custom keymap), so every entry needs hover text: adding a method to imList
+// without a guide must fail here rather than ship a silent selector.
+func TestEveryInputMethodHasGuide(t *testing.T) {
+	old := cfg
+	defer func() { cfg = old }()
+	cfg.UILang = 0
+
+	seen := make(map[string]int, len(imList))
+	for _, im := range imList {
+		guide := imGuide(im)
+		if guide == "" {
+			t.Errorf("input method %d has no guide", im)
+			continue
+		}
+		if prev, dup := seen[guide]; dup {
+			t.Errorf("input methods %d and %d share the same guide", prev, im)
+		}
+		seen[guide] = im
+	}
+}

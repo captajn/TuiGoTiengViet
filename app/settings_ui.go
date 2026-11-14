@@ -1437,6 +1437,26 @@ func attachControlTooltip(parent, ctl uintptr, text string) {
 	pSendMessage.Call(gTooltipHwnd, 0x0432 /* TTM_ADDTOOLW */, 0, uintptr(unsafe.Pointer(&ti)))
 }
 
+// updateControlTooltip replaces the text of a tooltip already attached to ctl.
+// A combo that changes what it means (the input-method guide) keeps one tool
+// instead of stacking a new TTM_ADDTOOLW per selection change; registrations
+// are added on demand when the tool does not exist yet.
+func updateControlTooltip(parent, ctl uintptr, text string) {
+	if gTooltipHwnd == 0 || ctl == 0 || text == "" {
+		return
+	}
+	ti := toolInfoW{
+		cbSize:   uint32(unsafe.Sizeof(toolInfoW{})),
+		uFlags:   0x0001 | 0x0010, // TTF_IDISHWND | TTF_SUBCLASS
+		hwnd:     parent,
+		uId:      ctl,
+		lpszText: utf16ptr(text),
+	}
+	if ok, _, _ := pSendMessage.Call(gTooltipHwnd, 0x0439 /* TTM_UPDATETIPTEXTW */, 0, uintptr(unsafe.Pointer(&ti))); ok == 0 {
+		pSendMessage.Call(gTooltipHwnd, 0x0432 /* TTM_ADDTOOLW */, 0, uintptr(unsafe.Pointer(&ti)))
+	}
+}
+
 func getDpi(hwnd uintptr) int32 {
 	if r, _, _ := pGetDpiForWindow.Call(hwnd); r > 0 {
 		return int32(r)
@@ -1498,18 +1518,10 @@ func buildControls(h uintptr) {
 	addRadio(cRadioTelexSimple, "Simple Telex", "")
 	addRadio(cRadioVni, "VNI", "")
 	addRadio(cRadioViqr, "VIQR", "")
-	attachControlTooltip(h, ctlHnd[cRadioTelex], tr(
-		"Telex chuẩn (w gõ ư/ơ/ă):\r\n• Chữ: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw/w→ư, dd→đ\r\n• Dấu: s (sắc), f (huyền), r (hỏi), x (ngã), j (nặng), z (xóa dấu)",
-		"Standard Telex (w types ư/ơ/ă):\r\n• Letters: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw/w→ư, dd→đ\r\n• Tones: s (acute), f (grave), r (hook), x (tilde), j (dot), z (clear)"))
-	attachControlTooltip(h, ctlHnd[cRadioTelexSimple], tr(
-		"Simple Telex (gõ w giữ nguyên chữ w):\r\n• Chữ: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw→ư, dd→đ\r\n• Dấu: s (sắc), f (huyền), r (hỏi), x (ngã), j (nặng), z (xóa dấu)",
-		"Simple Telex (standalone w stays w):\r\n• Letters: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw→ư, dd→đ\r\n• Tones: s (acute), f (grave), r (hook), x (tilde), j (dot), z (clear)"))
-	attachControlTooltip(h, ctlHnd[cRadioVni], tr(
-		"Kiểu gõ VNI (dùng phím số):\r\n• Chữ: 6 (â, ê, ô), 7 (ơ, ư), 8 (ă), 9 (đ)\r\n• Dấu: 1 (sắc), 2 (huyền), 3 (hỏi), 4 (ngã), 5 (nặng), 0 (xóa dấu)",
-		"VNI input method (number keys):\r\n• Letters: 6 (â, ê, ô), 7 (ơ, ư), 8 (ă), 9 (đ)\r\n• Tones: 1 (acute), 2 (grave), 3 (hook), 4 (tilde), 5 (dot), 0 (clear)"))
-	attachControlTooltip(h, ctlHnd[cRadioViqr], tr(
-		"Kiểu gõ VIQR (dấu câu quy ước):\r\n• Chữ: ^ (â, ê, ô), + hoặc * (ơ, ư), ( (ă), dd (đ)\r\n• Dấu: ' (sắc), ` (huyền), ? (hỏi), ~ (ngã), . (nặng), - (xóa dấu)",
-		"VIQR input method (punctuation marks):\r\n• Letters: ^ (â, ê, ô), + or * (ơ, ư), ( (ă), dd (đ)\r\n• Tones: ' (acute), ` (grave), ? (hook), ~ (tilde), . (dot), - (clear)"))
+	attachControlTooltip(h, ctlHnd[cRadioTelex], imGuide(ImTelex))
+	attachControlTooltip(h, ctlHnd[cRadioTelexSimple], imGuide(ImTelexSimple))
+	attachControlTooltip(h, ctlHnd[cRadioVni], imGuide(ImVni))
+	attachControlTooltip(h, ctlHnd[cRadioViqr], imGuide(ImViqr))
 
 	// 6 Checkboxes for Tùy chọn chung (2 columns)
 	addCheckbox(cStartup, tr("Khởi động cùng hệ thống", "Launch at Windows startup"))
@@ -1528,6 +1540,7 @@ func buildControls(h uintptr) {
 	cb := mkCtl(h, ctlDef{cIMCombo, "COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, "", 0, 0, 10, 10})
 	comboAdd(cb, []string{"Telex", "Simple Telex", "VNI", "VIQR",
 		"Telex + VNI", "MS-VI", tr("Tự định nghĩa", "Custom keymap")}, 0)
+	attachControlTooltip(h, cb, imGuide(gIM))
 	if isDark() {
 		darkCtl(cb)
 	}
@@ -1963,6 +1976,42 @@ func imIdx(im int) int {
 	return 0
 }
 
+// imGuide is the single source of the "how do I type with this method" text:
+// the four method cards show it on hover and the advanced combo shows the guide
+// of the method currently selected, so no selector is left without one.
+func imGuide(im int) string {
+	switch im {
+	case ImTelex:
+		return tr(
+			"Telex chuẩn (w gõ ư/ơ/ă):\r\n• Chữ: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw/w→ư, dd→đ\r\n• Dấu: s (sắc), f (huyền), r (hỏi), x (ngã), j (nặng), z (xóa dấu)",
+			"Standard Telex (w types ư/ơ/ă):\r\n• Letters: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw/w→ư, dd→đ\r\n• Tones: s (acute), f (grave), r (hook), x (tilde), j (dot), z (clear)")
+	case ImTelexSimple:
+		return tr(
+			"Simple Telex (gõ w giữ nguyên chữ w):\r\n• Chữ: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw→ư, dd→đ\r\n• Dấu: s (sắc), f (huyền), r (hỏi), x (ngã), j (nặng), z (xóa dấu)",
+			"Simple Telex (standalone w stays w):\r\n• Letters: aa→â, aw→ă, ee→ê, oo→ô, ow→ơ, uw→ư, dd→đ\r\n• Tones: s (acute), f (grave), r (hook), x (tilde), j (dot), z (clear)")
+	case ImVni:
+		return tr(
+			"Kiểu gõ VNI (dùng phím số):\r\n• Chữ: 6 (â, ê, ô), 7 (ơ, ư), 8 (ă), 9 (đ)\r\n• Dấu: 1 (sắc), 2 (huyền), 3 (hỏi), 4 (ngã), 5 (nặng), 0 (xóa dấu)",
+			"VNI input method (number keys):\r\n• Letters: 6 (â, ê, ô), 7 (ơ, ư), 8 (ă), 9 (đ)\r\n• Tones: 1 (acute), 2 (grave), 3 (hook), 4 (tilde), 5 (dot), 0 (clear)")
+	case ImViqr:
+		return tr(
+			"Kiểu gõ VIQR (dấu câu quy ước):\r\n• Chữ: ^ (â, ê, ô), + hoặc * (ơ, ư), ( (ă), dd (đ)\r\n• Dấu: ' (sắc), ` (huyền), ? (hỏi), ~ (ngã), . (nặng), - (xóa dấu)",
+			"VIQR input method (punctuation marks):\r\n• Letters: ^ (â, ê, ô), + or * (ơ, ư), ( (ă), dd (đ)\r\n• Tones: ' (acute), ` (grave), ? (hook), ~ (tilde), . (dot), - (clear)")
+	case ImTelexVni:
+		return tr(
+			"Telex + VNI: nhận đồng thời phím chữ của Telex và phím số của VNI, tiện khi quen cả hai kiểu.",
+			"Telex + VNI: accepts Telex letter keys and VNI number keys at the same time.")
+	case ImMsVi:
+		return tr(
+			"MS-VI: kiểu gõ tiếng Việt mặc định của Microsoft (dùng cho người đã quen bộ gõ có sẵn trong Windows).",
+			"MS-VI: Microsoft's default Vietnamese layout, for users used to the built-in Windows input method.")
+	default: // ImUsrKeymap
+		return tr(
+			"Tự định nghĩa: dùng bảng gõ trong keymap.txt cạnh tuigo.exe (mỗi dòng một quy tắc, theo định dạng UniKey).",
+			"Custom keymap: uses keymap.txt beside tuigo.exe (one rule per line, UniKey format).")
+	}
+}
+
 // repaintRadioGroup refreshes the four "Chế độ gõ" cards. They are child
 // HWNDs — InvalidateRect on the parent never reaches them, so without this
 // the previously selected card kept its stale "selected" pixels next to the
@@ -1981,6 +2030,7 @@ func setIM(im int) {
 		pSendMessage.Call(ctlHnd[cIMCombo], CB_SETCURSEL, uintptr(imIdx(im)), 0)
 	}
 	if gSettingsHwnd != 0 {
+		updateControlTooltip(gSettingsHwnd, ctlHnd[cIMCombo], imGuide(im))
 		pInvalidateRect.Call(gSettingsHwnd, 0, 1)
 	}
 }
@@ -1990,6 +2040,7 @@ func syncControls() {
 		return
 	}
 	pSendMessage.Call(ctlHnd[cIMCombo], CB_SETCURSEL, uintptr(imIdx(gIM)), 0)
+	updateControlTooltip(gSettingsHwnd, ctlHnd[cIMCombo], imGuide(gIM))
 	pSendMessage.Call(ctlHnd[cCharset], CB_SETCURSEL, uintptr(cfg.Charset), 0)
 	for _, tid := range []int{
 		cThemeAuto, cThemeLight, cThemeDark,
