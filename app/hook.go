@@ -9,14 +9,10 @@ import (
 var (
 	gHook         uintptr
 	gMouseHook    uintptr
-	gSending      bool // reentrancy guard for our own SendInput
-	// gChordDirtyAt is when a non-chord key or a click last interrupted typing.
-	// A chord is only pure if nothing landed after its first modifier went down,
-	// which is a comparison against gModDownAt — a boolean latch could stay
-	// dirty forever after one interrupted chord and swallow every retry.
-	gChordDirtyAt time.Time
-	gChordPending bool // Ctrl+Shift is complete — toggle fires on release
-	gShiftFirst   bool // true if Shift went down before Ctrl in the current chord
+	gSending      bool      // reentrancy guard for our own SendInput
+	gChordDirtyAt time.Time // when a non-chord key/click last interrupted typing
+	gChordPending bool      // Ctrl+Shift is complete — toggle fires on release
+	gShiftFirst   bool      // true if Shift went down before Ctrl in the current chord
 	gCtrlHeld     bool
 	gShiftHeld    bool
 	gAltHeld      bool
