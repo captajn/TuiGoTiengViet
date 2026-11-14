@@ -34,6 +34,8 @@ struct SettingsView: View {
                 Toggle("Tự khôi phục từ không đúng tiếng Việt",
                        isOn: $cfg.autoNonVnRestore)
                 Toggle("Tự viết hoa sau dấu chấm câu", isOn: $cfg.autoCap)
+                Toggle("Bàn phím JIS: phím ¥ gõ ra \\", isOn: $cfg.jisYenBackslash)
+                Toggle("Không gạch chân chữ đang gõ", isOn: $cfg.preeditNoUnderline)
             }
 
             Section("Phím tắt chuyển Việt/Anh") {

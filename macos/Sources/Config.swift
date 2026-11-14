@@ -13,6 +13,8 @@ struct TuiGoConfig {
     var macroEnabled = true
     var autoNonVnRestore = false
     var autoCap = false
+    var jisYenBackslash = true     // JIS: the ¥ key types a backslash
+    var preeditNoUnderline = false // compose without the marked-text underline
     var toggles: [String] = ["ctrl+shift"]  // + "alt+z"
     var launchAtLogin = false      // LaunchAgent, not saved to ini
 
@@ -40,6 +42,8 @@ struct TuiGoConfig {
         c.macroEnabled = bit("MacroEnabled", c.macroEnabled)
         c.autoNonVnRestore = bit("AutoNonVnRestore", c.autoNonVnRestore)
         c.autoCap = bit("AutoCap", c.autoCap)
+        c.jisYenBackslash = bit("JisYenBackslash", c.jisYenBackslash)
+        c.preeditNoUnderline = bit("PreeditNoUnderline", c.preeditNoUnderline)
         if let v = m["ToggleKey"] {
             c.toggles = v.split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
@@ -72,6 +76,8 @@ struct TuiGoConfig {
         s += "MacroEnabled=\(b(macroEnabled))\n"
         s += "AutoNonVnRestore=\(b(autoNonVnRestore))\n"
         s += "AutoCap=\(b(autoCap))\n"
+        s += "JisYenBackslash=\(b(jisYenBackslash))\n"
+        s += "PreeditNoUnderline=\(b(preeditNoUnderline))\n"
         s += "ToggleKey=\(toggles.joined(separator: ","))\n"
         let tmp = Self.iniURL.appendingPathExtension("tmp")
         try s.write(to: tmp, atomically: true, encoding: .utf8)

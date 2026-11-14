@@ -11,11 +11,13 @@ final class InputController: IMKInputController {
     private var session: Session!
     private var cfg = TuiGoConfig.load()
 
-    // Ctrl+Shift clean-chord state (fires on release, like Windows)
+    // Ctrl+Shift clean-chord state (fires on release, like Windows). Purity is
+    // a timestamp of the last non-chord key rather than a latch: a latch that
+    // one interrupted chord left dirty kept swallowing the next Ctrl+Shift.
     private var ctrlHeld = false
     private var shiftHeld = false
     private var chordArmed = false
-    private var chordClean = false
+    private var chordDirtyAt = Date.distantPast
     private var noneHeldAt = Date.distantPast
     private var firstReleaseAt = Date.distantPast
 
@@ -100,9 +102,21 @@ final class InputController: IMKInputController {
             setViet(true)
             return true
         }
+        // JIS keyboards: the ¥ key sits where ANSI has the backslash, so code,
+        // paths and regexes need it to type "\" (turn off in Settings for a
+        // plain yen sign).
+        if event.keyCode == 93, event.characters == "¥" { // kVK_JIS_Yen
+            if cfg.jisYenBackslash {
+                session.eng.shiftPressed = mods.contains(.shift)
+                session.eng.capsLockOn = mods.contains(.capsLock)
+                return apply(session.feed(0x5C)) // '\'
+            }
+        }
 
         // any non-modifier key dirties a pending chord
-        chordClean = chordClean && !(ctrlHeld || shiftHeld)
+        if ctrlHeld || shiftHeld {
+            chordDirtyAt = Date()
+        }
 
         // Ctrl/Option/Command shortcuts bypass the engine, word invalidated.
         if mods.contains(.control) || mods.contains(.option) || mods.contains(.command) {
@@ -143,20 +157,20 @@ final class InputController: IMKInputController {
         let m = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let ctrl = m.contains(.control), shift = m.contains(.shift)
         if m.contains(.option) || m.contains(.command) {
-            chordClean = false
+            chordDirtyAt = Date()
             chordArmed = false
         }
         if !ctrlHeld && !shiftHeld {
             noneHeldAt = Date()
-            chordClean = true
         }
-        if ctrl && shift && !(ctrlHeld && shiftHeld) && chordClean
+        if ctrl && shift && !(ctrlHeld && shiftHeld)
+            && chordDirtyAt < noneHeldAt
             && Date().timeIntervalSince(noneHeldAt) < 0.8 {
             chordArmed = true
         }
         if chordArmed && !ctrl && !shift {
             chordArmed = false
-            if chordClean && Date().timeIntervalSince(firstReleaseAt) < 0.7 {
+            if chordDirtyAt < noneHeldAt && Date().timeIntervalSince(firstReleaseAt) < 0.7 {
                 toggleViet()
             }
         } else if chordArmed && !(ctrl && shift) {
@@ -191,9 +205,22 @@ final class InputController: IMKInputController {
         }
         if !a.preedit.isEmpty {
             let str = Self.u16(a.preedit)
-            client?.setMarkedText(str,
-                selectionRange: NSRange(location: str.utf16.count, length: 0),
-                replacementRange: notFound)
+            if cfg.preeditNoUnderline {
+                // Marked text is underlined by the client's text system; supply
+                // attributes without an underline for clients that honour them.
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .underlineStyle: 0,
+                    .underlineColor: NSColor.clear,
+                ]
+                let plain = NSAttributedString(string: str, attributes: attrs)
+                client?.setMarkedText(plain,
+                    selectionRange: NSRange(location: str.utf16.count, length: 0),
+                    replacementRange: notFound)
+            } else {
+                client?.setMarkedText(str,
+                    selectionRange: NSRange(location: str.utf16.count, length: 0),
+                    replacementRange: notFound)
+            }
         }
         return !a.forward
     }
